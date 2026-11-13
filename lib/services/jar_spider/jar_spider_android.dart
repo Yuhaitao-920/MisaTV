@@ -16,6 +16,7 @@ import '../movie_parser.dart';
 import '../play_result_parser.dart';
 import 'jar_spider.dart';
 import 'spider_env.dart';
+import '../../core/net/app_http.dart';
 
 /// 安卓版「jar / DEX 蜘蛛」服务：用 ART 的 `DexClassLoader` 直接加载蜘蛛 DEX，
 /// 通过 MethodChannel(`com.kniephos.kniephos/spider`) 调用 CatVod 蜘蛛接口。
@@ -40,7 +41,7 @@ class JarSpiderAndroidService extends JarSpiderService {
 
   /// 已加载到插件侧的蜘蛛（按 jar 指纹 + 类名 复用，避免重复加载）。
   final Map<String, _LoadedSpider> _loaded = {};
-  final Map<String, Future<String>> _downloading = {};
+  final Map<String, Future<File>> _downloading = {};
 
   // ---------------------------------------------------------------------------
   // jar 取件（精简版：下载并缓存，校验结构）

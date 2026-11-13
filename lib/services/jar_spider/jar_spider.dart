@@ -29,6 +29,7 @@ import '../play_result_parser.dart';
 import 'hyms_native.dart';
 import 'spider_env.dart';
 import 'spider_host.dart';
+export 'jar_spider_android.dart';
 
 /// 下载到的内容 md5 与订阅声明不一致（通常是 CDN 回了错误页），可重连重试。
 class _JarChecksumException implements Exception {
@@ -4094,7 +4095,3 @@ class _ProcResult {
   final String stderr;
   final bool timedOut;
 }
-
-/// 安卓原生 jar/DEX 蜘蛛实现（ART + DexClassLoader），以及按平台分发的工厂。
-/// 仅在原生平台导出（web 走 `jar_spider_web.dart`，本身不可导入 `dart:io`）。
-export 'jar_spider_android.dart';
