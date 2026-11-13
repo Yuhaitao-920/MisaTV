@@ -60,6 +60,19 @@ jobs:
       - name: Analyze (non-blocking, report only)
         run: flutter analyze --no-fatal-infos || true
 
+      - name: Patch flutter_inappwebview for AGP 9.1 compat
+        # AGP 9.1 移除了 proguard-android.txt，老插件 flutter_inappwebview_android
+        # 的 build.gradle 仍引用它导致构建失败。按官方建议改用 proguard-android-optimize.txt。
+        # 仅修改 pub-cache 内的临时副本，仓库源码零侵入。
+        run: |
+          f=$(find "$HOME/.pub-cache" -path '*flutter_inappwebview_android*/android/build.gradle' 2>/dev/null | head -1)
+          if [ -n "$f" ]; then
+            sed -i "s/getDefaultProguardFile('proguard-android.txt')/getDefaultProguardFile('proguard-android-optimize.txt')/g" "$f"
+            echo "patched: $f"
+          else
+            echo "flutter_inappwebview_android build.gradle not found, skip"
+          fi
+
       - name: Build release APK
         run: flutter build apk --release --target-platform android-arm64
 
