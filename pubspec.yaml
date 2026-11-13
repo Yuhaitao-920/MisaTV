@@ -4,7 +4,10 @@ publish_to: 'none'
 version: 1.0.0+11
 
 environment:
-  sdk: ^3.13.7
+  # 放宽到 3.13.0：Flutter 3.47.0 自带 Dart 3.13.0，与 3.13.7 仅差补丁版，
+  # 无语言特性差异；同时该版本搭配 AGP 9.1.0（proguard-android.txt 仍存在），
+  # 保证 flutter_inappwebview 等老插件可构建。
+  sdk: '>=3.13.0 <4.0.0'
 
 dependencies:
   flutter:
