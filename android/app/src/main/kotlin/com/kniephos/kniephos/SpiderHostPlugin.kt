@@ -318,7 +318,8 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun invokeProxy(params: Map<String, String>): Pair<Int, ByteArray> {
         val sp = spider ?: return 500 to "spider not loaded".toByteArray()
         val clazz = spiderClass ?: return 500 to "spider class missing".toByteArray()
-        return try {
+        // 显式标注类型，避免 try/catch 表达式被推断成公共超类型 Serializable。
+        val result: Pair<Int, ByteArray> = try {
             val ret = clazz.getMethod("proxy", Map::class.java).invoke(sp, params)
             val arr = ret as? Array<*> ?: return 500 to "bad proxy return".toByteArray()
             val status = (arr.getOrNull(0) as? Number)?.toInt() ?: 200
@@ -330,8 +331,9 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             status to bytes
         } catch (t: Throwable) {
-            500 to rootCause(t).message?.toByteArray() ?: byteArrayOf()
+            500 to (rootCause(t).message?.toByteArray() ?: byteArrayOf())
         }
+        return result
     }
 
     // ------------------------------------------------------------------
