@@ -4094,3 +4094,7 @@ class _ProcResult {
   final String stderr;
   final bool timedOut;
 }
+
+/// 安卓原生 jar/DEX 蜘蛛实现（ART + DexClassLoader），以及按平台分发的工厂。
+/// 仅在原生平台导出（web 走 `jar_spider_web.dart`，本身不可导入 `dart:io`）。
+export 'jar_spider_android.dart';

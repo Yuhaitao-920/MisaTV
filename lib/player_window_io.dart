@@ -80,7 +80,7 @@ Future<void> runStandalonePlayerWindow(String payloadPath) async {
     CmsSource(http),
     JsSpiderService(driveTokens: () => driveTokens, localSeed: () => driveSeed),
     PySpiderService(driveTokens: () => driveTokens),
-    JarSpiderService(
+    createJarSpiderService(
       driveTokens: () => driveTokens,
       driveSeed: () => driveSeed,
       http: http,

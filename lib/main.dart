@@ -106,7 +106,7 @@ Future<void> _bootstrap(List<String> args) async {
     cms,
     JsSpiderService(driveTokens: () => driveTokens, localSeed: () => driveSeed),
     PySpiderService(driveTokens: () => driveTokens),
-    JarSpiderService(
+    createJarSpiderService(
       driveTokens: () => driveTokens,
       driveSeed: () => driveSeed,
       http: http,
