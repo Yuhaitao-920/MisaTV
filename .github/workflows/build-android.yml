@@ -40,8 +40,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          # 拉取最新 stable（满足 pubspec 的 Dart ^3.13.7 / Flutter 3.47+）；
-          # 如需锁定版本可改为 flutter-version: '3.47.0'
+          # 锁定到仓库设计目标版本：pubspec 要求 Flutter 3.47+/Dart ^3.13.7，
+          # 且仓库自带 Gradle 9.3.1 + AGP 9.1.0 正是为该版本搭配；
+          # 最新 stable 的 AGP 已移除 proguard-android.txt 支持，会导致
+          # flutter_inappwebview 等老插件构建失败。
+          flutter-version: '3.47.0'
           channel: stable
           cache: true
 
