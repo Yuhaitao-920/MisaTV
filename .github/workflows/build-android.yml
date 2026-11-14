@@ -2,6 +2,11 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      shell_jars:
+        description: 'Restore optional assets/jvm/shell-real/*.jar from the SHELL_REAL_JARS_B64 secret (otherwise only jars committed to the repo are used)'
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths-ignore:
@@ -54,6 +59,34 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
 
+      # 可选资源：assets/jvm/shell-real/*.jar 是第三方加固壳解包产物，
+      # 版权归各自权利人，上游仓库不分发（.gitignore 也排除了它们）。
+      # 只有你自行合法持有并放入仓库 / Secret 时，这一步才会把它们并入 assets。
+      # pubspec.yaml 已声明 - assets/jvm/shell-real/，Flutter 会自动把目录内文件打进 APK。
+      # 注意：Android 端走 ART / DexClassLoader（SpiderHostPlugin.kt），运行时不读取
+      # 这些 jar；它们只服务于 Windows 桌面端的纯 Java 快路径。缺它们不影响 APK 功能。
+      - name: Stage optional shell-real jars
+        env:
+          SHELL_REAL_JARS_B64: ${{ secrets.SHELL_REAL_JARS_B64 }}
+        run: |
+          mkdir -p assets/jvm/shell-real
+          if [ "${{ inputs.shell_jars }}" = "true" ] && [ -n "$SHELL_REAL_JARS_B64" ]; then
+            printf '%s' "$SHELL_REAL_JARS_B64" | base64 -d > /tmp/shell-real.tar.gz
+            tar -xzf /tmp/shell-real.tar.gz -C assets/jvm/shell-real
+            rm -f /tmp/shell-real.tar.gz
+            echo "shell-real jars restored from SHELL_REAL_JARS_B64"
+          fi
+          shopt -s nullglob
+          jars=(assets/jvm/shell-real/*.jar)
+          echo "SHELL_JAR_COUNT=${#jars[@]}" >> "$GITHUB_ENV"
+          echo "--- staged assets/jvm/shell-real ---"
+          if [ ${#jars[@]} -eq 0 ]; then
+            echo "(none) - optional; Android build stays fully functional"
+            echo "::notice::No optional shell-real jars staged. Android uses ART/DexClassLoader and does not read these jars."
+          else
+            ls -lh "${jars[@]}"
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -76,10 +109,27 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --target-platform android-arm64
 
+      # 校验随包资源确实进了 APK，并生成清单方便核对。
+      - name: Verify bundled shell-real assets
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          ls -lh "$apk"
+          unzip -l "$apk" | grep 'assets/flutter_assets/assets/jvm/shell-real/' > /tmp/shell_entries.txt || true
+          jar_count=$(grep -c '\.jar$' /tmp/shell_entries.txt || true)
+          {
+            echo "APK: app-release.apk"
+            echo "shell-real jars staged: $SHELL_JAR_COUNT"
+            echo "shell-real jars bundled in APK: $jar_count"
+            cat /tmp/shell_entries.txt
+          } > build-manifest.txt
+          cat build-manifest.txt
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: misatv-android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build-manifest.txt
           if-no-files-found: error
           retention-days: 30
