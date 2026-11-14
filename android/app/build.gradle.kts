@@ -36,6 +36,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             // Flutter 3.47 的 release 构建会跑 R8。CatVod 宿主类只被外部 jar/壳 dex
             // 反射引用，不 keep 会被裁掉或混淆成短名，导致加固壳 ClassNotFoundException。
+            isMinifyEnabled = true
+            // 资源裁剪：移除未被引用的 Android 资源（主要是启动图标等少量资源），
+            // 在不砍 ABI 的前提下略微减小 APK。CatVod/Flutter 资源不受影响。
+            isShrinkResources = true
             proguardFiles("proguard-rules.pro")
         }
     }

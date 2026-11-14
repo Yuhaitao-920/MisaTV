@@ -2220,9 +2220,9 @@ class _PlayerPageState extends State<PlayerPage>
       top: 0,
       child: Container(
         padding: EdgeInsets.fromLTRB(
-          8,
-          MediaQuery.paddingOf(context).top + 8,
-          12,
+          14,
+          MediaQuery.paddingOf(context).top + 10,
+          14,
           24,
         ),
         decoration: const BoxDecoration(

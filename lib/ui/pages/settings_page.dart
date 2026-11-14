@@ -3782,7 +3782,7 @@ class _ActionRow extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       enabled: onTap != null,
       leading: Icon(icon, size: 20),
-      title: Text(title, style: theme.textTheme.bodyMedium),
+      title: Text(title, style: theme.textTheme.bodyLarge),
       subtitle: Text(subtitle, style: theme.textTheme.labelSmall),
       trailing: const Icon(Icons.chevron_right_rounded, size: 20),
       onTap: onTap,
