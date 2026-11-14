@@ -1,6 +1,8 @@
 package com.kniephos.kniephos
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -9,6 +11,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.net.ServerSocket
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 /**
@@ -27,7 +30,7 @@ import java.util.concurrent.Executors
  *
  * 本插件通过 MethodChannel(com.kniephos.kniephos/spider) 与 Dart 侧通信：
  *   loadSpider(paths, className, ext, cacheDir) -> {ok, proxyPort, error}
- *   invoke(method, args[])                        -> {ok, data, error}
+ *   invoke(method, args[], className)             -> {ok, data, error}
  *   unload()                                     -> {ok}
  *   loadNative(path)                             -> {ok, error}   （unidbg 替代：原生 .so）
  *
@@ -45,10 +48,13 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private var appContext: Context? = null
 
-    // 当前已加载的蜘蛛实例与它的类加载器
-    private var spider: Any? = null
-    private var spiderClassLoader: ClassLoader? = null
-    private var spiderClass: Class<*>? = null
+    /** 按 className 保存已初始化的蜘蛛实例：一个订阅会同时用到几十个源，不能用单例互相覆盖。 */
+    private data class SpiderHolder(val instance: Any, val clazz: Class<*>)
+
+    /** 同一份 jar 只建一个 DexClassLoader，避免为每个源重复解包加固壳。 */
+    private val loaders = ConcurrentHashMap<String, dalvik.system.DexClassLoader>()
+    private val spiders = ConcurrentHashMap<String, SpiderHolder>()
+    @Volatile private var lastClassName: String? = null
 
     // 壳自带的「宿主代理」本地端口（playerContent 返回的 127.0.0.1 地址要改写到这个端口）
     @Volatile private var proxyPort = 0
@@ -58,6 +64,11 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // com.github.catvod.Proxy 监听；这里用原生 ServerSocket 等价实现）。
     private var proxyServer: ServerSocket? = null
     private val proxyExecutor = Executors.newCachedThreadPool()
+
+    // 加载/调用蜘蛛会做文件 IO、网络请求、加固壳原生解包（可达数十秒），必须离开主线程，
+    // 否则 NetworkOnMainThreadException / ANR。MethodChannel 的 reply 仍回主线程。
+    private val workExecutor = Executors.newCachedThreadPool()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         const val CHANNEL = "com.kniephos.kniephos/spider"
@@ -83,12 +94,13 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     val className = call.argument<String>("className") ?: ""
                     val ext = call.argument<String>("ext") ?: ""
                     val cacheDir = call.argument<String>("cacheDir") ?: appContext?.cacheDir?.absolutePath ?: ""
-                    result.success(loadSpider(paths, className, ext, cacheDir))
+                    runAsync(result) { loadSpider(paths, className, ext, cacheDir) }
                 }
                 "invoke" -> {
                     val method = call.argument<String>("method") ?: ""
                     val args = (call.argument<List<*>>("args") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-                    result.success(invoke(method, args))
+                    val className = call.argument<String>("className") ?: ""
+                    runAsync(result) { invoke(method, args, className) }
                 }
                 "loadNative" -> {
                     val path = call.argument<String>("path") ?: ""
@@ -109,26 +121,57 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
+    /** 把耗时调用挪到后台线程，reply 仍需回到主线程。 */
+    private fun runAsync(result: MethodChannel.Result, block: () -> Map<String, Any?>) {
+        workExecutor.execute {
+            val reply: Map<String, Any?> = try {
+                block()
+            } catch (t: Throwable) {
+                mapOf("ok" to false, "error" to "plugin: ${t.javaClass.name}: ${t.message}")
+            }
+            mainHandler.post { result.success(reply) }
+        }
+    }
+
     // ------------------------------------------------------------------
     // 加载并初始化蜘蛛
     // ------------------------------------------------------------------
-    private fun loadSpider(paths: List<String>, className: String, ext: String, cacheDir: String): Map<String, Any> {
+    @Synchronized   // 加固壳首次解包很贵，串行加载避免多个源同时触发重复解包
+    private fun loadSpider(paths: List<String>, className: String, ext: String, cacheDir: String): Map<String, Any?> {
         return try {
             if (paths.isEmpty()) throw IllegalArgumentException("paths 为空")
+            if (className.isEmpty()) throw IllegalArgumentException("className 为空")
+
+            // Android 14 (API 34) 起对动态代码加载加了只读要求：交给 DexClassLoader 的
+            // dex / jar / apk 在打开前必须是不可写文件，否则 ART 直接抛
+            // `SecurityException: Writable dex file '...' is not allowed.`。
+            // 这些文件由 Dart 侧下载到 files/jvm_cache/jars（默认可写），所以在这里统一收紧。
+            val dexPath = paths.joinToString(File.pathSeparator) { path ->
+                val f = File(path)
+                if (!f.exists()) throw IllegalArgumentException("蜘蛛文件不存在：$path")
+                if (!makeReadOnly(f)) {
+                    throw SecurityException("无法把蜘蛛文件设为只读（Android 14+ 要求）：$path")
+                }
+                f.absolutePath
+            }
+
             val optimizedDir = File(appContext?.codeCacheDir ?: appContext!!.cacheDir, "spider_dex").apply { mkdirs() }
-            val parent = spiderClassLoader ?: this.javaClass.classLoader
-            val loader = dalvik.system.DexClassLoader(
-                paths.joinToString(File.pathSeparator),
-                optimizedDir.absolutePath,
-                null,
-                parent
-            )
-            spiderClassLoader = loader
+            val loader = loaders.getOrPut(dexPath) {
+                dalvik.system.DexClassLoader(
+                    dexPath,
+                    optimizedDir.absolutePath,
+                    null,
+                    this.javaClass.classLoader
+                )
+            }
+
+            if (spiders.containsKey(className)) {
+                lastClassName = className
+                return mapOf("ok" to true, "proxyPort" to proxyPort)
+            }
 
             val clazz = Class.forName(className, true, loader)
-            spiderClass = clazz
             val instance = clazz.getDeclaredConstructor().newInstance()
-            spider = instance
 
             // init(Context, ext)
             try {
@@ -145,21 +188,27 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 clazz.getMethod("initApi", apiCls).invoke(instance, api)
             } catch (_: Throwable) { /* 多数蜘蛛没有 initApi */ }
 
+            spiders[className] = SpiderHolder(instance, clazz)
+            lastClassName = className
+
             // 启动进程内宿主代理（加固壳 / 哔哩聚合源会用 127.0.0.1 回放地址）
             startProxy()
 
             mapOf("ok" to true, "proxyPort" to proxyPort)
         } catch (t: Throwable) {
-            mapOf("ok" to false, "error" to "${t.javaClass.name}: ${t.message}")
+            val c = rootCause(t)
+            mapOf("ok" to false, "error" to "${c.javaClass.name}: ${c.message}")
         }
     }
 
     // ------------------------------------------------------------------
     // 反射调用蜘蛛方法（对齐 SpiderHost.java dispatchMethod）
     // ------------------------------------------------------------------
-    private fun invoke(method: String, args: List<String>): Map<String, Any?> {
-        val sp = spider ?: return errMap("蜘蛛尚未加载")
-        val clazz = spiderClass ?: return errMap("蜘蛛类缺失")
+    private fun invoke(method: String, args: List<String>, className: String = ""): Map<String, Any?> {
+        val name = className.ifEmpty { lastClassName ?: "" }
+        val holder = spiders[name] ?: return errMap("蜘蛛尚未加载：$name")
+        val sp = holder.instance
+        val clazz = holder.clazz
         return try {
             val data = when (method) {
                 "homeContent" -> clazz.getMethod("homeContent", Boolean::class.javaPrimitiveType)
@@ -235,7 +284,11 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             if (path.isEmpty()) throw IllegalArgumentException("path 为空")
             // 安卓原生的「unidbg 替代」：直接在本机 ART/ARM 上加载壳的 .so，
             // 让它的 JNI 解密逻辑真实跑起来（桌面用 unidbg 模拟，安卓不需要）。
-            System.load(File(path).absolutePath)
+            // W^X：被 dlopen 的库同样不能可写，否则新版 Android 会拒绝加载。
+            val lib = File(path)
+            if (!lib.exists()) throw IllegalArgumentException("原生库不存在：$path")
+            makeReadOnly(lib)
+            System.load(lib.absolutePath)
             mapOf("ok" to true)
         } catch (t: Throwable) {
             mapOf("ok" to false, "error" to "${t.javaClass.name}: ${t.message}")
@@ -249,9 +302,9 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun unloadInternal() {
-        spider = null
-        spiderClass = null
-        spiderClassLoader = null
+        spiders.clear()
+        loaders.clear()
+        lastClassName = null
     }
 
     // ------------------------------------------------------------------
@@ -316,8 +369,10 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     /** 调用蜘蛛的 proxy(Map)，把 Object[]{status, contentType, InputStream} 转成 HTTP 响应。 */
     private fun invokeProxy(params: Map<String, String>): Pair<Int, ByteArray> {
-        val sp = spider ?: return 500 to "spider not loaded".toByteArray()
-        val clazz = spiderClass ?: return 500 to "spider class missing".toByteArray()
+        val holder = lastClassName?.let { spiders[it] }
+            ?: return 500 to "spider not loaded".toByteArray()
+        val sp = holder.instance
+        val clazz = holder.clazz
         // 显式标注类型，避免 try/catch 表达式被推断成公共超类型 Serializable。
         val result: Pair<Int, ByteArray> = try {
             val ret = clazz.getMethod("proxy", Map::class.java).invoke(sp, params)
@@ -339,6 +394,23 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // ------------------------------------------------------------------
     // 工具
     // ------------------------------------------------------------------
+
+    /**
+     * Android 14 (API 34) 起，DexClassLoader / System.load 打开的文件必须不可写
+     * （"更安全的动态代码加载"）。Dart 侧下载的 jar 默认是可写的，这里在加载前收紧权限。
+     * File.setReadOnly() 内部就是 chmod；个别 ROM 上不生效时用 /system/bin/chmod 兜底。
+     */
+    private fun makeReadOnly(file: File): Boolean {
+        if (!file.exists()) return false
+        if (file.canWrite()) file.setReadOnly()
+        if (file.canWrite()) {
+            try {
+                Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "444", file.absolutePath)).waitFor()
+            } catch (_: Throwable) { /* 部分 ROM 无该可执行文件 */ }
+        }
+        return !file.canWrite()
+    }
+
     private fun errMap(msg: String): Map<String, Any> = mapOf("ok" to false, "error" to msg)
 
     private fun decode(s: String): String = try { java.net.URLDecoder.decode(s, "UTF-8") } catch (_: Throwable) { s }

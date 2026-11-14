@@ -211,7 +211,12 @@ class JarSpiderAndroidService extends JarSpiderService {
     final loaded = await _ensureLoaded(site);
     final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'invoke',
-      {'method': method, 'args': args},
+      {
+        'method': method,
+        'args': args,
+        // 插件侧按类名保存多个蜘蛛实例，避免同时加载多个源时互相覆盖。
+        'className': _className(site),
+      },
     );
     final ok = reply?['ok'] == true;
     if (!ok) {
