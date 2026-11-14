@@ -933,6 +933,17 @@ class SettingsPageState extends State<SettingsPage> {
                           contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
+                          value: app.playerSettings.useFfmpeg,
+                          onChanged: (v) => app.setPlayerSettings(
+                            app.playerSettings.copyWith(useFfmpeg: v),
+                          ),
+                          title: const Text('FFmpeg 解码内核'),
+                          subtitle: const Text(
+                            '安卓端用 FFmpeg/libmdk 解码，支持更多格式；关闭回落系统 ExoPlayer（需重启生效）',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        SwitchListTile.adaptive(
                           value: app.playerSettings.m3u8Purify,
                           onChanged: (v) => app.setPlayerSettings(
                             app.playerSettings.copyWith(m3u8Purify: v),
