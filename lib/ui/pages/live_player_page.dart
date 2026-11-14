@@ -76,6 +76,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _fsToggling = false;
   bool _mini = false;
 
+  /// 是否因「自动横屏」改过系统方向/系统栏；离开时据此恢复。
+  bool _landscapeUiApplied = false;
+
   /// 沉浸观影下窗口本来就全屏，离开直播播放器时不要退掉外层全屏。
   bool _immersiveMode = false;
   bool _alwaysOnTop = false;
@@ -131,6 +134,20 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _opened = true;
     final app = AppScope.of(context);
     _immersiveMode = app.playerSettings.immersiveMode;
+    // 移动端播放时自动横屏：进入直播播放器即请求横屏并隐藏系统栏（沉浸模式），
+    // 避免白色状态栏/导航条盖住播放器按键；退出时（dispose）恢复。
+    if (_isMobile && app.playerSettings.autoLandscape) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]),
+      );
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+      );
+      _landscapeUiApplied = true;
+    }
     BossKeyService.instance.bindPlayer(
       this,
       pause: _pauseForBossKey,
@@ -783,6 +800,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (_mini) unawaited(exitMiniPlayerWindow());
     // 置顶只在本次播放会话内有效：离开直播播放器时无论如何都复位。
     unawaited(setAppWindowAlwaysOnTop(false));
+    // 移动端：若因「自动横屏」改过方向与系统栏，离开时恢复默认方向与 edgeToEdge。
+    if (_landscapeUiApplied && _isMobile) {
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    }
+    if (_isMobile) {
+      unawaited(SystemChrome.setPreferredOrientations(<DeviceOrientation>[]));
+    }
     if (_fullscreen &&
         !_immersiveMode &&
         (kIsWeb ||
