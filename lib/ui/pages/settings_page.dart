@@ -933,17 +933,6 @@ class SettingsPageState extends State<SettingsPage> {
                           contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
-                          value: app.playerSettings.useFfmpeg,
-                          onChanged: (v) => app.setPlayerSettings(
-                            app.playerSettings.copyWith(useFfmpeg: v),
-                          ),
-                          title: const Text('FFmpeg 解码内核'),
-                          subtitle: const Text(
-                            '安卓端用 FFmpeg/libmdk 解码，支持更多格式；关闭回落系统 ExoPlayer（需重启生效）',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        SwitchListTile.adaptive(
                           value: app.playerSettings.m3u8Purify,
                           onChanged: (v) => app.setPlayerSettings(
                             app.playerSettings.copyWith(m3u8Purify: v),
@@ -951,6 +940,51 @@ class SettingsPageState extends State<SettingsPage> {
                           title: const Text('m3u8 去广告'),
                           subtitle: const Text('点播清单播放前清洗广告分段（启发式，默认关）'),
                           contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _Section(
+                    title: '解码内核',
+                    icon: Icons.memory_rounded,
+                    collapsible: true,
+                    initiallyExpanded: false,
+                    trailing: Text(
+                      app.playerSettings.useFfmpeg ? 'FFmpeg/libmdk' : '系统 ExoPlayer',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                    summary: Text(
+                      app.playerSettings.useFfmpeg
+                          ? '已启用 FFmpeg/libmdk 解码，兼容更多编码'
+                          : '使用系统 ExoPlayer；如部分源放不动可开启',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile.adaptive(
+                          value: app.playerSettings.useFfmpeg,
+                          onChanged: (v) => app.setPlayerSettings(
+                            app.playerSettings.copyWith(useFfmpeg: v),
+                          ),
+                          title: const Text('FFmpeg 解码内核'),
+                          subtitle: const Text(
+                            '安卓端用 FFmpeg/libmdk 解码，兼容更多编码与封装；'
+                            '关闭回落系统 ExoPlayer。开启后重开播放器即生效，'
+                            '彻底关闭建议重启 App',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '提示：若某源用系统播放器放不动，可开启本项；'
+                          '若开启后画面异常或闪退，关掉即回落系统播放器。',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          ),
                         ),
                       ],
                     ),
