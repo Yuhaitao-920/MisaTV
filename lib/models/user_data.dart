@@ -379,12 +379,16 @@ class PlayerSettings {
     this.tmdbApiKey = '',
     this.tmdbReadToken = '',
     this.bossKey = kDefaultBossKey,
+    this.autoLandscape = true,
   });
   final double speed;
   final bool autoPlayNext;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
+
+  /// 移动端播放时自动横屏；离开播放器恢复系统默认方向（仅移动端生效）。
+  final bool autoLandscape;
 
   /// 磁力下载/缓存目录；空串 = 应用数据目录下的 `bt`。
   final String magnetDownloadDir;
@@ -432,6 +436,7 @@ class PlayerSettings {
     double? speed,
     bool? autoPlayNext,
     bool? autoSwitchLine,
+    bool? autoLandscape,
     String? magnetDownloadDir,
     bool? rememberProgress,
     List<String>? overlayMetrics,
@@ -459,6 +464,7 @@ class PlayerSettings {
     speed: speed ?? this.speed,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
+    autoLandscape: autoLandscape ?? this.autoLandscape,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
     rememberProgress: rememberProgress ?? this.rememberProgress,
     overlayMetrics: overlayMetrics ?? this.overlayMetrics,
@@ -526,6 +532,7 @@ class PlayerSettings {
     'speed': speed,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
+    'autoLandscape': autoLandscape,
     'magnetDownloadDir': magnetDownloadDir,
     'rememberProgress': rememberProgress,
     'overlayMetrics': overlayMetrics,
@@ -555,6 +562,7 @@ class PlayerSettings {
     speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
+    autoLandscape: (j['autoLandscape'] as bool?) ?? true,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),
     rememberProgress: (j['rememberProgress'] as bool?) ?? true,
     overlayMetrics:
