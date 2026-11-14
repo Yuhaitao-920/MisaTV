@@ -3904,67 +3904,107 @@ class _DriveAccountRow extends StatelessWidget {
               : (_webLogin
                     ? '在官方网页中扫码登录，登录后蜘蛛源可读取网盘内的资源'
                     : '粘贴浏览器 Cookie 后，蜘蛛源才能读取该网盘内的资源'));
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(_icon, size: 20),
-      title: Row(
-        children: [
-          Text(name, style: theme.textTheme.bodyMedium),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: signedIn
-                  ? theme.colorScheme.primary.withValues(alpha: 0.12)
-                  : theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.6,
-                    ),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              statusLabel,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: signedIn
-                    ? theme.colorScheme.primary
-                    : (guest && !optional
-                          ? theme.colorScheme.error
-                          : theme.disabledColor),
-              ),
-            ),
-          ),
-        ],
+    final chipColor = signedIn
+        ? theme.colorScheme.primary
+        : (guest && !optional ? theme.colorScheme.error : theme.disabledColor);
+    final chipBg = signedIn
+        ? theme.colorScheme.primary.withValues(alpha: 0.12)
+        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
+
+    Widget _actionButton({
+      required VoidCallback onPressed,
+      required String label,
+      bool filled = false,
+    }) {
+      final child = Text(label);
+      return filled
+          ? FilledButton.tonal(onPressed: onPressed, child: child)
+          : TextButton(onPressed: onPressed, child: child);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
       ),
-      subtitle: Text(subtitleText, style: theme.textTheme.labelSmall),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (provider == 'uc')
-            TextButton(
-              onPressed: () => _ucTvLogin(context),
-              child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
-            ),
-          if (_webLogin)
-            TextButton(
-              onPressed: () => _manualCookie(context),
-              child: const Text('手动 Cookie'),
-            ),
-          if (guest && !optional)
-            FilledButton.tonal(
-              onPressed: () => _login(context),
-              child: const Text('重新登录'),
-            )
-          else if (hasCookie)
-            TextButton(
-              onPressed: () => _logout(context),
-              child: const Text('退出'),
-            )
-          else
-            FilledButton.tonal(
-              onPressed: () => _login(context),
-              child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(_icon, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: chipBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: chipColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitleText,
+            style: theme.textTheme.labelSmall?.copyWith(height: 1.45),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              if (provider == 'uc')
+                _actionButton(
+                  onPressed: () => _ucTvLogin(context),
+                  label: tvBound ? 'TV 已授权' : 'TV 扫码',
+                ),
+              if (_webLogin)
+                _actionButton(
+                  onPressed: () => _manualCookie(context),
+                  label: '手动 Cookie',
+                ),
+              if (guest && !optional)
+                _actionButton(
+                  onPressed: () => _login(context),
+                  label: '重新登录',
+                  filled: true,
+                )
+              else if (hasCookie)
+                _actionButton(
+                  onPressed: () => _logout(context),
+                  label: '退出',
+                )
+              else
+                _actionButton(
+                  onPressed: () => _login(context),
+                  label: _webLogin ? '网页扫码登录' : '粘贴 Cookie',
+                  filled: true,
+                ),
+            ],
+          ),
         ],
       ),
     );
