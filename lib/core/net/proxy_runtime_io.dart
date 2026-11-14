@@ -28,6 +28,7 @@ class ProxyRuntime {
   /// 真正在用的上游（手动配置，或从系统代理解析出来的那份）。
   ProxyConfig? _effective;
   Timer? _followRetry;
+  String _lastStatusLog = '';
   static const _followRetryInterval = Duration(seconds: 20);
 
   bool get enabled => _bridge != null;
@@ -109,6 +110,11 @@ class ProxyRuntime {
       _followRetry = null;
     }
     final upstreamLabel = resolved == null ? '无' : resolved.summary;
+    // 跟随系统代理时每 20 秒会空跑一次 _restart：状态没变就别刷日志，
+    // 否则安卓上「无可用系统代理」会把日志文件塞满。
+    final line = '$summary|$upstreamLabel|$bridgePort';
+    if (line == _lastStatusLog) return;
+    _lastStatusLog = line;
     AppLog.i('proxy', '代理状态：$summary（上游=$upstreamLabel，桥端口=$bridgePort）');
   }
 
@@ -117,8 +123,9 @@ class ProxyRuntime {
     if (!config.followSystem) return null;
     final fromEnv = SystemProxy.fromEnvironment(Platform.environment);
     if (fromEnv != null) return fromEnv;
-    AppLog.i('proxy', '环境变量里没有代理，继续读 Windows 系统代理');
+    // 安卓 / macOS 没有 Windows 注册表代理：别每轮轮询都打一条误导性的日志。
     if (!Platform.isWindows) return null;
+    AppLog.i('proxy', '环境变量里没有代理，继续读 Windows 系统代理');
     try {
       const key =
           r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';

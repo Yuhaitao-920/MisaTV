@@ -16,6 +16,7 @@ import '../movie_parser.dart';
 import '../play_result_parser.dart';
 import 'jar_spider.dart';
 import 'spider_env.dart';
+import '../../core/logging/app_log.dart';
 import '../../core/net/app_http.dart';
 
 /// 安卓版「jar / DEX 蜘蛛」服务：用 ART 的 `DexClassLoader` 直接加载蜘蛛 DEX，
@@ -42,6 +43,10 @@ class JarSpiderAndroidService extends JarSpiderService {
   /// 已加载到插件侧的蜘蛛（按 jar 指纹 + 类名 复用，避免重复加载）。
   final Map<String, _LoadedSpider> _loaded = {};
   final Map<String, Future<File>> _downloading = {};
+
+  /// 上次同步给安卓宿主的网盘凭据签名。加固壳在 init() 时把 Cookie 读进内存，
+  /// 登录 / 刷新后必须重新实例化，否则 playerContent 仍回「还没有配置夸克 Cookie」。
+  String _credentialStamp = '';
 
   // ---------------------------------------------------------------------------
   // jar 取件（精简版：下载并缓存，校验结构）
@@ -147,25 +152,101 @@ class JarSpiderAndroidService extends JarSpiderService {
   // 加载到 ART（DexClassLoader）
   // ---------------------------------------------------------------------------
 
-  Future<_LoadedSpider> _ensureLoaded(SourceBean site) async {
-    final raw = await _acquireJar(site);
-    final className = _className(site);
-    final cacheKey = '${p.basenameWithoutExtension(raw.path)}|$className';
-    final existing = _loaded[cacheKey];
-    if (existing != null) return existing;
+  Future<String> _spiderCacheDir() async {
+    final support = await getApplicationSupportDirectory();
+    return p.join(support.path, 'jvm_cache', 'spider');
+  }
 
-    // 同步网盘凭据（让 jar 系蜘蛛读到 cookie 文件）
+  /// 凭据签名：Cookie 或种子预置变了就得重新 init 壳（它只在启动时读一次）。
+  String _currentStamp() {
+    final buf = StringBuffer();
+    final tokens = driveTokens?.call() ?? const <String, String>{};
+    final keys = tokens.keys.toList()..sort();
+    for (final key in keys) {
+      buf.write('$key=${(tokens[key] ?? '').trim()};');
+    }
+    final seed = driveSeed?.call() ?? const <String, String>{};
+    final seedKeys = seed.keys.toList()..sort();
+    for (final key in seedKeys) {
+      buf.write('seed:$key=${(seed[key] ?? '').trim()};');
+    }
+    return crypto.md5.convert(utf8.encode(buf.toString())).toString();
+  }
+
+  /// 双通道写凭据：Dart 侧落盘（桌面 JVM 口径的文件），Java 侧再按安卓口径
+  /// 写 SharedPreferences / getFilesDir()/getDir("TV") —— 真实壳用
+  /// `Init.context().getSharedPreferences()` 和 `getFilesDir()` 读登录态。
+  Future<void> _syncCreds(SourceBean site) async {
+    final support = await getApplicationSupportDirectory();
+    final spiderDir = p.join(support.path, 'jvm_cache', 'spider');
+    final cookies = Map<String, String>.from(
+      driveTokens?.call() ?? const <String, String>{},
+    );
+    final seed = Map<String, String>.from(
+      driveSeed?.call() ?? const <String, String>{},
+    );
     try {
-      final support = await getApplicationSupportDirectory();
       await SpiderEnv.sync(
-        spiderCacheDir: p.join(support.path, 'jvm_cache', 'spider'),
-        cookies: driveTokens?.call() ?? const {},
+        spiderCacheDir: spiderDir,
+        cookies: cookies,
+        seed: seed,
         dataDir: support.path,
         ext: site.ext,
       );
     } catch (_) {
-      // 凭据同步失败不阻断蜘蛛调用
+      // 单个通道失败不阻断其它通道
     }
+    try {
+      await _channel.invokeMethod<dynamic>('syncDrive', {
+        'cookies': cookies,
+        'seed': seed,
+        'cacheDir': spiderDir,
+      });
+    } catch (_) {
+      // 老版本宿主没有 syncDrive 时仍可用文件通道
+    }
+  }
+
+  /// 只重建蜘蛛实例，保留宿主侧已解包的 ClassLoader / native 库 / 代理端口。
+  Future<void> _resetSpiders() async {
+    _loaded.clear();
+    try {
+      await _channel.invokeMethod<dynamic>('resetSpiders');
+    } catch (_) {}
+  }
+
+  /// 网盘凭据变更（登录 / 刷新 / 判定访客）后让安卓蜘蛛重新 init。
+  /// 基类只回收桌面 JVM 进程，对 DexClassLoader 里的常驻实例无效。
+  @override
+  Future<void> resetDriveState() async {
+    _credentialStamp = '';
+    await _resetSpiders();
+    AppLog.i('jar', '网盘凭据变更：释放安卓蜘蛛实例，下次调用重新初始化');
+  }
+
+  @override
+  Future<void> resetForNetworkChange() async {
+    await resetDriveState();
+  }
+
+  Future<_LoadedSpider> _ensureLoaded(SourceBean site) async {
+    final raw = await _acquireJar(site);
+    final className = _className(site);
+    final cacheKey = '${p.basenameWithoutExtension(raw.path)}|$className';
+    final spiderDir = await _spiderCacheDir();
+
+    final stamp = _currentStamp();
+    if (stamp != _credentialStamp) {
+      _credentialStamp = stamp;
+      await _syncCreds(site);
+      if (_loaded.isNotEmpty) {
+        AppLog.i('jar', '网盘凭据已变化，重新初始化已加载的安卓蜘蛛');
+        await _resetSpiders();
+      }
+    }
+
+    final existing = _loaded[cacheKey];
+    if (existing != null) return existing;
 
     final hasDex = await _jarHasDex(raw);
     if (!hasDex) {
@@ -175,14 +256,13 @@ class JarSpiderAndroidService extends JarSpiderService {
     }
 
     final ext = enrichSpiderExt(site.ext, driveTokens?.call() ?? const {});
-    final support = await getApplicationSupportDirectory();
     final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'loadSpider',
       {
         'paths': [raw.path],
         'className': className,
         'ext': ext,
-        'cacheDir': p.join(support.path, 'jvm_cache', 'spider'),
+        'cacheDir': spiderDir,
       },
     );
     final ok = reply?['ok'] == true;
@@ -245,7 +325,7 @@ class JarSpiderAndroidService extends JarSpiderService {
 
   @override
   Future<CmsResult> home(SourceBean site) async {
-    final text = await _invoke(site, 'homeContent', const []);
+    final text = await _homeText(site);
     final body = MovieParser.parseJson(text);
     var items = MovieParser.toItems(body.movie, site.key);
     final classes = body.classes;
@@ -326,7 +406,9 @@ class JarSpiderAndroidService extends JarSpiderService {
     List<String> vipFlags = const [],
     bool retryAuth = true,
   }) async {
-    final loaded = await _ensureLoaded(site);
+    var loaded = await _ensureLoaded(site);
+    // 部分壳在 playerContent 时才去读 Cookie 文件，调用前再写一次。
+    await _syncCreds(site);
     final text = await _invoke(site, 'playerContent', [
       flag,
       id,
@@ -334,6 +416,28 @@ class JarSpiderAndroidService extends JarSpiderService {
     ]);
     if (text.trim().isEmpty) return null;
     var result = normalizeSpiderPlay(text, flag);
+
+    // 已登录却仍回「还没有配置夸克 Cookie」：壳持有的是登录前 init 的空值。
+    // 刷新会话 + 重新实例化蜘蛛后只重试一次（分享失效时也不至于卡死）。
+    if (retryAuth && _needsDriveLogin(result)) {
+      final provider = _driveProvider(flag);
+      if (provider != null) {
+        await refreshDriveSession?.call(provider);
+        await resetDriveState();
+        loaded = await _ensureLoaded(site);
+        await _syncCreds(site);
+        final retried = await _invoke(site, 'playerContent', [
+          flag,
+          id,
+          vipFlags.join(','),
+        ]);
+        if (retried.trim().isNotEmpty) {
+          result = normalizeSpiderPlay(retried, flag);
+        }
+        AppLog.i('jar', '网盘登录态刷新后重试播放 provider=$provider');
+      }
+    }
+
     if (result.url.isNotEmpty && result.url.contains('127.0.0.1')) {
       final url = _rewriteLocalProxy(result.url, loaded.proxyPort);
       result = PlayResult(
@@ -346,6 +450,48 @@ class JarSpiderAndroidService extends JarSpiderService {
       );
     }
     return result;
+  }
+
+  /// 豆瓣一类源偶发返回空 body（源站 15s 超时 / 限流），加固壳会直接
+  /// `new JSONObject("")` 抛 `End of input at character 0`。短暂退避后重试一次，
+  /// 仍失败就翻成人话，别把 Java 栈丢给用户。
+  Future<String> _homeText(SourceBean site) async {
+    try {
+      return await _invoke(site, 'homeContent', const []);
+    } on SourceException catch (e) {
+      if (!_isEmptyPayloadError(e.message)) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      try {
+        return await _invoke(site, 'homeContent', const []);
+      } on SourceException catch (_) {
+        throw SourceException(
+          '首页接口返回空内容（源站超时或被限流），请稍后重试或切换站点',
+        );
+      }
+    }
+  }
+
+  bool _isEmptyPayloadError(String message) =>
+      message.contains('End of input at character 0') ||
+      (message.contains('End of input') && message.contains('JSONException'));
+
+  bool _needsDriveLogin(PlayResult result) {
+    if (result.url.trim().isNotEmpty) return false;
+    final message = result.message.toLowerCase();
+    return message.contains('cookie') ||
+        message.contains('配置中心') ||
+        message.contains('登录') ||
+        message.contains('(auth)');
+  }
+
+  String? _driveProvider(String flag) {
+    final lower = flag.toLowerCase();
+    if (flag.contains('夸克') || lower.contains('quark')) return 'quark';
+    if (flag.contains('UC') || lower.contains('ucpan')) return 'uc';
+    if (flag.contains('百度') || lower.contains('baidu')) return 'baidu';
+    if (lower.contains('115')) return '115';
+    if (flag.contains('哔哩') || lower.contains('bili')) return 'bili';
+    return null;
   }
 
   /// 应用退出：先走基类的桌面进程清理（安卓侧是安全空操作），再释放插件侧已加载的

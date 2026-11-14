@@ -64,6 +64,12 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val initializedShells: MutableSet<String> = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var lastClassName: String? = null
 
+    // 网盘凭据：壳在 init() 时用 Init.context().getSharedPreferences()/getFilesDir()
+    // 读登录态。Dart 侧只写了桌面 JVM 口径的文件，安卓侧必须补写这些原生通道。
+    @Volatile private var driveCookies = mapOf<String, String>()
+    @Volatile private var driveSeed = mapOf<String, String>()
+    @Volatile private var driveCacheDir = ""
+
     // 壳自带的「宿主代理」本地端口（playerContent 返回的 127.0.0.1 地址要改写到这个端口）
     @Volatile private var proxyPort = 0
 
@@ -131,6 +137,29 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     val path = call.argument<String>("path") ?: ""
                     result.success(loadNative(path))
                 }
+                "syncDrive" -> {
+                    val cookies = mutableMapOf<String, String>()
+                    (call.argument<Map<*, *>>("cookies"))?.forEach { (k, v) ->
+                        val key = k?.toString()?.trim()?.lowercase()
+                        val value = v?.toString()?.trim()
+                        if (!key.isNullOrEmpty() && !value.isNullOrEmpty()) cookies[key] = value
+                    }
+                    val seed = mutableMapOf<String, String>()
+                    (call.argument<Map<*, *>>("seed"))?.forEach { (k, v) ->
+                        val key = k?.toString()?.trim()
+                        val value = v?.toString()?.trim()
+                        if (!key.isNullOrEmpty() && !value.isNullOrEmpty()) seed[key] = value
+                    }
+                    val cacheDir = call.argument<String>("cacheDir") ?: ""
+                    runAsync(result) { syncDrive(cookies, seed, cacheDir) }
+                }
+                "resetSpiders" -> {
+                    // 网盘凭据变更后只重建蜘蛛实例：保留 ClassLoader（壳 native 已解包）
+                    // 与本地代理端口，重新走 init(Context, ext) 即可读到新 Cookie。
+                    spiders.clear()
+                    lastClassName = null
+                    result.success(mapOf("ok" to true))
+                }
                 "unload" -> {
                     result.success(unload())
                 }
@@ -159,11 +188,121 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     // ------------------------------------------------------------------
+    // 网盘凭据同步：把登录 Cookie 写进安卓壳真正会读的位置
+    // ------------------------------------------------------------------
+    private fun syncDrive(
+        cookies: Map<String, String>,
+        seed: Map<String, String>,
+        cacheDir: String,
+    ): Map<String, Any?> {
+        driveCookies = cookies
+        driveSeed = seed
+        if (cacheDir.isNotEmpty()) driveCacheDir = cacheDir
+        return try {
+            syncDriveInternal()
+            mapOf("ok" to true)
+        } catch (t: Throwable) {
+            mapOf("ok" to false, "error" to errorChain(t))
+        }
+    }
+
+    /** 每个通道独立兜底：某个目录不可写时不能让其它通道也失效。 */
+    private fun syncDriveInternal() {
+        val ctx = appContext ?: return
+        try {
+            if (driveCacheDir.isNotEmpty()) {
+                File(driveCacheDir).mkdirs()
+                System.setProperty("tvbox.spiderCacheDir", driveCacheDir)
+            }
+            System.setProperty("java.io.tmpdir", ctx.cacheDir.absolutePath)
+        } catch (_: Throwable) {}
+
+        // 通道 1：SharedPreferences（真实实现用 Init.context().getSharedPreferences）。
+        val prefKeys = mapOf(
+            "quark" to "Wex_quark_cookie",
+            "uc" to "Wex_ucpan_cookie",
+            "baidu" to "Wex_baidu_cookie",
+            "115" to "Wex_115_cookie",
+        )
+        try {
+            val edit = ctx.getSharedPreferences("NewWexFnw_preferences", Context.MODE_PRIVATE).edit()
+            for ((provider, key) in prefKeys) {
+                val value = driveCookies[provider].orEmpty()
+                if (value.isEmpty()) edit.remove(key) else edit.putString(key, value)
+            }
+            edit.putString("pan.thread_proxy_mode", "java")
+            for ((k, v) in driveSeed) {
+                if (k.isNotEmpty() && v.isNotEmpty()) edit.putString(k, v)
+            }
+            edit.apply()
+        } catch (_: Throwable) {}
+
+        // 通道 2：裸 Cookie 文件。不同壳家族分别用 getFilesDir()/getDir("TV")/
+        // spiderCacheDir 作为根，全部写一遍，解绑时删除。
+        val fileNames = mapOf(
+            "quark" to ".quarkcookie",
+            "uc" to ".ucpancookie",
+            "115" to ".115cookie",
+        )
+        val roots = mutableSetOf<File>()
+        try {
+            ctx.filesDir?.let { f ->
+                roots.add(File(f, "TV"))
+                roots.add(File(f, "files/TV"))
+            }
+            roots.add(ctx.getDir("TV", Context.MODE_PRIVATE))
+            roots.add(File(ctx.dataDir, "files/TV"))
+            roots.add(File(ctx.cacheDir, "files/TV"))
+            if (driveCacheDir.isNotEmpty()) roots.add(File(driveCacheDir, "files/TV"))
+        } catch (_: Throwable) {}
+        for ((provider, name) in fileNames) {
+            val value = driveCookies[provider].orEmpty()
+            for (root in roots) {
+                try {
+                    val file = File(root, name)
+                    if (value.isEmpty()) {
+                        file.delete()
+                    } else {
+                        root.mkdirs()
+                        file.writeText(value)
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+
+        // 通道 3：Pizazz / 太太太硬了 家族的 JSON 三字段判定。
+        try {
+            val dir = File(ctx.cacheDir, "tvbox-ext/TVBox").apply { mkdirs() }
+            val names = mapOf(
+                "quark" to "quark_cookie.txt",
+                "uc" to "uc_cookie.txt",
+                "baidu" to "baidu.txt",
+            )
+            for ((provider, name) in names) {
+                val value = driveCookies[provider].orEmpty()
+                val file = File(dir, name)
+                if (value.isEmpty()) {
+                    file.delete()
+                    continue
+                }
+                val obj = JSONObject()
+                    .put("cookie", value)
+                    .put("nickname", "MisaTV")
+                    .put("member_type", "1")
+                file.writeText(obj.toString())
+            }
+        } catch (_: Throwable) {}
+    }
+
+    // ------------------------------------------------------------------
     // 加载并初始化蜘蛛
     // ------------------------------------------------------------------
     @Synchronized   // 加固壳首次解包很贵，串行加载避免多个源同时触发重复解包
     private fun loadSpider(paths: List<String>, className: String, ext: String, cacheDir: String): Map<String, Any?> {
         return try {
+            // 壳的 init(Context, ext) 会把网盘 Cookie 读进内存，必须先写好凭据。
+            if (cacheDir.isNotEmpty()) driveCacheDir = cacheDir
+            syncDriveInternal()
             if (paths.isEmpty()) throw IllegalArgumentException("paths 为空")
             if (className.isEmpty()) throw IllegalArgumentException("className 为空")
 
