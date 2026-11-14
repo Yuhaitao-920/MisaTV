@@ -252,12 +252,30 @@ class _PlayerPageState extends State<PlayerPage>
   /// 正在刷新取流（防止连点重复起播放器）。
   bool _refreshing = false;
 
-  /// fvp（libmdk）只在桌面端接管 video_player，移动端拿不到 MediaInfo。
+  /// fvp（libmdk）在桌面端始终接管 video_player；移动端默认不接管，
+  /// 安卓端需用户开启 FFmpeg 内核并显式 registerWith 后才走 libmdk/FFmpeg。
+  /// 该 getter 只表达「平台是否支持 fvp」，是否真正启用另由 useFfmpeg 决定。
   bool get _mdkEnabled =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.macOS);
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.android);
+
+  /// 安卓端在用户开启 FFmpeg 内核时显式注册 fvp：fvp 默认只在桌面接管
+  /// video_player，移动端需要主动 registerWith 才会走 libmdk/FFmpeg 解码。
+  /// 桌面端由启动处统一注册，这里只在安卓补一次；用静态标记避免重复注册。
+  static bool _fvpRegistered = false;
+  void _ensureFvp() {
+    if (_fvpRegistered || defaultTargetPlatform != TargetPlatform.android) return;
+    if (!_app.playerSettings.useFfmpeg) return;
+    try {
+      registerWith();
+      _fvpRegistered = true;
+    } catch (_) {
+      // 注册失败则退回系统 ExoPlayer，不影响其余播放逻辑
+    }
+  }
 
   String get _episodeName =>
       _index >= 0 && _index < _episodes.length ? _episodes[_index].name : '';
@@ -351,6 +369,8 @@ class _PlayerPageState extends State<PlayerPage>
     }
     _opened = true;
     _app = AppScope.of(context);
+    // 安卓端：用户开启 FFmpeg 内核时让 fvp 接管 video_player（桌面端已在启动处注册）。
+    _ensureFvp();
     _lastAppliedBufferMin = _app.playerSettings.bufferMinSec;
     _lastAppliedBufferMax = _app.playerSettings.bufferMaxSec;
     _immersiveMode = _app.playerSettings.immersiveMode;
