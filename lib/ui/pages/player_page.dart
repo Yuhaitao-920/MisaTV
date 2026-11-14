@@ -1687,9 +1687,9 @@ class _PlayerPageState extends State<PlayerPage>
       return const SizedBox.shrink();
     }
     final padding = EdgeInsets.fromLTRB(
-      18,
+      14,
       MediaQuery.paddingOf(context).top + (_controls ? 62 : 16),
-      18,
+      14,
       MediaQuery.paddingOf(context).bottom + (_controls ? 108 : 16),
     );
     return Positioned.fill(
