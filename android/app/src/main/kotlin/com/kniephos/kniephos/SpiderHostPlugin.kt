@@ -88,6 +88,15 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             com.github.catvod.crawler.SpiderApi::class.java,
             com.github.catvod.crawler.SpiderDebug::class.java,
         )
+
+        /** 真实的 Application，由 MainActivity 在注册插件前绑定。 */
+        @Volatile
+        private var boundApp: Application? = null
+
+        @JvmStatic
+        fun bindApplication(app: Application?) {
+            if (app != null) boundApp = app
+        }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -455,23 +464,100 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             } catch (_: ClassNotFoundException) {
                 return
             }
-            val app = applicationObject()
-                ?: throw IllegalStateException("无法取得 Application（加固壳 Init.init 需要它）")
-            val method = initCls.getDeclaredMethod("init", Context::class.java)
-            method.isAccessible = true
-            method.invoke(null, app)
+
+            // 壳版本不同，init 的签名可能是 (Application)、(Context) 或无参。
+            // 之前写死 getDeclaredMethod("init", Context) 会在 (Application) 上抛
+            // NoSuchMethodException；这里按签名兼容地挑一个，找不到就当普通 jar 跳过。
+            val methods = initCls.declaredMethods.filter { it.name == "init" }
+            val target = methods.firstOrNull { m ->
+                val ps = m.parameterTypes
+                ps.isNotEmpty() && ps.size == 1 && ps[0].isAssignableFrom(Application::class.java)
+            } ?: methods.firstOrNull { it.parameterTypes.isEmpty() }
+            if (target == null) {
+                // 有 Init 类但没有可调用的 init：不阻断普通蜘蛛加载。
+                return
+            }
+
+            val app = if (target.parameterTypes.isEmpty()) null else applicationObject()
+            if (target.parameterTypes.isNotEmpty() && app == null) {
+                throw IllegalStateException(
+                    "无法取得 Application（加固壳 Init.init 需要它）；" + contextDiagnostics()
+                )
+            }
+            target.isAccessible = true
+            if (target.parameterTypes.isEmpty()) target.invoke(null) else target.invoke(null, app)
         } catch (t: Throwable) {
             initializedShells.remove(dexPath)   // 解包失败可下次重试
             throw t
         }
     }
 
-    /** Init.init 内部会把 Context 强转成 Application，先剥掉可能的 ContextWrapper。 */
+    /**
+     * Init.init 内部会把参数强转成 Application，但 Flutter 的 applicationContext 在
+     * 部分机型 / Flutter 版本里是 android.app.ContextImpl（或多层 ContextWrapper），
+     * 单纯剥 wrapper 再 `as? Application` 会返回 null —— 这正是上一版日志里
+     * "无法取得 Application" 的原因。这里按可靠性从高到低依次尝试：
+     *   1. MainActivity 绑定的 Activity.getApplication()（框架保证）
+     *   2. Context.getApplicationContext()（ContextImpl 会返回 LoadedApk 里的 Application）
+     *   3. wrapper 链上任意一层是 Application
+     *   4. 隐藏 API ActivityThread.currentApplication / AppGlobals.getInitialApplication
+     *   5. ContextImpl.mPackageInfo.mApplication 兜底
+     */
     private fun applicationObject(): Application? {
+        boundApp?.let { return it }
+        try {
+            (appContext?.applicationContext as? Application)?.let { return it }
+        } catch (_: Throwable) {}
+
         var ctx: Context? = appContext
         var hops = 0
-        while (ctx is ContextWrapper && hops++ < 5) ctx = ctx.baseContext
-        return ctx as? Application
+        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Context, Boolean>())
+        while (ctx != null && hops++ < 8 && seen.add(ctx)) {
+            if (ctx is Application) return ctx
+            try {
+                (ctx.applicationContext as? Application)?.let { return it }
+            } catch (_: Throwable) {}
+            ctx = (ctx as? ContextWrapper)?.baseContext
+        }
+
+        for (spec in arrayOf(
+            "android.app.ActivityThread" to "currentApplication",
+            "android.app.AppGlobals" to "getInitialApplication",
+        )) {
+            try {
+                val cls = Class.forName(spec.first)
+                val m = cls.getDeclaredMethod(spec.second).apply { isAccessible = true }
+                (m.invoke(null) as? Application)?.let { return it }
+            } catch (_: Throwable) {}
+        }
+
+        try {
+            var c: Context? = appContext
+            repeat(8) { c = (c as? ContextWrapper)?.baseContext ?: c }
+            c?.let { base ->
+                val pkg = base.javaClass.getDeclaredField("mPackageInfo")
+                    .apply { isAccessible = true }.get(base)
+                (pkg.javaClass.getDeclaredField("mApplication").apply { isAccessible = true }
+                    .get(pkg) as? Application)?.let { return it }
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /** Application 真的取不到时，把 Context 的类名链打进日志，便于下一轮定位。 */
+    private fun contextDiagnostics(): String {
+        val chain = mutableListOf<String>()
+        var ctx: Context? = appContext
+        var hops = 0
+        while (ctx != null && hops++ < 6) {
+            chain.add(ctx.javaClass.name)
+            val next = (ctx as? ContextWrapper)?.baseContext
+            if (next == null || next === ctx) break
+            ctx = next
+        }
+        val appCtx = try { appContext?.applicationContext?.javaClass?.name } catch (_: Throwable) { "err" }
+        return "appContext=${appContext?.javaClass?.name}, chain=${chain.joinToString(">")}, " +
+            "applicationContext=$appCtx, boundApp=${boundApp?.javaClass?.name}"
     }
 
     /** 把 jar 内 assets/ 下的 .so / .guard 落一份到私有目录，作为 native 侧兜底。 */
@@ -490,6 +576,20 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     target.parentFile?.mkdirs()
                     zip.getInputStream(entry).use { input ->
                         FileOutputStream(target).use { out -> input.copyTo(out) }
+                    }
+                    if (name.endsWith(".so")) {
+                        // Android 14+ 的 W^X：dlopen 的库文件也必须不可写。
+                        makeReadOnly(target)
+                        // System.loadLibrary("wexguard_v8") 需要 lib 前缀，壳里存的是
+                        // assets/wexguard_v8.so，补一份别名让两种加载方式都能命中。
+                        val leaf = target.name
+                        if (!leaf.startsWith("lib")) {
+                            val alias = File(target.parentFile, "lib$leaf")
+                            if (!alias.exists()) {
+                                target.copyTo(alias, overwrite = true)
+                                makeReadOnly(alias)
+                            }
+                        }
                     }
                 }
             }
@@ -579,6 +679,19 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         private val jars: List<File>,
     ) : dalvik.system.DexClassLoader(dexPath, optimizedDirectory, librarySearchPath, parent) {
 
+        private fun jarEntryUrl(name: String): java.net.URL? {
+            val key = name.removePrefix("/")
+            for (jar in jars) {
+                try {
+                    ZipFile(jar).use { zip ->
+                        if (zip.getEntry(key) == null) return@use
+                        return java.net.URL("jar:" + jar.toURI().toURL().toExternalForm() + "!/" + key)
+                    }
+                } catch (_: Throwable) { /* 换下一个 jar */ }
+            }
+            return null
+        }
+
         override fun getResourceAsStream(name: String?): InputStream? {
             if (name.isNullOrEmpty()) return null
             val key = name.removePrefix("/")
@@ -592,6 +705,28 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 } catch (_: Throwable) { /* 换下一个 jar */ }
             }
             return super.getResourceAsStream(name)
+        }
+
+        override fun findResource(name: String?): java.net.URL? {
+            if (name.isNullOrEmpty()) return super.findResource(name)
+            return jarEntryUrl(name) ?: super.findResource(name)
+        }
+
+        override fun getResource(name: String?): java.net.URL? {
+            if (name.isNullOrEmpty()) return super.getResource(name)
+            // 壳的 assets/* 优先取 jar 内的副本，别被宿主 APK 同名资源遮蔽。
+            return jarEntryUrl(name) ?: super.getResource(name)
+        }
+
+        override fun getResources(name: String?): java.util.Enumeration<java.net.URL> {
+            if (name.isNullOrEmpty()) return super.getResources(name)
+            val own = jarEntryUrl(name) ?: return super.getResources(name)
+            val rest = try { super.getResources(name) } catch (_: Throwable) {
+                java.util.Collections.emptyEnumeration<java.net.URL>()
+            }
+            val list = mutableListOf(own)
+            while (rest.hasMoreElements()) list.add(rest.nextElement())
+            return java.util.Collections.enumeration(list)
         }
     }
 }
