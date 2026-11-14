@@ -513,20 +513,47 @@ Future<NativeDriveLink> _trySharedDirectLink(
 
 /// Range 预探测（`bytes=0-0`）：必须 206 + `bytes 0-0/<总长>` + 非 text/json/xml。
 /// 只看响应头，随后强制断开连接，不会把整个文件拉下来。
+///
+/// ★ 必须**手动**跟随重定向（`followRedirects = false` + 自己取 Location）：
+///   百度的 `dlink` 会先 302 到 `*.baidupcs.com` 的真实流地址，而 Dart 的自动跟随
+///   在换 host 时会丢掉 `User-Agent`；百度 CDN 正是按 UA 判防盗链 ——
+///   同一 URL、同一套头，「自动跟随 → 403+text/plain」「手动跟随 → 206+bytes 0-0/…」。
+///   这个坑会让「直链明明可用」被判成不可用，上层再回退 jar 就是一直转圈。
 Future<String?> _probeSharedDirect(
   String url,
   Map<String, String> headers,
 ) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
   try {
-    final request = await client
-        .getUrl(Uri.parse(url))
-        .timeout(const Duration(seconds: 8));
-    for (final entry in headers.entries) {
-      request.headers.set(entry.key, entry.value);
+    var current = Uri.parse(url);
+    final origin = current.host.toLowerCase();
+    HttpClientResponse? response;
+    for (var hop = 0; hop <= 5; hop++) {
+      final request = await client
+          .getUrl(current)
+          .timeout(const Duration(seconds: 8));
+      final crossHost = current.host.toLowerCase() != origin;
+      for (final entry in headers.entries) {
+        // 换域不带本机网盘 Cookie（实测 CDN 域不需要，且不该外泄）
+        if (crossHost && entry.key.toLowerCase() == 'cookie') continue;
+        request.headers.set(entry.key, entry.value);
+      }
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      request.followRedirects = false;
+      final res = await request.close().timeout(const Duration(seconds: 8));
+      final code = res.statusCode;
+      final location = res.headers.value(HttpHeaders.locationHeader);
+      if (code < 300 || code >= 400 || location == null || location.isEmpty) {
+        response = res;
+        break;
+      }
+      await res.drain<void>().catchError((Object _) {});
+      current = current.resolve(location);
+      if (!current.isScheme('http') && !current.isScheme('https')) {
+        return '重定向到不支持的协议（${current.scheme}）';
+      }
     }
-    request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
-    final response = await request.close().timeout(const Duration(seconds: 8));
+    if (response == null) return '重定向次数过多';
     final contentRange = response.headers.value('content-range') ?? '';
     final contentType =
         response.headers.value(HttpHeaders.contentTypeHeader) ?? '';
@@ -538,6 +565,7 @@ Future<String?> _probeSharedDirect(
         ).hasMatch(contentRange) &&
         !RegExp(r'text/|json|xml', caseSensitive: false).hasMatch(contentType);
     if (valid) return null;
+    await response.drain<void>().catchError((Object _) {});
     return 'HTTP ${response.statusCode}'
         '${contentRange.isNotEmpty ? '（$contentRange）' : ''}';
   } catch (e) {

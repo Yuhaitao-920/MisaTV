@@ -19,6 +19,7 @@ import '../../models/site_config.dart';
 import '../../models/vod.dart';
 import '../drive/baidu_native.dart';
 import '../drive/drive_ext.dart';
+import '../drive/quark_native.dart';
 import '../drive/uc_native.dart';
 import '../runtime_extension.dart';
 import '../jvm/arm_bridge_runtime.dart';
@@ -321,7 +322,7 @@ class JarSpiderService {
     return MovieParser.toItems(body.movie, site.key);
   }
 
-  /// 百度 / UC 分享型播放的原生「免转存」解链（只读分享，不写用户网盘）。
+  /// 百度 / UC / 夸克 分享型播放的原生「免转存」解链（只读分享，不写用户网盘）。
   ///
   /// 返回 null 表示：不是网盘分享、未绑定账号或解链失败 —— 交回 jar 兜底。
   Future<PlayResult?> _resolveNativeDrivePlay(String flag, String id) async {
@@ -359,6 +360,27 @@ class JarSpiderService {
           return PlayResult(url: link.url, flag: flag, headers: link.headers);
         }
         AppLog.w('drive', 'UC 免转存解链失败：${link.reason}');
+      }
+    }
+    // 夸克排在自己的分支：fty 系壳会把夸克分享塞进 `{sId,fid,share_fid_token,…}`
+    // 这类集参数里，只有线路名明确是夸克时才解释，避免和 UC 抢同一批 id。
+    final quarkCookie = (tokens['quark'] ?? '').trim();
+    if (looksLikeQuarkShare(id, flag: flag)) {
+      if (quarkCookie.isEmpty) {
+        AppLog.w('drive', '夸克分享播放但未绑定账号，回退 jar：${shorten(id, 80)}');
+      } else {
+        final ref = extractQuarkShare(id, flag: flag);
+        final link = await resolveQuarkDirect(
+          id,
+          cookie: quarkCookie,
+          flag: flag,
+          episodeName: ref?.name ?? '',
+        );
+        if (link.ok) {
+          AppLog.i('drive', '夸克免转存直链 ${shorten(link.url, 120)}');
+          return PlayResult(url: link.url, flag: flag, headers: link.headers);
+        }
+        AppLog.w('drive', '夸克免转存解链失败：${link.reason}');
       }
     }
     return null;
@@ -471,7 +493,8 @@ class JarSpiderService {
           );
         }
         // 宿主代理形态（9978 / -1）按本 JVM 的实际端口对齐；壳内端口原样保留
-        final url = rewriteLocalProxy(result.url, host.proxyPort);
+        // 壳的 thread/chunk 会被服务端夹到 1..10，壳却常发 16/32，白丢并发。
+        final url = tuneChunkUrl(rewriteLocalProxy(result.url, host.proxyPort));
         _keepPlayHost(host);
         return PlayResult(
           url: url,
@@ -504,6 +527,17 @@ class JarSpiderService {
         url: '',
         flag: result.flag,
         message: '取流进程未能常驻，播放地址已失效，请重试一次',
+      );
+    }
+    // 兜底：本机 `/chunk` 仍要按最优参数重写一次。
+    if (result.url.isNotEmpty && isLocalChunkPlayUrl(result.url)) {
+      return PlayResult(
+        url: tuneChunkUrl(result.url),
+        parse: result.parse,
+        playUrl: result.playUrl,
+        flag: result.flag,
+        headers: result.headers,
+        message: result.message,
       );
     }
     return result;
@@ -752,6 +786,37 @@ class JarSpiderService {
     return uri.path == '/chunk';
   }
 
+  /// 把壳给的 `/chunk` 地址按实测最优的 `thread` / `chunk` 重写。
+  ///
+  /// 加固壳自己决定并发与分片大小，写死在 `MyPan$*MineProvider`：
+  /// 会员 `thread=32 / chunk=64(KB)`，非会员 `thread=16 / chunk=512`。
+  /// 而服务端（`merge.j.c`）把 thread 夹到 [1,10]、chunk 当 KB 用 ——
+  /// 壳发 16/32 都被砍成 10，白白浪费并发；chunk=64KB 更是过小。
+  ///
+  /// 实测同一夸克直链（thread 固定 10，chunk 按 KB）：
+  ///   256 -> 6.8 MB/s · 512 -> 13.0 · 1024 -> 19.1 · 2048 -> 25.9 · 4096 -> 17.0
+  ///
+  /// 只改 `thread` / `chunk` 两个参数，其余（id、签名等）原样保留；
+  /// 不是本机 `/chunk` 或参数缺失时原样返回。
+  static String tuneChunkUrl(String url) {
+    if (!isLocalChunkPlayUrl(url)) return url;
+    try {
+      final uri = Uri.parse(url.trim());
+      final q = Map<String, String>.from(uri.queryParameters);
+      if (q.isEmpty || !q.containsKey('chunk')) return url;
+      q['thread'] = '$_chunkThreads';
+      q['chunk'] = '$_chunkKb';
+      return uri.replace(queryParameters: q).toString();
+    } catch (_) {
+      return url;
+    }
+  }
+
+  /// 服务端把 thread 夹到 1..10，直接给上限。
+  static const int _chunkThreads = 10;
+
+  /// 分片大小（KB）：实测 2MB 最快（见 tuneChunkUrl 注释里的对照表）。
+  static const int _chunkKb = 2048;
   /// 把 `/chunk` 地址先打一次 Range 探针再交给外部播放器。
   ///
   /// 壳内的 Java 取流服务对**每个首次访问**都会同步完成一次上游取链

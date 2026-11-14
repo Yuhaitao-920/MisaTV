@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/app_log.dart';
@@ -350,11 +351,14 @@ class LocalRelay {
       }
     }
 
+    // ★ 网盘 CDN 的「跨度限速」：开放区间（`bytes=0-`）与超大跨度会让同一节点被压到
+    //   ~0.1 MB/s，播放器表现为「有画面但极慢」。夹到 32MB 后回到 10-19 MB/s；
+    //   上游回 206 + 真实 Content-Range，播放器会自然续请求下一段，语义完全合规。
     final upstream = await _open(
       target,
       headers: headers,
       method: request.method,
-      range: range,
+      range: clampRange(range),
     );
     final finalUrl = _finalUrl(upstream, target);
     final contentType = _responseContentType(upstream);
@@ -448,6 +452,44 @@ class LocalRelay {
         await res.close();
       } catch (_) {}
     }
+  }
+
+  /// 单次上游请求的 Range 跨度上限（32MB）。
+  ///
+  /// 实测（夸克 672MB / 2GB 两个直链，同一 cookie、同一节点）：
+  ///   · `bytes=0-`（开放）→ 0.1 MB/s
+  ///   · 跨度 2GB / 1GB / 512MB → 0.1 MB/s
+  ///   · 跨度 400MB / 350MB → 0.1 / 4.6 MB/s（阈值在 ~360MB 附近）
+  ///   · 跨度 300MB / 256MB → 5.4 / 7.8 MB/s
+  ///   · 跨度 128MB / 64MB / 32MB → 9.8 / 9.6 / 13.0 MB/s
+  ///   · 跨度 16MB / 8MB  → 8.5 / 19.2 MB/s
+  /// 也就是说**速度与请求跨度反相关**，开放 Range 是最差的一种。
+  /// 播放器（尤其 fvp / mpv）开场习惯发 `bytes=0-`，正好踩在这个坑上。
+  static const int _maxUpstreamRangeBytes = 32 * 1024 * 1024;
+
+  /// 把播放器的 Range 夹到安全跨度；无法解析时原样透传（不猜）。
+  ///
+  /// 只处理单区间 `bytes=<start>-<end|*>`：多区间（带逗号）与 `-<suffix>` 形态
+  /// 直接透传 —— 那些在媒体播放里几乎不出现，改动它们风险大于收益。
+  @visibleForTesting
+  static String? clampRange(String? range) {
+    if (range == null || range.trim().isEmpty) return range;
+    final m = RegExp(
+      r'^bytes\s*=\s*(\d+)\s*-\s*(\d*)$',
+      caseSensitive: false,
+    ).firstMatch(range.trim());
+    if (m == null) return range;
+    final start = int.tryParse(m.group(1)!);
+    if (start == null || start < 0) return range;
+    final endText = m.group(2)!.trim();
+    if (endText.isEmpty) {
+      // 开放区间：夹成固定跨度
+      return 'bytes=$start-${start + _maxUpstreamRangeBytes - 1}';
+    }
+    final end = int.tryParse(endText);
+    if (end == null || end < start) return range;
+    if (end - start + 1 <= _maxUpstreamRangeBytes) return range;
+    return 'bytes=$start-${start + _maxUpstreamRangeBytes - 1}';
   }
 
   /// 只把音视频 / 图片 / 二进制当作可缓存内容，避免把 HTML 错误页写进缓存。
@@ -904,6 +946,9 @@ class LocalRelay {
   }
 
   /// 把目标地址按 Range 透传给播放器（统一补 Content-Type/Length 等）。
+  ///
+  /// 网盘 CDN 的跨度限速对这条路径同样生效：`do=pan` 解出来的百度 / UC / 夸克
+  /// 直链会经 `_streamTarget` 拉流，所以与 `/play` 用同一套夹取规则。
   Future<void> _streamTarget(
     HttpRequest request,
     String target,
@@ -915,7 +960,7 @@ class LocalRelay {
       target,
       headers: headers,
       method: request.method,
-      range: range,
+      range: clampRange(range),
     );
     res.statusCode = upstream.statusCode;
     _copyHeader(upstream, res, HttpHeaders.contentTypeHeader);
@@ -1038,6 +1083,54 @@ class LocalRelay {
     return headers;
   }
 
+  /// 手动跟随重定向。
+  ///
+  /// ★ 为什么不能用 `request.followRedirects = true`（实测踩死过一次）：
+  ///   百度网盘 `dlink` 会先回 302 到 `*.baidupcs.com` 的真实流地址。交给 Dart 自动跟随，
+  ///   同一个 URL、同一套头，结果恒定 **403**；改成手动取 `Location` 再发一次就是 **206**。
+  ///   自动跟随在换 host 时会改写请求（丢掉 `User-Agent` —— 实测「无 UA → 403、
+  ///   有 UA → 206」，而 CDN 正是按 UA 判防盗链），所以这里自己走：
+  ///   · 每一跳都保留 User-Agent / Range / Referer（这三样是防盗链判定依据）；
+  ///   · 换 host 时丢掉 `Cookie`（本机网盘 cookie 不该发给 CDN 域，实测不带也能过）；
+  ///   · 最多 5 跳，与原来的 `maxRedirects` 一致。
+  Future<HttpClientResponse> _openFollow(
+    HttpClient targetClient, {
+    required String url,
+    required Map<String, String> headers,
+    required String method,
+    String? range,
+  }) async {
+    var current = Uri.parse(url);
+    final origin = current.host.toLowerCase();
+    for (var hop = 0; hop <= 5; hop++) {
+      final req = await targetClient.openUrl(method, current);
+      final crossHost = current.host.toLowerCase() != origin;
+      req.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+      headers.forEach((key, value) {
+        if (crossHost && key.toLowerCase() == 'cookie') return;
+        req.headers.set(key, value);
+      });
+      if (range != null && range.isNotEmpty) {
+        req.headers.set(HttpHeaders.rangeHeader, range);
+      }
+      req.followRedirects = false;
+      final response = await req.close();
+      final code = response.statusCode;
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      if (code < 300 || code >= 400 || location == null || location.isEmpty) {
+        return response;
+      }
+      // 丢弃这一跳的响应体，避免连接悬挂
+      await response.drain<void>().catchError((Object _) {});
+      current = current.resolve(location);
+      // 只跟随 http(s)；其它协议原样交回（上层按状态码处理）
+      if (!current.isScheme('http') && !current.isScheme('https')) {
+        throw HttpException('重定向到不支持的协议：${current.scheme}');
+      }
+    }
+    throw HttpException('重定向次数过多：$url');
+  }
+
   Future<HttpClientResponse> _open(
     String url, {
     required Map<String, String> headers,
@@ -1048,17 +1141,13 @@ class LocalRelay {
       ..connectionTimeout = const Duration(seconds: 15)
       ..autoUncompress = false;
 
-    Future<HttpClientResponse> send(HttpClient targetClient) async {
-      final req = await targetClient.openUrl(method, Uri.parse(url));
-      req.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      headers.forEach((key, value) => req.headers.set(key, value));
-      if (range != null && range.isNotEmpty) {
-        req.headers.set(HttpHeaders.rangeHeader, range);
-      }
-      req.followRedirects = true;
-      req.maxRedirects = 5;
-      return req.close();
-    }
+    Future<HttpClientResponse> send(HttpClient targetClient) => _openFollow(
+      targetClient,
+      url: url,
+      headers: headers,
+      method: method,
+      range: range,
+    );
 
     try {
       return await send(client);
