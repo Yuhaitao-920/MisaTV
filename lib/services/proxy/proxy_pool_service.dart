@@ -86,12 +86,16 @@ class ProxyPoolService extends ChangeNotifier {
     refreshing = true;
     error = '';
     notifyListeners();
+    // raw.githubusercontent.com 在国内经常连不上。代理池只是可选增强，
+    // 失败就继续直连，别让每次启动都白等 15 秒。
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = const Duration(seconds: 6);
     try {
       final request = await client.getUrl(Uri.parse(sourceUrl));
       request.headers.set(HttpHeaders.userAgentHeader, 'MisaTV-proxy-pool');
-      final response = await request.close();
+      final response = await request
+          .close()
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         throw 'HTTP ${response.statusCode}';
       }
@@ -122,7 +126,7 @@ class ProxyPoolService extends ChangeNotifier {
       AppLog.i('proxy', '代理池已更新：${nodes.length} 个节点');
     } catch (e) {
       error = '$e';
-      AppLog.w('proxy', '代理池拉取失败：$e');
+      AppLog.w('proxy', '代理池拉取失败（可选功能，不影响直连/蜘蛛/播放）：$e');
     } finally {
       client.close(force: true);
       refreshing = false;

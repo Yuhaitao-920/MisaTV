@@ -494,8 +494,20 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
     final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
     // 登录卡片本身不宽，弹窗跟着卡片走即可；注入脚本会把营销区裁掉。
-    final width = _config.width.clamp(480.0, size.width * 0.94);
-    final height = (size.height * 0.9).clamp(520.0, 820.0);
+    // ★ 手机竖屏时可用宽度常常不到 480（如 393dp 的屏只有 ~361dp），
+    //   num.clamp 要求 lower <= upper，写死 clamp(480, size.width*0.94)
+    //   会抛 `Invalid argument(s): 480.0`，表现为「未捕获的 Flutter 异常」
+    //   且网盘扫码登录弹窗打不开。先把上下限收敛到屏幕可用范围。
+    final availableWidth = size.width - 32; // Dialog 的 insetPadding 16 * 2
+    final maxWidth = availableWidth > 0 ? availableWidth : 320.0;
+    final minWidth = maxWidth < 480.0 ? maxWidth : 480.0;
+    final width = _config.width.clamp(minWidth, maxWidth);
+    final availableHeight = size.height - 32;
+    final maxHeight = availableHeight > 820.0
+        ? 820.0
+        : (availableHeight > 0 ? availableHeight : 520.0);
+    final minHeight = maxHeight < 520.0 ? maxHeight : 520.0;
+    final height = (size.height * 0.9).clamp(minHeight, maxHeight);
     return Dialog(
       insetPadding: const EdgeInsets.all(16),
       clipBehavior: Clip.antiAlias,
