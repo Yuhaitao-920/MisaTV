@@ -898,7 +898,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('自动连播下一集'),
                           subtitle: const Text('当前集播放结束后自动切换'),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
@@ -911,7 +911,7 @@ class SettingsPageState extends State<SettingsPage> {
                             '当前线路播放失败时自动尝试下一条线路；'
                             '本源线路都失败后再搜索其他源的相同片名',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
@@ -921,7 +921,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('记住播放进度'),
                           subtitle: const Text('退出播放器时保存进度，下次继续'),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
@@ -933,7 +933,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '打开播放器自动切横屏（仅手机/平板生效），退出后恢复系统方向',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
@@ -943,7 +943,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('m3u8 去广告'),
                           subtitle: const Text('点播清单播放前清洗广告分段（启发式，默认关）'),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                       ],
@@ -981,7 +981,7 @@ class SettingsPageState extends State<SettingsPage> {
                             '关闭回落系统 ExoPlayer。开启后重开播放器即生效，'
                             '彻底关闭建议重启 App',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         const SizedBox(height: 10),
@@ -1037,7 +1037,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '把已下行的分片存到本地：重看、拖回看过的位置直接读盘，不再回源',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
@@ -1147,7 +1147,7 @@ class SettingsPageState extends State<SettingsPage> {
                             '先提交到迅雷云盘离线下载，云端完成后播放；'
                             '未登录、关闭或失败时自动回退 aria2',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
@@ -1259,7 +1259,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('默认开启弹幕'),
                           subtitle: const Text('优先使用已启用接口；未命中会自动扩大搜索'),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
@@ -1353,7 +1353,7 @@ class SettingsPageState extends State<SettingsPage> {
                               '多 JS 源同时搜索 / 浏览时最多使用 3 个 QuickJS 执行器，'
                               '避免所有请求排在一个 isolate 里；更占内存，默认关闭',
                             ),
-                            leading: const SizedBox(width: 20),
+                            secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                           ),
                           Text(
@@ -1377,7 +1377,7 @@ class SettingsPageState extends State<SettingsPage> {
                               '搜索 / 浏览结束后保留 JVM 取数进程 2 分钟，减少再次冷启动；'
                               '更占内存，默认关闭',
                             ),
-                            leading: const SizedBox(width: 20),
+                            secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                           ),
                         ],
@@ -1406,7 +1406,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '开启时设置关闭密码，关闭过滤必须输入该密码，防止儿童误关；命中关键词的条目与分类会从首页、分类与搜索结果里隐藏',
                           ),
-                          leading: const SizedBox(width: 20),
+                          secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
@@ -6342,7 +6342,7 @@ class _DanmakuEndpointDialogState extends State<_DanmakuEndpointDialog> {
               for (final e in builtinDanmakuEndpoints)
                 SwitchListTile.adaptive(
                   dense: true,
-                  leading: const SizedBox(width: 20),
+                  secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
                   value: _enabled[normalizeEndpointBase(e.url)] ?? e.enabled,
                   onChanged: (v) => setState(
@@ -7288,7 +7288,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                   '用 Windows「局域网设置」或 HTTPS_PROXY 环境变量里的代理（Clash / v2rayN 开系统代理即生效）；'
                   '连 api.themoviedb.org 这类域名必须走它',
                 ),
-                leading: const SizedBox(width: 20),
+                secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
               ),
               SwitchListTile.adaptive(
@@ -7300,7 +7300,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                 }),
                 title: const Text('使用手动代理'),
                 subtitle: const Text('HTTP / SOCKS5 上联；本机 127.0.0.1 始终直连'),
-                leading: const SizedBox(width: 20),
+                secondary: const SizedBox(width: 20),
                         contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 4),
