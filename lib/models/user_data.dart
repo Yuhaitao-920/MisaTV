@@ -380,6 +380,7 @@ class PlayerSettings {
     this.tmdbReadToken = '',
     this.bossKey = kDefaultBossKey,
     this.autoLandscape = true,
+    this.useFfmpeg = true,
   });
   final double speed;
   final bool autoPlayNext;
@@ -389,6 +390,11 @@ class PlayerSettings {
 
   /// 移动端播放时自动横屏；离开播放器恢复系统默认方向（仅移动端生效）。
   final bool autoLandscape;
+
+  /// 内置播放器是否使用 FFmpeg/libmdk（fvp）解码内核：安卓端开启后支持更多
+  /// 封装与编码（与 FongMi/TV 同款解码能力），关掉则回落到系统 ExoPlayer。
+  /// 桌面端始终使用 fvp，该开关仅影响安卓。
+  final bool useFfmpeg;
 
   /// 磁力下载/缓存目录；空串 = 应用数据目录下的 `bt`。
   final String magnetDownloadDir;
@@ -437,6 +443,7 @@ class PlayerSettings {
     bool? autoPlayNext,
     bool? autoSwitchLine,
     bool? autoLandscape,
+    bool? useFfmpeg,
     String? magnetDownloadDir,
     bool? rememberProgress,
     List<String>? overlayMetrics,
@@ -465,6 +472,7 @@ class PlayerSettings {
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     autoLandscape: autoLandscape ?? this.autoLandscape,
+    useFfmpeg: useFfmpeg ?? this.useFfmpeg,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
     rememberProgress: rememberProgress ?? this.rememberProgress,
     overlayMetrics: overlayMetrics ?? this.overlayMetrics,
@@ -533,6 +541,7 @@ class PlayerSettings {
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'autoLandscape': autoLandscape,
+    'useFfmpeg': useFfmpeg,
     'magnetDownloadDir': magnetDownloadDir,
     'rememberProgress': rememberProgress,
     'overlayMetrics': overlayMetrics,
@@ -563,6 +572,7 @@ class PlayerSettings {
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
+    useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),
     rememberProgress: (j['rememberProgress'] as bool?) ?? true,
     overlayMetrics:
