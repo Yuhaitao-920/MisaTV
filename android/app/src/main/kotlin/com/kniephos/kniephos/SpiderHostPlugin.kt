@@ -1,18 +1,23 @@
 package com.kniephos.kniephos
 
+import android.app.Application
 import android.content.Context
+import android.content.ContextWrapper
 import android.os.Handler
 import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.ServerSocket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.zip.ZipFile
 
 /**
  * Android 版「jar / DEX 蜘蛛」运行器 —— 直接落地 MisaTV 桌面端 dex2jar + JRE + unidbg 的
@@ -49,11 +54,14 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var appContext: Context? = null
 
     /** 按 className 保存已初始化的蜘蛛实例：一个订阅会同时用到几十个源，不能用单例互相覆盖。 */
-    private data class SpiderHolder(val instance: Any, val clazz: Class<*>)
+    private data class SpiderHolder(val instance: Any, val clazz: Class<*>, val loader: ClassLoader)
 
-    /** 同一份 jar 只建一个 DexClassLoader，避免为每个源重复解包加固壳。 */
-    private val loaders = ConcurrentHashMap<String, dalvik.system.DexClassLoader>()
+    /** 同一份 jar 只建一个 ClassLoader，避免为每个源重复解包加固壳。 */
+    private val loaders = ConcurrentHashMap<String, ClassLoader>()
     private val spiders = ConcurrentHashMap<String, SpiderHolder>()
+
+    /** 已完成 Init.init(Application) 的 jar：加固壳的 native 解包全局只需一次。 */
+    private val initializedShells: MutableSet<String> = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var lastClassName: String? = null
 
     // 壳自带的「宿主代理」本地端口（playerContent 返回的 127.0.0.1 地址要改写到这个端口）
@@ -145,23 +153,33 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             // Android 14 (API 34) 起对动态代码加载加了只读要求：交给 DexClassLoader 的
             // dex / jar / apk 在打开前必须是不可写文件，否则 ART 直接抛
             // `SecurityException: Writable dex file '...' is not allowed.`。
-            // 这些文件由 Dart 侧下载到 files/jvm_cache/jars（默认可写），所以在这里统一收紧。
-            val dexPath = paths.joinToString(File.pathSeparator) { path ->
+            val jars = paths.map { path ->
                 val f = File(path)
                 if (!f.exists()) throw IllegalArgumentException("蜘蛛文件不存在：$path")
                 if (!makeReadOnly(f)) {
                     throw SecurityException("无法把蜘蛛文件设为只读（Android 14+ 要求）：$path")
                 }
-                f.absolutePath
+                f
             }
+            val dexPath = jars.joinToString(File.pathSeparator) { it.absolutePath }
 
-            val optimizedDir = File(appContext?.codeCacheDir ?: appContext!!.cacheDir, "spider_dex").apply { mkdirs() }
+            // wex / 加固壳把 .so 与加密 payload 放在 jar 的 assets/ 里，壳代码通过
+            // ClassLoader.getResourceAsStream("assets/wexguard_v8.so") 取用。
+            // Android 各版本 BaseDexClassLoader 对 jar 内资源的支持不一致，所以用
+            // SpiderDexClassLoader 显式从 zip 读；同时把 assets 落一份到私有目录，
+            // 供 native 侧可能的 System.loadLibrary / 文件查找兜底。
+            val base = appContext?.cacheDir ?: File(cacheDir)
+            val assetsDir = File(base, "guard_assets/${dexPath.hashCode()}").apply { mkdirs() }
+            for (jar in jars) extractJarAssets(jar, assetsDir)
+
+            val optimizedDir = File(appContext?.codeCacheDir ?: File(cacheDir), "spider_dex").apply { mkdirs() }
             val loader = loaders.getOrPut(dexPath) {
-                dalvik.system.DexClassLoader(
+                SpiderDexClassLoader(
                     dexPath,
                     optimizedDir.absolutePath,
-                    null,
-                    this.javaClass.classLoader
+                    assetsDir.absolutePath,
+                    this.javaClass.classLoader,
+                    jars,
                 )
             }
 
@@ -170,34 +188,46 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 return mapOf("ok" to true, "proxyPort" to proxyPort)
             }
 
-            val clazz = Class.forName(className, true, loader)
-            val instance = clazz.getDeclaredConstructor().newInstance()
-
-            // init(Context, ext)
+            val prevTccl = Thread.currentThread().contextClassLoader
+            Thread.currentThread().contextClassLoader = loader
             try {
-                clazz.getMethod("init", Context::class.java, String::class.java)
-                    .invoke(instance, appContext, ext)
-            } catch (_: NoSuchMethodException) {
-                try { clazz.getMethod("init", Context::class.java).invoke(instance, appContext) } catch (_: NoSuchMethodException) {}
+                // 加固壳契约（反汇编 classes.dex 得到）：Init.init(Application) 触发
+                // DexNative.<clinit> 释放 assets/wexguard_v7|v8.so 并 System.load，
+                // native getLoader() 解密 .guard 得到真实实现，之后 stub 的
+                // BaseSpiderGuard.<init> 通过 Init.getSpider(name) 拿到真实蜘蛛。
+                // 少了这一步，Class.forName(壳类) 只会得到 ClassNotFoundException。
+                initShell(dexPath, loader)
+
+                val clazz = Class.forName(className, true, loader)
+                val instance = clazz.getDeclaredConstructor().newInstance()
+
+                // init(Context, ext)
+                try {
+                    clazz.getMethod("init", Context::class.java, String::class.java)
+                        .invoke(instance, appContext, ext)
+                } catch (_: NoSuchMethodException) {
+                    try { clazz.getMethod("init", Context::class.java).invoke(instance, appContext) } catch (_: NoSuchMethodException) {}
+                }
+
+                // initApi(SpiderApi)（可选）
+                try {
+                    val apiCls = Class.forName("com.github.catvod.crawler.SpiderApi", true, loader)
+                    val api = apiCls.getDeclaredConstructor().newInstance()
+                    clazz.getMethod("initApi", apiCls).invoke(instance, api)
+                } catch (_: Throwable) { /* 多数蜘蛛没有 initApi */ }
+
+                spiders[className] = SpiderHolder(instance, clazz, loader)
+                lastClassName = className
+
+                // 启动进程内宿主代理（加固壳 / 哔哩聚合源会用 127.0.0.1 回放地址）
+                startProxy()
+
+                mapOf("ok" to true, "proxyPort" to proxyPort)
+            } finally {
+                Thread.currentThread().contextClassLoader = prevTccl
             }
-
-            // initApi(SpiderApi)（可选）
-            try {
-                val apiCls = Class.forName("com.github.catvod.crawler.SpiderApi", true, loader)
-                val api = apiCls.getDeclaredConstructor().newInstance()
-                clazz.getMethod("initApi", apiCls).invoke(instance, api)
-            } catch (_: Throwable) { /* 多数蜘蛛没有 initApi */ }
-
-            spiders[className] = SpiderHolder(instance, clazz)
-            lastClassName = className
-
-            // 启动进程内宿主代理（加固壳 / 哔哩聚合源会用 127.0.0.1 回放地址）
-            startProxy()
-
-            mapOf("ok" to true, "proxyPort" to proxyPort)
         } catch (t: Throwable) {
-            val c = rootCause(t)
-            mapOf("ok" to false, "error" to "${c.javaClass.name}: ${c.message}")
+            mapOf("ok" to false, "error" to errorChain(t))
         }
     }
 
@@ -209,6 +239,11 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val holder = spiders[name] ?: return errMap("蜘蛛尚未加载：$name")
         val sp = holder.instance
         val clazz = holder.clazz
+        // 进程内 HTTP 代理按最近使用的蜘蛛路由；真实实现（尤其加固壳 payload）也常从
+        // 线程上下文 ClassLoader 找资源，所以调用期间绑定到它的加载器。
+        lastClassName = name
+        val prevTccl = Thread.currentThread().contextClassLoader
+        Thread.currentThread().contextClassLoader = holder.loader
         return try {
             val data = when (method) {
                 "homeContent" -> clazz.getMethod("homeContent", Boolean::class.javaPrimitiveType)
@@ -274,8 +309,9 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             mapOf("ok" to true, "data" to data)
         } catch (t: Throwable) {
-            val cause = rootCause(t)
-            mapOf("ok" to false, "error" to "${cause.javaClass.name}: ${cause.message}")
+            mapOf("ok" to false, "error" to errorChain(t))
+        } finally {
+            Thread.currentThread().contextClassLoader = prevTccl
         }
     }
 
@@ -392,8 +428,82 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     // ------------------------------------------------------------------
+    // 加固壳初始化
+    // ------------------------------------------------------------------
+
+    /**
+     * wex / *Guard 加固壳的入口是 jar 内的 `com.github.catvod.spider.Init.init(Application)`：
+     * 它会触发 DexNative 释放 assets 里的 ARM .so 并 System.load，再由 native
+     * getLoader() 解密 .guard 得到真正的蜘蛛实现。TVBox 宿主加载 jar 后都会显式调它，
+     * 本插件之前漏了这一步，导致壳 stub 永远拿不到真实实现。
+     *
+     * 普通 jar 没有这个类，直接跳过。
+     */
+    private fun initShell(dexPath: String, loader: ClassLoader) {
+        if (!initializedShells.add(dexPath)) return
+        try {
+            val initCls = try {
+                Class.forName("com.github.catvod.spider.Init", false, loader)
+            } catch (_: ClassNotFoundException) {
+                return
+            }
+            val app = applicationObject()
+                ?: throw IllegalStateException("无法取得 Application（加固壳 Init.init 需要它）")
+            val method = initCls.getDeclaredMethod("init", Context::class.java)
+            method.isAccessible = true
+            method.invoke(null, app)
+        } catch (t: Throwable) {
+            initializedShells.remove(dexPath)   // 解包失败可下次重试
+            throw t
+        }
+    }
+
+    /** Init.init 内部会把 Context 强转成 Application，先剥掉可能的 ContextWrapper。 */
+    private fun applicationObject(): Application? {
+        var ctx: Context? = appContext
+        var hops = 0
+        while (ctx is ContextWrapper && hops++ < 5) ctx = ctx.baseContext
+        return ctx as? Application
+    }
+
+    /** 把 jar 内 assets/ 下的 .so / .guard 落一份到私有目录，作为 native 侧兜底。 */
+    private fun extractJarAssets(jar: File, outDir: File) {
+        try {
+            outDir.mkdirs()
+            ZipFile(jar).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    val name = entry.name
+                    if (entry.isDirectory || !name.startsWith("assets/")) continue
+                    val target = File(outDir, name.removePrefix("assets/"))
+                    if (!target.canonicalPath.startsWith(outDir.canonicalPath + File.separator)) continue
+                    if (target.exists() && target.length() == entry.size) continue
+                    target.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        FileOutputStream(target).use { out -> input.copyTo(out) }
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* 普通 jar / 非 zip：没有 assets 是正常的 */ }
+    }
+
+    // ------------------------------------------------------------------
     // 工具
     // ------------------------------------------------------------------
+
+    /** 反射调用会把真实异常包成 InvocationTargetException，日志里必须展开整条链。 */
+    private fun errorChain(t: Throwable): String {
+        val parts = mutableListOf<String>()
+        var cur: Throwable? = t
+        var hops = 0
+        while (cur != null && hops++ < 6) {
+            val msg = cur.message
+            parts.add(cur.javaClass.name + if (msg.isNullOrEmpty()) "" else ": $msg")
+            cur = cur.cause
+        }
+        return parts.joinToString(" <- ")
+    }
 
     /**
      * Android 14 (API 34) 起，DexClassLoader / System.load 打开的文件必须不可写
@@ -444,5 +554,36 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             out.write(buf, 0, n)
         }
         return out.toByteArray()
+    }
+
+    /**
+     * 加固壳用 `Init.classLoader().getResourceAsStream("assets/wexguard_v8.so")` 与
+     * `getSystemResourceAsStream("assets/xxx.guard")` 读取 jar 内的载荷。
+     * Android 的 BaseDexClassLoader 对 zip 内非 dex 资源的支持随版本变化（不保证
+     * findResource 能命中），因此这里显式从 jar 读取，保证壳的 DexNative.<clinit>
+     * 一定能拿到 .so，否则会 NPE / UnsatisfiedLinkError。
+     */
+    private class SpiderDexClassLoader(
+        dexPath: String,
+        optimizedDirectory: String?,
+        librarySearchPath: String?,
+        parent: ClassLoader?,
+        private val jars: List<File>,
+    ) : dalvik.system.DexClassLoader(dexPath, optimizedDirectory, librarySearchPath, parent) {
+
+        override fun getResourceAsStream(name: String?): InputStream? {
+            if (name.isNullOrEmpty()) return null
+            val key = name.removePrefix("/")
+            for (jar in jars) {
+                try {
+                    ZipFile(jar).use { zip ->
+                        val entry = zip.getEntry(key) ?: return@use
+                        val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                        return ByteArrayInputStream(bytes)
+                    }
+                } catch (_: Throwable) { /* 换下一个 jar */ }
+            }
+            return super.getResourceAsStream(name)
+        }
     }
 }
