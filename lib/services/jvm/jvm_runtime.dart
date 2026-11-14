@@ -32,6 +32,16 @@ class JvmRuntime {
 
   static const version = '17.0.20.1';
 
+  /// JAR / DEX 蜘蛛运行时是否就绪。
+  ///
+  /// 安卓端不需要下载 JVM 运行时：`jar_spider_android.dart` +
+  /// `SpiderHostPlugin.kt` 用 ART / DexClassLoader 直接加载 DEX，原生等价于
+  /// 桌面端的「JRE 17 + dex2jar」。只有桌面端才要求 JRE + dex2jar 已安装。
+  static Future<bool> jarSpiderReady() async {
+    if (Platform.isAndroid) return true;
+    return instance.installed();
+  }
+
   /// JRE 压缩包；解压后取「含 bin/java.exe」的那层目录。
   /// 多个镜像 + GitHub 加速代理，下载前并发测速取最快（国内直连 GitHub 常超时）。
   static const _jreUrls = <String>[

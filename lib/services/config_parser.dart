@@ -385,7 +385,7 @@ class ConfigParser {
     } else if (type == 3) {
       if (jarReady) {
         status = 'OK';
-        message = '已导入（JAR 蜘蛛，需保持 JVM 运行时已安装）';
+        message = '已导入（JAR / DEX 蜘蛛）';
       } else {
         status = 'DEGRADE';
         reason = 'UNSUPPORTED_JAR';

@@ -257,7 +257,8 @@ class AppState extends ChangeNotifier {
   DanmakuSettings danmakuSettings = DanmakuSettings.defaults();
   ContentFilterSettings contentFilter = ContentFilterSettings.defaults();
 
-  /// JVM 运行时是否就绪：就绪后 JAR / DEX 蜘蛛源才计入可用站点。
+  /// JAR / DEX 蜘蛛源是否可用：桌面端取决于 JVM 运行时是否已安装，
+  /// 安卓端由 ART / DexClassLoader 原生加载，天然就绪。
   bool jarReady = false;
 
   static const accentPalette = <Color>[
@@ -514,7 +515,7 @@ class AppState extends ChangeNotifier {
 
   /// 安装 / 删除 JVM 运行时后刷新可用性（触发界面重算）。
   Future<void> refreshJarReady() async {
-    final ready = await JvmRuntime.instance.installed();
+    final ready = await JvmRuntime.jarSpiderReady();
     if (ready == jarReady) return;
     jarReady = ready;
     _syncGlobalJar();
@@ -685,7 +686,7 @@ class AppState extends ChangeNotifier {
           ? liveProfiles.first.id
           : null;
     }
-    jarReady = await JvmRuntime.instance.installed();
+    jarReady = await JvmRuntime.jarSpiderReady();
     if (!playerWindow &&
         jarReady &&
         profiles.any(
