@@ -312,8 +312,10 @@ class JarSpiderAndroidService extends JarSpiderService {
     if (uri == null) return url;
     final host = uri.host.toLowerCase();
     if (host != '127.0.0.1' && host != 'localhost') return url;
-    // 把 127.0.0.1 上任意端口的 /proxy、/chunk 路由改写到进程内代理的真实端口。
-    if (uri.path == '/proxy' || uri.path == '/chunk') {
+    // 只接管 /proxy 路由（对齐桌面端 spider_host.rewriteLocalProxy）：加固壳自己会
+    // 起本地 HTTP 取流服务处理 /chunk 多线程分片下载，必须保持原样由壳本地服务器响应；
+    // 若改写到进程内代理端口（只认 /proxy），播放器会拿到错误响应而 Source error。
+    if (uri.path == '/proxy' || uri.path.startsWith('/proxy/')) {
       return uri.replace(host: '127.0.0.1', port: proxyPort).toString();
     }
     return url;
