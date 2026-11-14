@@ -162,6 +162,9 @@ class _PlayerPageState extends State<PlayerPage>
   /// 沉浸观影下窗口本来就全屏，离开播放器时不能把外层沉浸全屏退掉。
   bool _immersiveMode = false;
 
+  /// 自动横屏时一并隐藏了系统栏（沉浸模式），离开播放器时需恢复标准系统栏。
+  bool _landscapeUiApplied = false;
+
   /// 同一集取链进行中的标记：用于忽略重复点击（`_openSeq` 只负责作废旧结果）。
   int? _loadingIndex;
 
@@ -351,7 +354,8 @@ class _PlayerPageState extends State<PlayerPage>
     _lastAppliedBufferMin = _app.playerSettings.bufferMinSec;
     _lastAppliedBufferMax = _app.playerSettings.bufferMaxSec;
     _immersiveMode = _app.playerSettings.immersiveMode;
-    // 移动端播放时自动横屏：进入播放器即请求横屏，退出时（dispose）恢复系统默认。
+    // 移动端播放时自动横屏：进入播放器即请求横屏，并隐藏系统栏（沉浸模式）
+    // 避免系统状态栏/导航栏的白色条盖住播放器按键；退出时（dispose）恢复。
     if (_isMobile && _app.playerSettings.autoLandscape) {
       unawaited(
         SystemChrome.setPreferredOrientations(<DeviceOrientation>[
@@ -359,6 +363,8 @@ class _PlayerPageState extends State<PlayerPage>
           DeviceOrientation.landscapeRight,
         ]),
       );
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+      _landscapeUiApplied = true;
     }
     BossKeyService.instance.bindPlayer(
       this,
@@ -1447,6 +1453,9 @@ class _PlayerPageState extends State<PlayerPage>
       setWindowFullscreen(false);
     } else if (_fullscreen && !isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } else if (_landscapeUiApplied && !isDesktop) {
+      // 自动横屏隐藏了系统栏，离开播放器恢复标准系统栏，避免影响列表页。
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.standard);
     }
     // 移动端自动横屏：离开播放器时恢复系统默认方向，不再强制横屏。
     if (_opened && _isMobile) {
