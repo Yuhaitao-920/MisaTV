@@ -351,6 +351,15 @@ class _PlayerPageState extends State<PlayerPage>
     _lastAppliedBufferMin = _app.playerSettings.bufferMinSec;
     _lastAppliedBufferMax = _app.playerSettings.bufferMaxSec;
     _immersiveMode = _app.playerSettings.immersiveMode;
+    // 移动端播放时自动横屏：进入播放器即请求横屏，退出时（dispose）恢复系统默认。
+    if (_isMobile && _app.playerSettings.autoLandscape) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]),
+      );
+    }
     BossKeyService.instance.bindPlayer(
       this,
       pause: _pauseForBossKey,
@@ -1438,6 +1447,10 @@ class _PlayerPageState extends State<PlayerPage>
       setWindowFullscreen(false);
     } else if (_fullscreen && !isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+    // 移动端自动横屏：离开播放器时恢复系统默认方向，不再强制横屏。
+    if (_opened && _isMobile) {
+      unawaited(SystemChrome.setPreferredOrientations(<DeviceOrientation>[]));
     }
     super.dispose();
   }
