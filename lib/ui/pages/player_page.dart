@@ -1454,8 +1454,8 @@ class _PlayerPageState extends State<PlayerPage>
     } else if (_fullscreen && !isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } else if (_landscapeUiApplied && !isDesktop) {
-      // 自动横屏隐藏了系统栏，离开播放器恢复标准系统栏，避免影响列表页。
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.standard);
+      // 自动横屏隐藏了系统栏，离开播放器恢复（与全屏恢复一致），避免影响列表页。
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     // 移动端自动横屏：离开播放器时恢复系统默认方向，不再强制横屏。
     if (_opened && _isMobile) {
