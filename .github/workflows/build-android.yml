@@ -132,13 +132,28 @@ jobs:
           apk="$GITHUB_WORKSPACE/build/app/outputs/flutter-apk/app-release.apk"
           work=$(mktemp -d)
           unzip -o -q "$apk" 'classes*.dex' -d "$work"
+          # 宿主 API 类 + 加固壳运行时链接的 Java 库：APK 自身代码完全不引用它们，
+          # 只被外部 dex 链接，R8 最容易整包裁掉。用 -F 匹配 dex 里的类型描述符，
+          # 注意 'Request$Builder' 里的 $ 必须放在单引号里，不能被 shell 展开。
+          classes=(
+            'Lcom/github/catvod/crawler/Spider;'
+            'Lcom/github/catvod/crawler/SpiderApi;'
+            'Lcom/github/catvod/crawler/SpiderDebug;'
+            'Lcom/kniephos/kniephos/SpiderHostPlugin;'
+            'Lokhttp3/Request$Builder;'
+            'Lokhttp3/OkHttpClient;'
+            'Lokio/Buffer;'
+            'Lcom/google/gson/Gson;'
+            'Lorg/jsoup/Jsoup;'
+            'Lcom/alibaba/fastjson/JSON;'
+          )
           ok=1
-          for c in Spider SpiderApi SpiderDebug; do
-            if grep -a -q "Lcom/github/catvod/crawler/$c;" "$work"/classes*.dex; then
+          for c in "${classes[@]}"; do
+            if grep -a -q -F "$c" "$work"/classes*.dex; then
               echo "host class present: $c"
               echo "host class $c: present" >> build-manifest.txt
             else
-              echo "::error::CatVod host class removed or obfuscated by R8: $c"
+              echo "::error::host class removed or obfuscated by R8: $c"
               echo "host class $c: MISSING" >> build-manifest.txt
               ok=0
             fi

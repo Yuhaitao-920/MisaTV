@@ -47,6 +47,21 @@ kotlin {
     }
 }
 
+dependencies {
+    // CatVod / wex 加固壳解密出的「真实蜘蛛」运行在宿主 ClassLoader 的 parent 链上，
+    // 会直接引用 TVBox 宿主自带的 Java 库。Flutter 侧一个都没有，缺了就在
+    // homeContent 抛 `NoClassDefFoundError: Failed resolution of: Lokhttp3/Request$Builder;`。
+    // 这些类宿主代码本身不引用，只被外部 dex 反射/链接使用，因此 proguard-rules.pro
+    // 里必须一并 -keep，否则 R8 会把它们全裁掉。
+    //
+    // 固定 OkHttp 3.12.x：这批壳是按 TVBox 的 OkHttp3 3.x API 编译的
+    // （RequestBody.create(MediaType, String) 等），4.x 改了签名会 NoSuchMethodError。
+    implementation("com.squareup.okhttp3:okhttp:3.12.13")   // 传递依赖 okio 1.17.x
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("org.jsoup:jsoup:1.16.1")
+    implementation("com.alibaba:fastjson:1.2.83")
+}
+
 flutter {
     source = "../.."
 }
