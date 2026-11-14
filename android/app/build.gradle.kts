@@ -34,6 +34,9 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Flutter 3.47 的 release 构建会跑 R8。CatVod 宿主类只被外部 jar/壳 dex
+            // 反射引用，不 keep 会被裁掉或混淆成短名，导致加固壳 ClassNotFoundException。
+            proguardFiles("proguard-rules.pro")
         }
     }
 }

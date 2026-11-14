@@ -124,6 +124,27 @@ jobs:
           } > build-manifest.txt
           cat build-manifest.txt
 
+      # Flutter 3.47 的 release 构建会跑 R8。CatVod 宿主类只被外部 jar / 加固壳
+      # dex 反射引用，若 proguard keep 失效会被裁掉或混淆成短名，APK 会在加载
+      # 蜘蛛时抛 ClassNotFoundException —— 这里在 CI 里直接兜住。
+      - name: Verify CatVod host classes survived R8
+        run: |
+          apk="$GITHUB_WORKSPACE/build/app/outputs/flutter-apk/app-release.apk"
+          work=$(mktemp -d)
+          unzip -o -q "$apk" 'classes*.dex' -d "$work"
+          ok=1
+          for c in Spider SpiderApi SpiderDebug; do
+            if grep -a -q "Lcom/github/catvod/crawler/$c;" "$work"/classes*.dex; then
+              echo "host class present: $c"
+              echo "host class $c: present" >> build-manifest.txt
+            else
+              echo "::error::CatVod host class removed or obfuscated by R8: $c"
+              echo "host class $c: MISSING" >> build-manifest.txt
+              ok=0
+            fi
+          done
+          test "$ok" -eq 1
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

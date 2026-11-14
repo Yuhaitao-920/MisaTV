@@ -80,6 +80,14 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     companion object {
         const val CHANNEL = "com.kniephos.kniephos/spider"
+
+        // 给 R8 留一条静态引用：这些宿主类只被外部 jar 反射使用，没有引用的话
+        // 在 shrink 阶段会被当成无用类裁掉（真正的保名由 proguard-rules.pro 负责）。
+        private val HOST_CLASSES = arrayOf(
+            com.github.catvod.crawler.Spider::class.java,
+            com.github.catvod.crawler.SpiderApi::class.java,
+            com.github.catvod.crawler.SpiderDebug::class.java,
+        )
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
