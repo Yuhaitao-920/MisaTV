@@ -3869,52 +3869,53 @@ class _DriveAccountRow extends StatelessWidget {
       ),
     );
 
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (provider == 'uc')
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              visualDensity: VisualDensity.compact,
-            ),
-            onPressed: () => _ucTvLogin(context),
-            child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
-          ),
-        if (_webLogin)
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              visualDensity: VisualDensity.compact,
-            ),
-            onPressed: () => _manualCookie(context),
-            child: const Text('手动 Cookie'),
-          ),
-        if (guest && !optional)
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-            onPressed: () => _login(context),
-            child: const Text('重新登录'),
-          )
-        else if (hasCookie)
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              visualDensity: VisualDensity.compact,
-            ),
-            onPressed: () => _logout(context),
-            child: const Text('退出'),
-          )
-        else
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-            onPressed: () => _login(context),
-            child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
-          ),
-      ],
-    );
+    // 主操作：放在标题行右侧，单行永远只有一个按钮，避免窄屏溢出被裁切。
+    Widget primaryButton;
+    if (guest) {
+      primaryButton = FilledButton.tonal(
+        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+        onPressed: () => _login(context),
+        child: const Text('重新登录'),
+      );
+    } else if (!signedIn) {
+      primaryButton = FilledButton.tonal(
+        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+        onPressed: () => _login(context),
+        child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
+      );
+    } else {
+      primaryButton = TextButton(
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: () => _logout(context),
+        child: const Text('退出'),
+      );
+    }
 
-    // 单行布局：左侧图标 + 名称/状态 + 说明，右侧操作按钮，保持同一行。
+    // 次要操作：放到标题行下方，用 Wrap 自动换行，绝不溢出。
+    final secondary = <Widget>[
+      if (provider == 'uc')
+        TextButton(
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: () => _ucTvLogin(context),
+          child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
+        ),
+      if (_webLogin)
+        TextButton(
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: () => _manualCookie(context),
+          child: const Text('手动 Cookie'),
+        ),
+    ];
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -3922,36 +3923,48 @@ class _DriveAccountRow extends StatelessWidget {
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(_icon, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(_icon, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Flexible(child: Text(name, style: theme.textTheme.bodyMedium)),
-                    const SizedBox(width: 8),
-                    statusChip,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(name, style: theme.textTheme.bodyMedium),
+                        ),
+                        const SizedBox(width: 8),
+                        statusChip,
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitleText,
+                      style: theme.textTheme.labelSmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitleText,
-                  style: theme.textTheme.labelSmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              primaryButton,
+            ],
           ),
-          const SizedBox(width: 10),
-          actions,
+          if (secondary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 6, children: secondary),
+          ],
         ],
       ),
     );
