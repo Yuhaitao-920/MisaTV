@@ -116,80 +116,125 @@ class _DriveAccountRow extends StatelessWidget {
         : signedIn
         ? '已登录'
         : (optional ? '未配置' : '未登录');
-    final subtitleText = guest
-        ? (optional
-              ? 'Cookie 已失效，可重新粘贴（未配置也能播 360P / 480P）'
-              : '会话已失效（游客态），请重新扫码登录')
-        : (signedIn
-              ? (account!.username.isNotEmpty
-                    ? account.username
-                    : 'Cookie 已保存到本机')
-              : optional
-              ? '可选：粘贴浏览器 Cookie 后可用高清 / 大会员画质，不配置也能播 360P / 480P'
-              : (_webLogin
-                    ? '在官方网页中扫码登录，登录后蜘蛛源可读取网盘内的资源'
-                    : '粘贴浏览器 Cookie 后，蜘蛛源才能读取该网盘内的资源'));
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(_icon, size: 20),
-      title: Row(
+    // 状态用小圆点表示（长按可看文字），避免文字标签占掉横向空间，
+    // 保证网盘名称在窄屏上也能完整显示。
+    final statusDot = Tooltip(
+      message: statusLabel,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: signedIn
+              ? theme.colorScheme.primary
+              : (guest && !optional
+                    ? theme.colorScheme.error
+                    : theme.disabledColor),
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+
+    // 紧凑按钮：文案缩短 + 长按提示完整含义，保证单行放得下。
+    Widget actionButton(
+      String label,
+      String tip,
+      void Function() onTap, {
+      bool primary = false,
+    }) {
+      final text = Text(label, style: const TextStyle(fontSize: 12));
+      return Tooltip(
+        message: tip,
+        child: primary
+            ? FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onTap,
+                child: text,
+              )
+            : TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onTap,
+                child: text,
+              ),
+      );
+    }
+
+    final buttons = <Widget>[
+      if (guest)
+        actionButton('重登', '重新登录', () => _login(context), primary: true)
+      else if (!signedIn)
+        actionButton(
+          _webLogin ? '扫码登录' : '粘贴 Cookie',
+          _webLogin ? '网页扫码登录' : '粘贴浏览器 Cookie',
+          () => _login(context),
+          primary: true,
+        )
+      else
+        actionButton('退出', '退出登录', () => _logout(context)),
+      if (provider == 'uc')
+        actionButton(
+          tvBound ? 'TV 已授权' : 'TV 扫码',
+          tvBound ? 'UC TV 已授权' : 'UC TV 扫码登录',
+          () => _ucTvLogin(context),
+        ),
+      if (_webLogin)
+        actionButton('手动 Cookie', '手动填写 Cookie', () => _manualCookie(context)),
+    ];
+
+    // 单行横向：图标 + 固定宽度名称 + 状态圆点 + 右侧按钮组。
+    // 名称固定 76dp，五个网盘都能完整显示；按钮组用 FittedBox(scaleDown)
+    // 兜底缩放，任何窄屏都不会溢出到卡片外面。
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(name, style: theme.textTheme.bodyMedium),
+          Icon(_icon, size: 20),
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: signedIn
-                  ? theme.colorScheme.primary.withValues(alpha: 0.12)
-                  : theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.6,
-                    ),
-              borderRadius: BorderRadius.circular(6),
-            ),
+          SizedBox(
+            width: 76,
             child: Text(
-              statusLabel,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: signedIn
-                    ? theme.colorScheme.primary
-                    : (guest && !optional
-                          ? theme.colorScheme.error
-                          : theme.disabledColor),
+              name,
+              style: theme.textTheme.bodyMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          statusDot,
+          const SizedBox(width: 6),
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (int i = 0; i < buttons.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      buttons[i],
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
-        ],
-      ),
-      subtitle: Text(subtitleText, style: theme.textTheme.labelSmall),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (provider == 'uc')
-            TextButton(
-              onPressed: () => _ucTvLogin(context),
-              child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
-            ),
-          if (_webLogin)
-            TextButton(
-              onPressed: () => _manualCookie(context),
-              child: const Text('手动 Cookie'),
-            ),
-          if (guest && !optional)
-            FilledButton.tonal(
-              onPressed: () => _login(context),
-              child: const Text('重新登录'),
-            )
-          else if (hasCookie)
-            TextButton(
-              onPressed: () => _logout(context),
-              child: const Text('退出'),
-            )
-          else
-            FilledButton.tonal(
-              onPressed: () => _login(context),
-              child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
-            ),
         ],
       ),
     );

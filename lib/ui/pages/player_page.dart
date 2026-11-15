@@ -211,8 +211,6 @@ class _PlayerPageState extends State<PlayerPage>
 
   /// 沉浸观影下窗口本来就全屏，离开播放器时不能把外层沉浸全屏退掉。
   bool _immersiveMode = false;
-
-  /// 自动横屏时一并隐藏了系统栏（沉浸模式），离开播放器时需恢复标准系统栏。
   bool _landscapeUiApplied = false;
 
   /// 同一集取链进行中的标记：用于忽略重复点击（`_openSeq` 只负责作废旧结果）。
@@ -307,30 +305,12 @@ class _PlayerPageState extends State<PlayerPage>
   /// 正在刷新取流（防止连点重复起播放器）。
   bool _refreshing = false;
 
-  /// fvp（libmdk）在桌面端始终接管 video_player；移动端默认不接管，
-  /// 安卓端需用户开启 FFmpeg 内核并显式 registerWith 后才走 libmdk/FFmpeg。
-  /// 该 getter 只表达「平台是否支持 fvp」，是否真正启用另由 useFfmpeg 决定。
+  /// fvp（libmdk）只在桌面端接管 video_player，移动端拿不到 MediaInfo。
   bool get _mdkEnabled =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.macOS ||
-          defaultTargetPlatform == TargetPlatform.android);
-
-  /// 安卓端在用户开启 FFmpeg 内核时显式注册 fvp：fvp 默认只在桌面接管
-  /// video_player，移动端需要主动 registerWith 才会走 libmdk/FFmpeg 解码。
-  /// 桌面端由启动处统一注册，这里只在安卓补一次；用静态标记避免重复注册。
-  static bool _fvpRegistered = false;
-  void _ensureFvp() {
-    if (_fvpRegistered || defaultTargetPlatform != TargetPlatform.android) return;
-    if (!_app.playerSettings.useFfmpeg) return;
-    try {
-      registerWith();
-      _fvpRegistered = true;
-    } catch (_) {
-      // 注册失败则退回系统 ExoPlayer，不影响其余播放逻辑
-    }
-  }
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   String get _episodeName =>
       _index >= 0 && _index < _episodes.length ? _episodes[_index].name : '';
@@ -424,8 +404,13 @@ class _PlayerPageState extends State<PlayerPage>
     }
     _opened = true;
     _app = AppScope.of(context);
-    // 安卓端：用户开启 FFmpeg 内核时让 fvp 接管 video_player（桌面端已在启动处注册）。
-    _ensureFvp();
+    // 设置里的全局无痕模式：本次播放默认就不写历史 / 进度。
+    // 播放器里的「无痕播放」开关仍可对本次播放单独关掉，不改全局设置。
+    _ephemeral = _ephemeral || _app.playerSettings.incognito;
+    if (!_partyBound) {
+      _partyBound = true;
+      _app.watchParty.addListener(_onPartyUpdate);
+    }
     _lastAppliedBufferMin = _app.playerSettings.bufferMinSec;
     _lastAppliedBufferMax = _app.playerSettings.bufferMaxSec;
     _immersiveMode = _app.playerSettings.immersiveMode;
@@ -438,7 +423,9 @@ class _PlayerPageState extends State<PlayerPage>
           DeviceOrientation.landscapeRight,
         ]),
       );
-      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+      );
       _landscapeUiApplied = true;
     }
     BossKeyService.instance.bindPlayer(
@@ -1672,10 +1659,10 @@ class _PlayerPageState extends State<PlayerPage>
     } else if (_fullscreen && !isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } else if (_landscapeUiApplied && !isDesktop) {
-      // 自动横屏隐藏了系统栏，离开播放器恢复（与全屏恢复一致），避免影响列表页。
+      // 自动横屏隐藏了系统栏，离开播放器恢复（与全屏恢复一致）。
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
-    // 移动端自动横屏：离开播放器时恢复系统默认方向，不再强制横屏。
+    // 移动端自动横屏：离开播放器时恢复系统默认方向。
     if (_opened && _isMobile) {
       unawaited(SystemChrome.setPreferredOrientations(<DeviceOrientation>[]));
     }
@@ -1888,9 +1875,9 @@ class _PlayerPageState extends State<PlayerPage>
       return const SizedBox.shrink();
     }
     final padding = EdgeInsets.fromLTRB(
-      14,
+      18,
       MediaQuery.paddingOf(context).top + (_controls ? 62 : 16),
-      14,
+      18,
       MediaQuery.paddingOf(context).bottom + (_controls ? 108 : 16),
     );
     return Positioned.fill(
@@ -2427,9 +2414,9 @@ class _PlayerPageState extends State<PlayerPage>
       top: 0,
       child: Container(
         padding: EdgeInsets.fromLTRB(
-          14,
-          MediaQuery.paddingOf(context).top + 10,
-          14,
+          8,
+          MediaQuery.paddingOf(context).top + 8,
+          12,
           24,
         ),
         decoration: const BoxDecoration(
