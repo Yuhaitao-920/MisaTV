@@ -400,10 +400,16 @@ class PlayerSettings {
     this.tmdbReadToken = '',
     this.bossKey = kUnsetBossKey,
     this.autoLandscape = true,
+    this.useFfmpeg = true,
   });
   final double speed;
   final bool autoPlayNext;
   final bool autoLandscape;
+
+  /// 内置播放器是否使用 FFmpeg/libmdk（fvp）解码内核：安卓端开启后支持更多
+  /// 封装与编码（与 FongMi/TV 同款解码能力），关掉则回落到系统 ExoPlayer。
+  /// 桌面端始终使用 fvp，该开关仅影响安卓。
+  final bool useFfmpeg;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
@@ -488,9 +494,11 @@ class PlayerSettings {
     String? tmdbReadToken,
     String? bossKey,
     bool? autoLandscape,
+    bool? useFfmpeg,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
+    useFfmpeg: useFfmpeg ?? this.useFfmpeg,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
@@ -571,6 +579,7 @@ class PlayerSettings {
   Map<String, dynamic> toJson() => {
     'speed': speed,
     'autoLandscape': autoLandscape,
+    'useFfmpeg': useFfmpeg,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'magnetDownloadDir': magnetDownloadDir,
@@ -610,6 +619,7 @@ class PlayerSettings {
     return PlayerSettings(
     speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
+    useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),
