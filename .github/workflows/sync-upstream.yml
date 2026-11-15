@@ -1,0 +1,47 @@
+name: Sync upstream (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: 'Conflict resolution strategy (ours keeps fork-side hunks)'
+        type: choice
+        options:
+          - ours
+          - theirs
+        default: ours
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    name: Merge upstream/main into fork main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream
+        run: |
+          set -euo pipefail
+          git config user.name "misatv-sync-bot"
+          git config user.email "misatv-sync-bot@users.noreply.github.com"
+          git remote add upstream https://github.com/yagami-hue/MisaTV.git
+          git fetch --no-tags upstream main
+          echo "=== fork HEAD before ==="
+          git rev-parse HEAD
+          echo "=== upstream HEAD ==="
+          git rev-parse upstream/main
+          echo "=== merge with -X strategy ==="
+          git merge --no-edit -X "${{ inputs.strategy }}" upstream/main
+          echo "=== log after merge ==="
+          git log --oneline -6
+          echo "=== diff stat vs backup point ==="
+          git diff --stat 067b2d9156fa2ad901aba1fc81e7c655e2be4538 HEAD | tail -25
+          git push origin main
