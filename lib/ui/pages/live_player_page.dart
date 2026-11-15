@@ -219,9 +219,10 @@ class _LivePlayerPageState extends State<LivePlayerPage>
 
     var current = uri;
     for (var hop = 0; hop < 3; hop++) {
+      // 不自动跟随重定向：只取 Location，由我们自己逐跳解析。
+      // followRedirects 是 HttpClientRequest 的属性，不在 HttpClient 上。
       final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 4)
-        ..followRedirects = false;
+        ..connectionTimeout = const Duration(seconds: 4);
       try {
         final req = await client
             .getUrl(current)
