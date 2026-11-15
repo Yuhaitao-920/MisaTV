@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-build-${{ github.ref }}
+  group: android-build-retry-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
