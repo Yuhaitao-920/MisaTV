@@ -39,7 +39,12 @@ jobs:
           echo "=== upstream HEAD ==="
           git rev-parse upstream/main
           echo "=== merge with -X strategy ==="
-          git merge --no-edit -X "${{ inputs.strategy }}" upstream/main
+          if ! git merge --no-edit -X "${{ inputs.strategy }}" upstream/main; then
+            echo "=== resolving remaining conflicts (keep working-tree version) ==="
+            git status --short | head -60
+            git add -A
+            git commit --no-edit -m "Merge upstream/main (remaining conflicts keep fork-side)"
+          fi
           echo "=== log after merge ==="
           git log --oneline -6
           echo "=== diff stat vs backup point ==="
