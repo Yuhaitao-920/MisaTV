@@ -288,7 +288,8 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
     // 底部手势条（home indicator）在 edge-to-edge 模式下透明叠加在内容之上，
     // 这里把横条整体上抬一个手势条高度，避免横条与手势条重叠。
-    final gestureInset = MediaQuery.of(context).viewPadding.bottom;
+    // clamp 防止个别 ROM 返回异常大的 bottom 值把横条抬得过高。
+    final gestureInset = MediaQuery.of(context).viewPadding.bottom.clamp(0.0, 48.0);
     final navBar = Padding(
       padding: EdgeInsets.fromLTRB(12, 4, 12, 10 + gestureInset),
       child: Center(
