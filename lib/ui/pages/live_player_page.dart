@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -88,6 +89,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   String _error = '';
   int _openSeq = 0;
   Timer? _hideTimer;
+
+  /// 打开失败时是否已经自动换过线路：每次进入页面最多自动切一次，避免循环重切。
+  bool _autoSwitchTried = false;
 
   /// 「详情」悬浮层开关与每秒刷新时钟 / 码率 / EPG 进度的计时器。
   bool _detailsVisible = false;
@@ -193,6 +197,108 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     }
   }
 
+  /// 无扩展名的 http(s) 直播地址（如 `live.php?id=...`）通常 302 到真正的
+  /// `.m3u8`。官方 ExoPlayer 按**原始 URL** 的路径后缀推断容器类型，
+  /// `live.php` 会被当成普通渐进式文件，拿到 HLS 清单后立刻报 "Source error"。
+  /// 这里先在 Dart 侧跟完重定向，把最终地址交给播放器，HLS 才能被正确识别。
+  /// 任何异常都静默回退原地址，不改变原有播放路径。
+  Future<String> _resolveFinalUrl(
+    String url,
+    Map<String, String> headers,
+  ) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return url;
+    }
+    const known = <String>[
+      '.m3u8', '.m3u', '.mpd', '.flv', '.ts', '.mp4', '.mkv',
+      '.avi', '.mov', '.m4a', '.mp3', '.aac', '.ism',
+    ];
+    final path = uri.path.toLowerCase();
+    if (known.any(path.endsWith)) return url;
+
+    var current = uri;
+    for (var hop = 0; hop < 3; hop++) {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 4)
+        ..followRedirects = false;
+      try {
+        final req = await client
+            .getUrl(current)
+            .timeout(const Duration(seconds: 4));
+        req.followRedirects = false;
+        for (final entry in headers.entries) {
+          final name = entry.key.toLowerCase();
+          // 这几个由 HttpClient 自己管理，手动写会抛异常。
+          if (name == 'host' || name == 'connection' ||
+              name == 'content-length') {
+            continue;
+          }
+          try {
+            req.headers.set(entry.key, entry.value);
+          } catch (_) {
+            // 个别保留头不让写，忽略即可，不影响取 Location。
+          }
+        }
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        final location = resp.headers.value('location');
+        final status = resp.statusCode;
+        if (status < 300 || status >= 400 ||
+            location == null || location.isEmpty) {
+          break;
+        }
+        final next = Uri.tryParse(location);
+        final resolved = (next != null && next.hasScheme)
+            ? next
+            : current.resolve(location);
+        if (resolved.toString() == current.toString()) break;
+        current = resolved;
+        // 已经拿到带流媒体后缀的真实地址就停，别再多消耗一次取流请求。
+        if (known.any(current.path.toLowerCase().endsWith)) break;
+      } catch (_) {
+        break;
+      } finally {
+        client.close(force: true);
+      }
+    }
+    final result = current.toString();
+    if (result != url) {
+      AppLog.i(
+        'live',
+        '直播重定向取址 ${redactUrl(url)} -> ${redactUrl(result)}',
+      );
+    }
+    return result;
+  }
+
+  /// 原生播放器的异常信息是英文且不可操作，转成能直接照做的中文提示。
+  String _friendlyError(Object error) {
+    final raw = error.toString();
+    if (raw.contains('Source error') || raw.contains('VideoError')) {
+      return '该线路无法播放：源已失效，或地址格式不被播放器识别。\n'
+          '可点「线路」换一条，或检查该直播源的 UA / Referer 设置。';
+    }
+    return '打开直播失败：$raw';
+  }
+
+  /// 当前线路打不开时自动换下一条（每次进入页面最多一次，避免循环重切）。
+  bool _scheduleNextLine(int seq) {
+    if (_autoSwitchTried || _lines.length < 2) return false;
+    final idx = _lines.indexWhere((l) => l.url == _line.url);
+    if (idx < 0 || idx + 1 >= _lines.length) return false;
+    final next = _lines[idx + 1];
+    _autoSwitchTried = true;
+    AppLog.i(
+      'live',
+      '线路失败自动切换 ${_channel.name} -> ${redactUrl(next.url)}',
+    );
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (!mounted || seq != _openSeq) return;
+      unawaited(_open(next));
+    });
+    return true;
+  }
+
   Future<void> _open(LiveLine line) async {
     // 频道地址可能带 `@referer=...@user-agent=...` 形式的头（TVBox 常见写法）：
     // 直接丢给 Uri.parse 会得到一个无效地址，播放器只能报 invalid media。
@@ -243,6 +349,12 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         if (seq != _openSeq || !mounted) return;
         AppLog.i('live', '蜘蛛直播取址 ${redactUrl(cleanUrl)}');
       }
+      // 无扩展名地址（live.php 这类）常 302 到真实 .m3u8；官方播放器按原始
+      // 后缀推断容器类型会当成普通文件，直接报 Source error。先跟完重定向。
+      cleanUrl = await _resolveFinalUrl(cleanUrl, headers);
+      if (seq != _openSeq || !mounted) return;
+      // 最终地址可能落在别的 CDN host，按它再解一次自定义直播 UA 规则。
+      applyLiveStreamUa(headers, cleanUrl);
       // 原生播放器不读 Dart 的代理覆盖，启用内置代理时把远端流包进本机中继。
       final uri = Uri.tryParse(cleanUrl);
       final viaRelay =
@@ -279,10 +391,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _controller = null;
       controller?.removeListener(_onPlayerValue);
       unawaited(controller?.dispose());
+      final switching = _scheduleNextLine(seq);
       setState(() {
         _buffering = false;
         _controls = true;
-        _error = '打开直播失败：$e';
+        _error = switching
+            ? '当前线路无法播放，正在自动切换下一条线路…'
+            : _friendlyError(e);
       });
       _syncSleepInhibitor();
     }
