@@ -898,8 +898,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('自动连播下一集'),
                           subtitle: const Text('当前集播放结束后自动切换'),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
                           value: app.playerSettings.autoSwitchLine,
@@ -911,8 +910,7 @@ class SettingsPageState extends State<SettingsPage> {
                             '当前线路播放失败时自动尝试下一条线路；'
                             '本源线路都失败后再搜索其他源的相同片名',
                           ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
                           value: app.playerSettings.rememberProgress,
@@ -921,8 +919,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('记住播放进度'),
                           subtitle: const Text('退出播放器时保存进度，下次继续'),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
                           value: app.playerSettings.autoLandscape,
@@ -933,8 +930,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '打开播放器自动切横屏（仅手机/平板生效），退出后恢复系统方向',
                           ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile.adaptive(
                           value: app.playerSettings.m3u8Purify,
@@ -943,54 +939,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('m3u8 去广告'),
                           subtitle: const Text('点播清单播放前清洗广告分段（启发式，默认关）'),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _Section(
-                    title: '解码内核',
-                    icon: Icons.memory_rounded,
-                    collapsible: true,
-                    initiallyExpanded: false,
-                    trailing: Text(
-                      app.playerSettings.useFfmpeg ? 'FFmpeg/libmdk' : '系统 ExoPlayer',
-                      style: theme.textTheme.labelSmall,
-                    ),
-                    summary: Text(
-                      app.playerSettings.useFfmpeg
-                          ? '已启用 FFmpeg/libmdk 解码，兼容更多编码'
-                          : '使用系统 ExoPlayer；如部分源放不动可开启',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SwitchListTile.adaptive(
-                          value: app.playerSettings.useFfmpeg,
-                          onChanged: (v) => app.setPlayerSettings(
-                            app.playerSettings.copyWith(useFfmpeg: v),
-                          ),
-                          title: const Text('FFmpeg 解码内核'),
-                          subtitle: const Text(
-                            '安卓端用 FFmpeg/libmdk 解码，兼容更多编码与封装；'
-                            '关闭回落系统 ExoPlayer。开启后重开播放器即生效，'
-                            '彻底关闭建议重启 App',
-                          ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '提示：若某源用系统播放器放不动，可开启本项；'
-                          '若开启后画面异常或闪退，关掉即回落系统播放器。',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                          ),
+                          contentPadding: EdgeInsets.zero,
                         ),
                       ],
                     ),
@@ -1037,8 +986,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '把已下行的分片存到本地：重看、拖回看过的位置直接读盘，不再回源',
                           ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
                           icon: Icons.sd_storage_outlined,
@@ -1147,8 +1095,7 @@ class SettingsPageState extends State<SettingsPage> {
                             '先提交到迅雷云盘离线下载，云端完成后播放；'
                             '未登录、关闭或失败时自动回退 aria2',
                           ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
                           icon: Icons.folder_open_rounded,
@@ -1259,8 +1206,7 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                           title: const Text('默认开启弹幕'),
                           subtitle: const Text('优先使用已启用接口；未命中会自动扩大搜索'),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
                           icon: Icons.chat_bubble_outline_rounded,
@@ -1353,8 +1299,7 @@ class SettingsPageState extends State<SettingsPage> {
                               '多 JS 源同时搜索 / 浏览时最多使用 3 个 QuickJS 执行器，'
                               '避免所有请求排在一个 isolate 里；更占内存，默认关闭',
                             ),
-                            secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                            contentPadding: EdgeInsets.zero,
                           ),
                           Text(
                             '开启后每个执行器使用独立的脚本本地存储文件。'
@@ -1377,8 +1322,7 @@ class SettingsPageState extends State<SettingsPage> {
                               '搜索 / 浏览结束后保留 JVM 取数进程 2 分钟，减少再次冷启动；'
                               '更占内存，默认关闭',
                             ),
-                            secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                            contentPadding: EdgeInsets.zero,
                           ),
                         ],
                       ),
@@ -1406,8 +1350,7 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: const Text(
                             '开启时设置关闭密码，关闭过滤必须输入该密码，防止儿童误关；命中关键词的条目与分类会从首页、分类与搜索结果里隐藏',
                           ),
-                          secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         _ActionRow(
                           icon: Icons.rule_rounded,
@@ -3794,7 +3737,7 @@ class _ActionRow extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       enabled: onTap != null,
       leading: Icon(icon, size: 20),
-      title: Text(title, style: theme.textTheme.bodyLarge),
+      title: Text(title, style: theme.textTheme.bodyMedium),
       subtitle: Text(subtitle, style: theme.textTheme.labelSmall),
       trailing: const Icon(Icons.chevron_right_rounded, size: 20),
       onTap: onTap,
@@ -3904,107 +3847,111 @@ class _DriveAccountRow extends StatelessWidget {
               : (_webLogin
                     ? '在官方网页中扫码登录，登录后蜘蛛源可读取网盘内的资源'
                     : '粘贴浏览器 Cookie 后，蜘蛛源才能读取该网盘内的资源'));
-    final chipColor = signedIn
-        ? theme.colorScheme.primary
-        : (guest && !optional ? theme.colorScheme.error : theme.disabledColor);
-    final chipBg = signedIn
-        ? theme.colorScheme.primary.withValues(alpha: 0.12)
-        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
-
-    Widget _actionButton({
-      required VoidCallback onPressed,
-      required String label,
-      bool filled = false,
-    }) {
-      final child = Text(label);
-      return filled
-          ? FilledButton.tonal(onPressed: onPressed, child: child)
-          : TextButton(onPressed: onPressed, child: child);
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
+    final statusChip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+        color: signedIn
+            ? theme.colorScheme.primary.withValues(alpha: 0.12)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        statusLabel,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: signedIn
+              ? theme.colorScheme.primary
+              : (guest && !optional
+                    ? theme.colorScheme.error
+                    : theme.disabledColor),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    );
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (provider == 'uc')
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _ucTvLogin(context),
+            child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
+          ),
+        if (_webLogin)
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _manualCookie(context),
+            child: const Text('手动 Cookie'),
+          ),
+        if (guest && !optional)
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+            onPressed: () => _login(context),
+            child: const Text('重新登录'),
+          )
+        else if (hasCookie)
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _logout(context),
+            child: const Text('退出'),
+          )
+        else
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+            onPressed: () => _login(context),
+            child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
+          ),
+      ],
+    );
+
+    // 单行布局：左侧图标 + 名称/状态 + 说明，右侧操作按钮，保持同一行。
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(_icon, size: 22),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  name,
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+          Icon(_icon, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(child: Text(name, style: theme.textTheme.bodyMedium)),
+                    const SizedBox(width: 8),
+                    statusChip,
+                  ],
                 ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: chipBg,
-                  borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 3),
+                Text(
+                  subtitleText,
+                  style: theme.textTheme.labelSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: chipColor,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            subtitleText,
-            style: theme.textTheme.labelSmall?.copyWith(height: 1.45),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            children: [
-              if (provider == 'uc')
-                _actionButton(
-                  onPressed: () => _ucTvLogin(context),
-                  label: tvBound ? 'TV 已授权' : 'TV 扫码',
-                ),
-              if (_webLogin)
-                _actionButton(
-                  onPressed: () => _manualCookie(context),
-                  label: '手动 Cookie',
-                ),
-              if (guest && !optional)
-                _actionButton(
-                  onPressed: () => _login(context),
-                  label: '重新登录',
-                  filled: true,
-                )
-              else if (hasCookie)
-                _actionButton(
-                  onPressed: () => _logout(context),
-                  label: '退出',
-                )
-              else
-                _actionButton(
-                  onPressed: () => _login(context),
-                  label: _webLogin ? '网页扫码登录' : '粘贴 Cookie',
-                  filled: true,
-                ),
-            ],
-          ),
+          const SizedBox(width: 10),
+          actions,
         ],
       ),
     );
@@ -6382,8 +6329,7 @@ class _DanmakuEndpointDialogState extends State<_DanmakuEndpointDialog> {
               for (final e in builtinDanmakuEndpoints)
                 SwitchListTile.adaptive(
                   dense: true,
-                  secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                  contentPadding: EdgeInsets.zero,
                   value: _enabled[normalizeEndpointBase(e.url)] ?? e.enabled,
                   onChanged: (v) => setState(
                     () => _enabled[normalizeEndpointBase(e.url)] = v,
@@ -7328,8 +7274,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                   '用 Windows「局域网设置」或 HTTPS_PROXY 环境变量里的代理（Clash / v2rayN 开系统代理即生效）；'
                   '连 api.themoviedb.org 这类域名必须走它',
                 ),
-                secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                contentPadding: EdgeInsets.zero,
               ),
               SwitchListTile.adaptive(
                 value: _enabled,
@@ -7340,8 +7285,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                 }),
                 title: const Text('使用手动代理'),
                 subtitle: const Text('HTTP / SOCKS5 上联；本机 127.0.0.1 始终直连'),
-                secondary: const SizedBox(width: 20),
-                        contentPadding: EdgeInsets.zero,
+                contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 4),
               SegmentedButton<String>(
