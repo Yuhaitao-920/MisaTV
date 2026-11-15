@@ -3869,33 +3869,36 @@ class _DriveAccountRow extends StatelessWidget {
       ),
     );
 
-    // 主操作：放在标题行右侧，单行永远只有一个按钮，避免窄屏溢出被裁切。
-    Widget primaryButton;
-    if (guest) {
-      primaryButton = FilledButton.tonal(
-        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-        onPressed: () => _login(context),
-        child: const Text('重新登录'),
-      );
-    } else if (!signedIn) {
-      primaryButton = FilledButton.tonal(
-        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-        onPressed: () => _login(context),
-        child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
-      );
-    } else {
-      primaryButton = TextButton(
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          visualDensity: VisualDensity.compact,
+    // 单行横向布局：图标 + 名称/状态（可收缩省略） + 操作按钮，全部在同一横行，
+    // 名称用 Expanded 收缩，按钮永远完整不被裁切；去掉多行说明，保持每行一条。
+    final buttons = <Widget>[
+      if (guest)
+        FilledButton.tonal(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: () => _login(context),
+          child: const Text('重新登录'),
+        )
+      else if (!signedIn)
+        FilledButton.tonal(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: () => _login(context),
+          child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
+        )
+      else
+        TextButton(
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: () => _logout(context),
+          child: const Text('退出'),
         ),
-        onPressed: () => _logout(context),
-        child: const Text('退出'),
-      );
-    }
-
-    // 次要操作：放到标题行下方，用 Wrap 自动换行，绝不溢出。
-    final secondary = <Widget>[
       if (provider == 'uc')
         TextButton(
           style: TextButton.styleFrom(
@@ -3918,53 +3921,34 @@ class _DriveAccountRow extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(_icon, size: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(name, style: theme.textTheme.bodyMedium),
-                        ),
-                        const SizedBox(width: 8),
-                        statusChip,
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitleText,
-                      style: theme.textTheme.labelSmall,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+          Icon(_icon, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    name,
+                    style: theme.textTheme.bodyMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              primaryButton,
-            ],
+                const SizedBox(width: 8),
+                statusChip,
+              ],
+            ),
           ),
-          if (secondary.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 6, children: secondary),
-          ],
+          const SizedBox(width: 8),
+          ...buttons,
         ],
       ),
     );
