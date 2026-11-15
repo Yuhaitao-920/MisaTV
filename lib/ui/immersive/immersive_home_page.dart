@@ -10,6 +10,7 @@ import '../../state/app_state.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import 'focus_memory.dart';
 import 'immersive_category_page.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影首页：大屏海报轮播 + 横图卡片横向货架。
@@ -330,7 +331,8 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     // Hero 直接铺满整屏：大屏模式下第一眼就是完整横图，向下滚动才是分类与货架。
-    final heroHeight = MediaQuery.sizeOf(context).height;
+    final m = ImmersiveMetrics.of(context);
+    final heroHeight = m.heroHeight;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -372,7 +374,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
             children: [
           ImmersiveHero(items: _hero, height: heroHeight),
           Padding(
-            padding: const EdgeInsets.fromLTRB(56, 4, 56, 0),
+            padding: EdgeInsets.fromLTRB(m.gutter, 4, m.gutter, 0),
             child: Row(
               children: [
                 Text(
@@ -412,10 +414,17 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          app.activeSite?.displayName ?? '选择源',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: m.compact ? 140 : 320,
+                          ),
+                          child: Text(
+                            app.activeSite?.displayName ?? '选择源',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -429,7 +438,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                   ),
                 ),
                 const Spacer(),
-                if (_total > 0)
+                if (!m.compact && _total > 0)
                   Text(
                     '共 $_total 部',
                     style: theme.textTheme.labelSmall?.copyWith(
@@ -450,7 +459,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
           const SizedBox(height: 18),
           if (_classes.isNotEmpty) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+              padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -478,7 +487,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                 behavior: const MouseDragScrollBehavior(),
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 56),
+                  padding: EdgeInsets.symmetric(horizontal: m.gutter),
                   itemCount: _classes.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) => _CategoryChip(
@@ -492,11 +501,11 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
           ],
           for (var shelfIndex = 0; shelfIndex < _shelves.length; shelfIndex++) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+              padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
               child: ImmersiveShelf(
                 title: _shelves[shelfIndex].title,
                 itemCount: _shelves[shelfIndex].items.length,
-                height: 232,
+                height: m.shelfHeight,
                 itemBuilder: (context, index) {
                   final entry = _shelves[shelfIndex].items[index];
                   final key = '$shelfIndex:$index';
@@ -508,7 +517,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                     badge: entry.badge,
                     progress: entry.progress,
                     showText: false,
-                    width: 310,
+                    width: m.shelfCardWidth,
                     focusNode: _focusNodeFor(key),
                     onFocus: () => _focusMemory.remember(key),
                     onTap: () {

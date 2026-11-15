@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../models/vod.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影历史页：横图卡片墙 + 观看进度。
@@ -12,10 +13,11 @@ class ImmersiveHistoryPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     final items = app.history;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(56, 92, 56, 24),
+      padding: EdgeInsets.fromLTRB(m.gutter, m.contentTop, m.gutter, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -63,9 +65,9 @@ class ImmersiveHistoryPage extends StatelessWidget {
                 : GridView.builder(
                     padding: const EdgeInsets.only(bottom: 16),
                     gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                        SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 336,
-                          mainAxisExtent: 236,
+                          mainAxisExtent: m.cardExtent,
                           crossAxisSpacing: 18,
                           mainAxisSpacing: 22,
                         ),

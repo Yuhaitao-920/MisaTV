@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/site_config.dart';
 import '../../models/vod.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影分类浏览：大屏网格 + 换页。
@@ -98,8 +99,8 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
   @override
   Widget build(BuildContext context) {
     final theme = immersiveTheme(context);
-    final size = MediaQuery.sizeOf(context);
-    final horizontal = size.width < 1100 ? 36.0 : 64.0;
+    final m = ImmersiveMetrics.of(context);
+    final horizontal = m.wideGutter;
 
     return Theme(
       data: theme,
@@ -109,8 +110,12 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
           slivers: [
             SliverToBoxAdapter(
               child: Container(
-                height: 72,
-                padding: EdgeInsets.symmetric(horizontal: horizontal),
+                height: m.compact ? m.topPadding + 56 : 72,
+                padding: EdgeInsets.only(
+                  left: horizontal,
+                  right: horizontal,
+                  top: m.compact ? m.topPadding : 0,
+                ),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
@@ -136,15 +141,21 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _folders.isEmpty
-                          ? '${widget.site.displayName} · 共 ${_items.isEmpty ? '--' : _items.length} 部'
-                          : '${widget.sortClass.name} / ${_folders.map((folder) => folder.name).join(' / ')}',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.46),
+                    if (!m.compact) ...[
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          _folders.isEmpty
+                              ? '${widget.site.displayName} · 共 ${_items.isEmpty ? '--' : _items.length} 部'
+                              : '${widget.sortClass.name} / ${_folders.map((folder) => folder.name).join(' / ')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.46),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                     const Spacer(),
                     IconButton(
                       tooltip: '上一页',
@@ -198,9 +209,9 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(horizontal, 18, horizontal, 48),
                 sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 360,
-                    mainAxisExtent: 250,
+                    mainAxisExtent: m.categoryCardExtent,
                     crossAxisSpacing: 20,
                     mainAxisSpacing: 22,
                   ),

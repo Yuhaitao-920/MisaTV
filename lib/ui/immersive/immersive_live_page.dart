@@ -9,6 +9,7 @@ import '../../services/live/epg.dart';
 import '../open_player.dart';
 import '../widgets/live_catchup_sheet.dart';
 import '../widgets/mouse_drag_scroll.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影直播页：分组频道墙，直接进现有直播播放器。
@@ -124,6 +125,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     final lives = app.lives;
     final bean = app.activeLive;
     final group = _groups.isEmpty
@@ -131,7 +133,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
         : _groups[_groupIndex.clamp(0, _groups.length - 1)];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(56, 92, 56, 20),
+      padding: EdgeInsets.fromLTRB(m.gutter, m.contentTop, m.gutter, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -145,7 +147,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
                 ),
               ),
               const SizedBox(width: 14),
-              if (group != null)
+              if (!m.compact && group != null)
                 Text(
                   '${group.channels.length} 个频道',
                   style: theme.textTheme.labelSmall?.copyWith(
@@ -198,13 +200,13 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
           ),
           const SizedBox(height: 16),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(30),
+            Padding(
+              padding: EdgeInsets.all(m.compact ? 16 : 30),
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_error != null)
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(m.compact ? 14 : 20),
               child: ImmersiveEmpty(
                 title: '直播源加载失败',
                 message: _error!,
@@ -307,6 +309,7 @@ class _LiveChannelTileState extends State<_LiveChannelTile> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     final current = widget.epg?.current;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -317,7 +320,7 @@ class _LiveChannelTileState extends State<_LiveChannelTile> {
         onLongPress: widget.onSchedule,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          width: 232,
+          width: m.liveTileWidth,
           height: 106,
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
           decoration: BoxDecoration(

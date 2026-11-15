@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/vod.dart';
 import '../pages/detail_page.dart';
 import '../widgets/mouse_drag_scroll.dart';
+import 'immersive_metrics.dart';
 
 /// 沉浸观影统一的大屏主题：强制深色 + 透明 Scaffold 背景。
 ThemeData immersiveTheme(BuildContext context) {
@@ -714,6 +715,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     final items = widget.items;
     if (items.isEmpty) return const SizedBox.shrink();
     return MouseRegion(
@@ -764,9 +766,9 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                         ),
                       ),
                       Positioned(
-                        left: 64,
-                        right: 64,
-                        bottom: 64,
+                        left: m.heroInset,
+                        right: m.heroInset,
+                        bottom: m.heroBottom,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
@@ -787,7 +789,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.displayLarge?.copyWith(
-                                fontSize: 58,
+                                fontSize: m.heroTitleSize,
                                 color: Colors.white,
                                 fontWeight: FontWeight.w900,
                                 height: 1.04,
@@ -808,7 +810,10 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                             if (item.description.isNotEmpty) ...[
                               const SizedBox(height: 14),
                               SizedBox(
-                                width: 760,
+                                width: m.compact
+                                    ? MediaQuery.sizeOf(context).width -
+                                        m.heroInset * 2
+                                    : 760,
                                 child: Text(
                                   item.description,
                                   maxLines: 3,
@@ -826,9 +831,9 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                               icon: const Icon(Icons.play_arrow_rounded, size: 24),
                               label: Text(item.actionLabel),
                               style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 30,
-                                  vertical: 18,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: m.compact ? 18 : 30,
+                                  vertical: m.compact ? 12 : 18,
                                 ),
                                 textStyle: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
@@ -845,8 +850,8 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
             ),
             if (items.length > 1)
               Positioned(
-                right: 56,
-                bottom: 58,
+                right: m.compact ? 14 : 56,
+                bottom: m.compact ? 12 : 58,
                 child: Row(
                   children: [
                     for (var i = 0; i < items.length; i++)

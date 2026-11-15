@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/vod.dart';
 import '../../state/app_state.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影搜索页：大搜索框 + 横图结果墙。
@@ -79,9 +80,10 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
       });
     }
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(56, 92, 56, 24),
+      padding: EdgeInsets.fromLTRB(m.gutter, m.contentTop, m.gutter, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -139,9 +141,9 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
                 icon: const Icon(Icons.search_rounded),
                 label: const Text('搜索'),
                 style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 28,
-                    vertical: 18,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: m.compact ? 16 : 28,
+                    vertical: m.compact ? 12 : 18,
                   ),
                 ),
               ),
@@ -178,6 +180,7 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
 
   Widget _buildBody(AppState app) {
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     if (_keyword.isEmpty) {
       return _historyOrHint(app, theme);
     }
@@ -191,9 +194,9 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
     }
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 16),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 336,
-        mainAxisExtent: 236,
+        mainAxisExtent: m.cardExtent,
         crossAxisSpacing: 18,
         mainAxisSpacing: 22,
       ),
