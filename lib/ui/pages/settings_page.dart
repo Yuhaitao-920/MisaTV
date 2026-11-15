@@ -127,6 +127,9 @@ class SettingsPageState extends State<SettingsPage> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
+        // 手机上缩小默认留白，给单行横排留出足够宽度，避免按钮被挤压。
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
         title: const Text('网盘账户'),
         content: SizedBox(
           width: 520,
@@ -3834,94 +3837,86 @@ class _DriveAccountRow extends StatelessWidget {
         : signedIn
         ? '已登录'
         : (optional ? '未配置' : '未登录');
-    final subtitleText = guest
-        ? (optional
-              ? 'Cookie 已失效，可重新粘贴（未配置也能播 360P / 480P）'
-              : '会话已失效（游客态），请重新扫码登录')
-        : (signedIn
-              ? (account!.username.isNotEmpty
-                    ? account.username
-                    : 'Cookie 已保存到本机')
-              : optional
-              ? '可选：粘贴浏览器 Cookie 后可用高清 / 大会员画质，不配置也能播 360P / 480P'
-              : (_webLogin
-                    ? '在官方网页中扫码登录，登录后蜘蛛源可读取网盘内的资源'
-                    : '粘贴浏览器 Cookie 后，蜘蛛源才能读取该网盘内的资源'));
-    final statusChip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: signedIn
-            ? theme.colorScheme.primary.withValues(alpha: 0.12)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        statusLabel,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
+    // 状态用小圆点表示（长按可看文字），避免文字标签占掉横向空间，
+    // 保证网盘名称在窄屏上也能完整显示。
+    final statusDot = Tooltip(
+      message: statusLabel,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
           color: signedIn
               ? theme.colorScheme.primary
               : (guest && !optional
                     ? theme.colorScheme.error
                     : theme.disabledColor),
+          shape: BoxShape.circle,
         ),
       ),
     );
 
-    // 单行横向布局：图标 + 名称/状态（可收缩省略） + 操作按钮，全部在同一横行，
-    // 名称用 Expanded 收缩，按钮永远完整不被裁切；去掉多行说明，保持每行一条。
+    // 紧凑按钮：文案缩短 + 长按提示完整含义，保证单行放得下。
+    Widget actionButton(
+      String label,
+      String tip,
+      void Function() onTap, {
+      bool primary = false,
+    }) {
+      final text = Text(label, style: const TextStyle(fontSize: 12));
+      return Tooltip(
+        message: tip,
+        child: primary
+            ? FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onTap,
+                child: text,
+              )
+            : TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onTap,
+                child: text,
+              ),
+      );
+    }
+
     final buttons = <Widget>[
       if (guest)
-        FilledButton.tonal(
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            visualDensity: VisualDensity.compact,
-          ),
-          onPressed: () => _login(context),
-          child: const Text('重新登录'),
-        )
+        actionButton('重登', '重新登录', () => _login(context), primary: true)
       else if (!signedIn)
-        FilledButton.tonal(
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            visualDensity: VisualDensity.compact,
-          ),
-          onPressed: () => _login(context),
-          child: Text(_webLogin ? '网页扫码登录' : '粘贴 Cookie'),
+        actionButton(
+          _webLogin ? '扫码登录' : '粘贴 Cookie',
+          _webLogin ? '网页扫码登录' : '粘贴浏览器 Cookie',
+          () => _login(context),
+          primary: true,
         )
       else
-        TextButton(
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            visualDensity: VisualDensity.compact,
-          ),
-          onPressed: () => _logout(context),
-          child: const Text('退出'),
-        ),
+        actionButton('退出', '退出登录', () => _logout(context)),
       if (provider == 'uc')
-        TextButton(
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            visualDensity: VisualDensity.compact,
-          ),
-          onPressed: () => _ucTvLogin(context),
-          child: Text(tvBound ? 'TV 已授权' : 'TV 扫码'),
+        actionButton(
+          tvBound ? 'TV 已授权' : 'TV 扫码',
+          tvBound ? 'UC TV 已授权' : 'UC TV 扫码登录',
+          () => _ucTvLogin(context),
         ),
       if (_webLogin)
-        TextButton(
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            visualDensity: VisualDensity.compact,
-          ),
-          onPressed: () => _manualCookie(context),
-          child: const Text('手动 Cookie'),
-        ),
+        actionButton('手动 Cookie', '手动填写 Cookie', () => _manualCookie(context)),
     ];
 
+    // 单行横向：图标 + 固定宽度名称 + 状态圆点 + 右侧按钮组。
+    // 名称固定 76dp，五个网盘都能完整显示；按钮组用 FittedBox(scaleDown)
+    // 兜底缩放，任何窄屏都不会溢出到卡片外面。
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(12),
@@ -3930,25 +3925,37 @@ class _DriveAccountRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(_icon, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    name,
-                    style: theme.textTheme.bodyMedium,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                statusChip,
-              ],
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 76,
+            child: Text(
+              name,
+              style: theme.textTheme.bodyMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 8),
-          ...buttons,
+          const SizedBox(width: 6),
+          statusDot,
+          const SizedBox(width: 6),
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (int i = 0; i < buttons.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      buttons[i],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
