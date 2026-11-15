@@ -286,8 +286,11 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
       ],
     );
 
+    // 底部手势条（home indicator）在 edge-to-edge 模式下透明叠加在内容之上，
+    // 这里把横条整体上抬一个手势条高度，避免横条与手势条重叠。
+    final gestureInset = MediaQuery.of(context).viewPadding.bottom;
     final navBar = Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+      padding: EdgeInsets.fromLTRB(12, 4, 12, 10 + gestureInset),
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: barMaxWidth),
@@ -351,8 +354,8 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
       ),
     );
 
-    // 横条连同外边距的总高度（4 + 5 + barHeight + 5 + 10）。
-    final navTotalHeight = barHeight + 24;
+    // 横条连同外边距的总高度（4 + 5 + barHeight + 5 + 10 + 手势条避让）。
+    final navTotalHeight = barHeight + 24 + gestureInset;
     // 鼠标进入窗口底部这个区域时把横条拉出。
     final revealZone = navTotalHeight + 20;
     final autoHide = app.navBarAutoHide;
