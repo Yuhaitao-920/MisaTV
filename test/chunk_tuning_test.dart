@@ -34,6 +34,22 @@ void main() {
       expect(uri.queryParameters['chunk'], '2048');
     });
 
+    test('其它参数按原始字节保留，不重编码签名', () {
+      const url =
+          'http://127.0.0.1:19979/chunk?id=abc&sign=a/b+c%3D&thread=16&chunk=512';
+      final tuned = JarSpiderService.tuneChunkUrl(url);
+      expect(tuned, contains('sign=a/b+c%3D'));
+      expect(tuned, contains('thread=10'));
+      expect(tuned, contains('chunk=2048'));
+    });
+
+    test('缺少 thread 时补上上限值', () {
+      const url = 'http://127.0.0.1:19979/chunk?id=abc&chunk=512';
+      final uri = Uri.parse(JarSpiderService.tuneChunkUrl(url));
+      expect(uri.queryParameters['thread'], '10');
+      expect(uri.queryParameters['chunk'], '2048');
+    });
+
     test('非 /chunk 地址一律原样返回', () {
       const remote = 'https://cdn.example.com/video.mp4';
       expect(JarSpiderService.tuneChunkUrl(remote), remote);

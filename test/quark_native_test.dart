@@ -69,6 +69,8 @@ void main() {
       expect(quark.fileToken, '2022af50f01650bf');
       expect(quark.dirFid, '3052bdcd1b9b4cf2');
       expect(quark.name, '4K.mp4');
+      // 集参数自带的 sToken 要复用，省一次 token 请求
+      expect(quark.stoken, 'giV1cnKF/QaEQQhM');
       // 百度线路：同样的 JSON 不当夸克（sId 形状相同，只能靠线路名区分）
       expect(extractQuarkShare(ep, flag: '嘟嘟无限3'), isNull);
       expect(looksLikeQuarkShare(ep, flag: '嘟嘟无限3'), isFalse);
@@ -98,6 +100,13 @@ void main() {
       expect(desc.data['shareId'], 'share-1');
       expect(desc.data['stoken'], 'stoken-1');
       expect(desc.data['name'], '4K.mp4');
+
+      final ref = extractQuarkShare(text);
+      expect(ref, isNotNull);
+      expect(ref!.pwdId, 'share-1');
+      expect(ref.fileId, 'fid-1');
+      expect(ref.fileToken, 'tok-1');
+      expect(ref.stoken, 'stoken-1');
     });
 
     test('baidu：a→uk / b→name / c→shareId / d→fs_id / e→seKey / g→cookie', () {

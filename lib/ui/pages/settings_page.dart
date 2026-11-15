@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app.dart';
@@ -31,6 +32,7 @@ import '../../services/jvm/arm_bridge_runtime.dart';
 import '../../services/kazumi/kazumi_rule.dart';
 import '../../services/local_import_service.dart';
 import '../../services/local_live_service.dart';
+import '../../services/live/live_ua_policy.dart';
 import '../../services/jvm/jvm_runtime.dart';
 import '../../services/mpv_extension.dart';
 import '../../services/player/external_players.dart';
@@ -44,11 +46,19 @@ import '../widgets/empty_state.dart';
 import '../widgets/glass.dart';
 import '../widgets/import_sheet.dart';
 import '../widgets/name_input_dialog.dart';
-import '../widgets/proxy_pool_sheet.dart';
 import '../widgets/uc_tv_login_dialog.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/xunlei_login_dialog.dart';
 import 'dav_browse_page.dart';
+import 'downloads_page.dart';
+import 'media_library_page.dart';
+import 'sync_page.dart';
+import 'video_downloads_page.dart';
+
+part 'settings/common_tiles.dart';
+part 'settings/dialogs.dart';
+part 'settings/runtime_tiles.dart';
+part 'settings/source_widgets.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -70,6 +80,9 @@ class SettingsPageState extends State<SettingsPage> {
   /// 当前父分类（分页）。原有分类都挂在下面四个父分类里。
   int _pageIndex = 0;
 
+  /// 源审计结果是否只看异常项。
+  bool _auditOnlyFailed = false;
+
   static const int _contentPage = 0;
   static const int _playPage = 1;
   static const int _accountPage = 2;
@@ -85,6 +98,125 @@ class SettingsPageState extends State<SettingsPage> {
     if (index == _pageIndex) return;
     if (_scroll.hasClients) _scroll.jumpTo(0);
     setState(() => _pageIndex = index);
+  }
+
+  Future<void> _showProfileHistory(BuildContext context, AppState app) async {
+    final snapshots = app.profileHistory;
+    final messenger = ScaffoldMessenger.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('订阅历史（${snapshots.length}）'),
+        content: SizedBox(
+          width: 560,
+          child: snapshots.isEmpty
+              ? const Text('还没有历史快照。刷新或重新导入订阅时会自动保存上一版本。')
+              : SizedBox(
+                  height: 360,
+                  child: ListView.separated(
+                    itemCount: snapshots.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final snapshot = snapshots[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.history_rounded),
+                        title: Text(snapshot.name),
+                        subtitle: Text(
+                          '${_formatSnapshotTime(snapshot.savedAt)} · '
+                          '${snapshot.siteCount} 源 / ${snapshot.liveCount} 直播',
+                        ),
+                        trailing: TextButton(
+                          onPressed: () async {
+                            Navigator.of(ctx).pop();
+                            try {
+                              await app.restoreProfileSnapshot(snapshot);
+                              messenger.showSnackBar(
+                                const SnackBar(content: Text('已回滚到该订阅版本')),
+                              );
+                            } catch (e) {
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('回滚失败：$e')),
+                              );
+                            }
+                          },
+                          child: const Text('回滚'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+        ),
+        actions: [
+          if (snapshots.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                await app.clearProfileHistory();
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              },
+              child: const Text('清空历史'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSnapshotTime(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
+  }
+
+  Future<void> _exportSkipSegments(AppState app) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final path = await FileDialogService.saveText(
+      suggestedName: 'misatv-skip-segments.json',
+      text: app.skipSegmentsJson(),
+    );
+    messenger.showSnackBar(
+      SnackBar(content: Text(path == null ? '已取消导出' : '已导出：$path')),
+    );
+  }
+
+  Future<void> _importSkipSegments(AppState app) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final path = await FileDialogService.pickFile(
+      types: [FileDialogService.jsonType],
+    );
+    if (path == null) return;
+    try {
+      final text = await FileDialogService.readText(path);
+      final count = await app.importSkipSegmentsJson(text);
+      messenger.showSnackBar(
+        SnackBar(content: Text('已导入 $count 条片头片尾记录')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('导入失败：$e')));
+    }
+  }
+
+  Future<void> _exportAuditReport(AppState app) async {
+    final text = app.auditReportText();
+    final messenger = ScaffoldMessenger.of(context);
+    if (kIsWeb) {
+      await Clipboard.setData(ClipboardData(text: text));
+      messenger.showSnackBar(const SnackBar(content: Text('审计报告已复制到剪贴板')));
+      return;
+    }
+    final path = await FileDialogService.saveText(
+      suggestedName: 'misatv-source-audit.txt',
+      text: text,
+    );
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(path == null ? '已取消导出' : '审计报告已保存：$path'),
+      ),
+    );
   }
 
   /// 展开「播放」并滚动到对应扩展卡片，然后开始下载。
@@ -143,7 +275,7 @@ class SettingsPageState extends State<SettingsPage> {
                     _DriveAccountRow(provider: provider, app: app),
                   const SizedBox(height: 6),
                   Text(
-                    '凭据以明文保存在本机，仅用于蜘蛛源取流；换机备份时请勿泄露。',
+                    '凭据经本机系统加密后保存（Windows DPAPI），仅用于蜘蛛源取流；换机备份时请勿泄露。',
                     style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
                       color: Theme.of(ctx).colorScheme.onSurface
                           .withValues(alpha: 0.72),
@@ -313,6 +445,19 @@ class SettingsPageState extends State<SettingsPage> {
                                         size: 17,
                                       ),
                                       label: const Text('本地包 ZIP'),
+                                    ),
+                                    TextButton.icon(
+                                      onPressed: () => _showProfileHistory(
+                                        context,
+                                        app,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.history_rounded,
+                                        size: 17,
+                                      ),
+                                      label: Text(
+                                        '订阅历史（${app.profileHistory.length}）',
+                                      ),
                                     ),
                                     TextButton.icon(
                                       onPressed: app.vodProfiles.length < 2
@@ -485,6 +630,20 @@ class SettingsPageState extends State<SettingsPage> {
                           )
                         else
                           _LiveSourceList(lives: app.lives, app: app),
+                        const SizedBox(height: 8),
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.35,
+                          ),
+                        ),
+                        _ActionRow(
+                          icon: Icons.badge_outlined,
+                          title: '自定义直播 UA',
+                          subtitle: _liveUaSubtitle(app),
+                          onTap: () => _editLiveUaPolicy(context, app),
+                        ),
                       ],
                     ),
                   ),
@@ -590,6 +749,235 @@ class SettingsPageState extends State<SettingsPage> {
                           ),
                       ],
                     ),
+                  ),
+                ],
+                if (_pageIndex == _contentPage) ...[
+                  const SizedBox(height: 16),
+                  _Section(
+                    title: '源审计',
+                    icon: Icons.manage_search_rounded,
+                    collapsible: true,
+                    initiallyExpanded: false,
+                    trailing: Text(
+                      app.auditingSources
+                          ? '${app.auditDone}/${app.auditTotal}'
+                          : app.auditResults.isEmpty
+                          ? '${app.usableSites.length} 个可用源'
+                          : '${app.auditResults.where((e) => !e.ok).length} 个异常',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                    summary: Text(
+                      '批量访问每个源的主页，检查条目 / 分类 / 耗时；结果可复制或导出',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.45,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: app.auditingSources
+                                  ? null
+                                  : () => app.auditSources(),
+                              icon: app.auditingSources
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.play_arrow_rounded),
+                              label: Text(
+                                app.auditingSources ? '审计中…' : '开始审计',
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: app.auditResults.isEmpty
+                                  ? null
+                                  : () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(
+                                          text: app.auditReportText(),
+                                        ),
+                                      );
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('审计报告已复制到剪贴板'),
+                                        ),
+                                      );
+                                    },
+                              icon: const Icon(Icons.copy_rounded, size: 18),
+                              label: const Text('复制报告'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: app.auditResults.isEmpty
+                                  ? null
+                                  : () => _exportAuditReport(app),
+                              icon: const Icon(
+                                Icons.file_download_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('导出'),
+                            ),
+                            if (app.auditResults.isNotEmpty)
+                              FilterChip(
+                                label: const Text('只看异常'),
+                                selected: _auditOnlyFailed,
+                                onSelected: (value) =>
+                                    setState(() => _auditOnlyFailed = value),
+                              ),
+                          ],
+                        ),
+                        if (app.auditingSources) ...[
+                          const SizedBox(height: 12),
+                          LinearProgressIndicator(
+                            value: app.auditTotal == 0
+                                ? null
+                                : app.auditDone / app.auditTotal,
+                          ),
+                        ],
+                        if (app.auditResults.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          for (final health in app.auditResults
+                              .where((e) => !_auditOnlyFailed || !e.ok)
+                              .take(80))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    health.ok
+                                        ? Icons.check_circle_outline_rounded
+                                        : Icons.error_outline_rounded,
+                                    size: 18,
+                                    color: health.ok
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.error,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${health.name} · ${health.statusLabel}'
+                                          '${health.elapsedMs > 0 ? ' · ${health.elapsedMs}ms' : ''}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                        Text(
+                                          health.message,
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurface
+                                                    .withValues(alpha: 0.68),
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (app.auditResults
+                                  .where((e) => !_auditOnlyFailed || !e.ok)
+                                  .length >
+                              80)
+                            Text(
+                              '仅显示前 80 条，完整结果请导出报告',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.55,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                if (_pageIndex == _contentPage) ...[
+                  const SizedBox(height: 16),
+                  _Section(
+                    title: '源健康',
+                    icon: Icons.health_and_safety_outlined,
+                    collapsible: true,
+                    initiallyExpanded: false,
+                    trailing: Text(
+                      '${app.coolingSources.length} 个冷却中',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                    summary: Text(
+                      '连续失败的源按 15 分钟 / 2 小时 / 24 小时依次冷却；可手动恢复',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.45,
+                        ),
+                      ),
+                    ),
+                    child: app.coolingSources.isEmpty
+                        ? Text(
+                            '当前没有冷却中的源',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              for (final row in app.coolingSources)
+                                ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    Icons.timer_off_outlined,
+                                    size: 20,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  title: Text(row.site.displayName),
+                                  subtitle: Text(
+                                    '冷却至 ${TimeOfDay.fromDateTime(row.record.cooldownUntil).format(context)}'
+                                    '${row.record.lastError.isEmpty ? '' : ' · ${row.record.lastError}'}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: TextButton(
+                                    onPressed: () =>
+                                        app.resetSourceHealthOf(row.site),
+                                    child: const Text('恢复'),
+                                  ),
+                                ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: () => app.resetSourceHealth(),
+                                  icon: const Icon(
+                                    Icons.restart_alt_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('全部恢复'),
+                                ),
+                              ),
+                            ],
+                          ),
                   ),
                 ],
                 if (_pageIndex == _playPage) ...[
@@ -1069,6 +1457,7 @@ class SettingsPageState extends State<SettingsPage> {
                     ),
                     summary: Text(
                       '迅雷云盘：${app.xunleiAccount.loggedIn ? app.xunleiAccount.displayName : '未登录'}'
+                      ' · 下载 ${app.videoDownloads.records.length} 个'
                       ' · 磁力目录：${app.playerSettings.magnetDownloadDir.isEmpty ? '默认' : '自定义'}',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
@@ -1079,6 +1468,18 @@ class SettingsPageState extends State<SettingsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        _ActionRow(
+                          icon: Icons.download_done_rounded,
+                          title: '下载管理',
+                          subtitle:
+                              '播放器下载的视频与边播缓存；'
+                              '支持暂停 / 继续 / 删除，也可只清记录、保留文件',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const VideoDownloadsPage(),
+                            ),
+                          ),
+                        ),
                         _ActionRow(
                           icon: Icons.cloud_download_outlined,
                           title: '迅雷云盘',
@@ -1108,13 +1509,63 @@ class SettingsPageState extends State<SettingsPage> {
                               : app.playerSettings.magnetDownloadDir,
                           onTap: () => _pickMagnetDownloadDir(context, app),
                         ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _Section(
+                    title: '协同与媒体',
+                    icon: Icons.hub_outlined,
+                    collapsible: true,
+                    initiallyExpanded: false,
+                    summary: Text(
+                      '多端同步：${app.syncSettings.lastSyncAt > 0 ? '已同步过' : '未同步'}'
+                      ' · 媒体服务器：${app.mediaServers.servers.length} 个'
+                      ' · 本地目录：${app.localMedia.dirs.length} 个',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.45,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         _ActionRow(
-                          icon: Icons.extension_outlined,
-                          title: '网盘下载支持库',
-                          subtitle: '在浏览器中打开 123 云盘分享页（提取码 Misa）',
-                          onTap: () => launchUrl(
-                            Uri.parse(
-                              'https://1824896562.share.123pan.cn/123pan/syh2jv-j1p6h?pwd=Misa#',
+                          icon: Icons.sync_rounded,
+                          title: '多端同步',
+                          subtitle: app.lanServer.running
+                              ? '局域网服务已开启（端口 ${app.lanServer.port}）'
+                              : 'WebDAV / 局域网同步历史、收藏与片头片尾',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const SyncPage(),
+                            ),
+                          ),
+                        ),
+                        _ActionRow(
+                          icon: Icons.download_outlined,
+                          title: '下载管理',
+                          subtitle: app.downloadManager.available
+                              ? 'aria2 · ${app.downloadManager.tasks.length} 个任务'
+                              : '浏览器版不支持 aria2 下载',
+                          onTap: app.downloadManager.available
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const DownloadsPage(),
+                                  ),
+                                )
+                              : null,
+                        ),
+                        _ActionRow(
+                          icon: Icons.video_library_outlined,
+                          title: '媒体库',
+                          subtitle:
+                              'Emby / Jellyfin · 本地视频'
+                              '${app.mediaServers.servers.isEmpty ? '（未配置服务器）' : ''}',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const MediaLibraryPage(),
                             ),
                           ),
                         ),
@@ -1128,7 +1579,9 @@ class SettingsPageState extends State<SettingsPage> {
                     collapsible: true,
                     initiallyExpanded: false,
                     trailing: Text(
-                      app.proxy.enabled ? '手动代理' : '跟随系统',
+                      app.proxy.valid
+                          ? '手动代理'
+                          : (app.proxy.followSystem ? '跟随系统' : '直连'),
                       style: theme.textTheme.labelSmall,
                     ),
                     summary: Text(
@@ -1149,16 +1602,6 @@ class SettingsPageState extends State<SettingsPage> {
                           subtitle: ProxyRuntime.instance.summary,
                           onTap: () => _editProxy(context),
                         ),
-                        // 隐藏项：在底部导航「设置」上连点 5 次才出现。
-                        if (app.proxyPoolUnlocked)
-                          _ActionRow(
-                            icon: Icons.lan_rounded,
-                            title: '代理池',
-                            subtitle: app.proxyPool.enabled
-                                ? '已启用：${app.proxyPool.selectedLabel}'
-                                : '直连 · ${app.proxyPool.nodes.length} 个节点',
-                            onTap: () => showProxyPoolSheet(context, app),
-                          ),
                       ],
                     ),
                   ),
@@ -1263,6 +1706,17 @@ class SettingsPageState extends State<SettingsPage> {
                           _JvmRuntimeTile(key: _jvmTileKey),
                           const Divider(height: 24),
                           _ArmBridgeTile(key: _guardTileKey),
+                          const Divider(height: 24),
+                          _ActionRow(
+                            icon: Icons.extension_outlined,
+                            title: '网盘下载支持库',
+                            subtitle: '在浏览器中打开 123 云盘分享页（提取码 Misa）',
+                            onTap: () => launchUrl(
+                              Uri.parse(
+                                'https://1824896562.share.123pan.cn/123pan/syh2jv-j1p6h?pwd=Misa#',
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1391,7 +1845,9 @@ class SettingsPageState extends State<SettingsPage> {
                       style: theme.textTheme.labelSmall,
                     ),
                     summary: Text(
-                      '老板键 ${bossKeyLabel(app.playerSettings.bossKey)}：暂停并收进托盘',
+                      isBossKeySet(app.playerSettings.bossKey)
+                          ? '老板键 ${bossKeyLabel(app.playerSettings.bossKey)}：暂停并收进托盘'
+                          : '老板键未设置：不占用全局热键',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.45,
@@ -1404,9 +1860,12 @@ class SettingsPageState extends State<SettingsPage> {
                         _ActionRow(
                           icon: Icons.keyboard_outlined,
                           title: '老板键',
-                          subtitle:
-                              '${bossKeyLabel(app.playerSettings.bossKey)}'
-                              ' · 暂停视频并收进托盘；沉浸观影模式下不生效',
+                          subtitle: isBossKeySet(
+                            app.playerSettings.bossKey,
+                          )
+                              ? '${bossKeyLabel(app.playerSettings.bossKey)}'
+                                    ' · 暂停视频并收进托盘；沉浸观影模式下不生效'
+                              : '未设置 · 默认不占用任何全局热键，点此选择组合',
                           onTap: () => _openBossKeySettings(context, app),
                         ),
                       ],
@@ -1427,7 +1886,7 @@ class SettingsPageState extends State<SettingsPage> {
                           _ActionRow(
                             icon: Icons.backup_outlined,
                             title: '导出设置备份',
-                            subtitle: '订阅、收藏、历史、播放设置与网盘 Cookie（明文）',
+                            subtitle: '订阅、收藏、历史、播放设置与网盘 Cookie（备份文件为明文）',
                             onTap: () => _exportBackup(context),
                           ),
                           _ActionRow(
@@ -1435,6 +1894,38 @@ class SettingsPageState extends State<SettingsPage> {
                             title: '导入设置备份',
                             subtitle: '支持 MisaTV 备份与旧版 Win-Box 备份',
                             onTap: () => _restoreBackup(context),
+                          ),
+                          const Divider(height: 24),
+                          _ActionRow(
+                            icon: Icons.content_cut_rounded,
+                            title: '导出片头片尾',
+                            subtitle: '${app.skipSegments.length} 条记录（JSON，可分享给其他设备）',
+                            onTap: app.skipSegments.isEmpty
+                                ? null
+                                : () => _exportSkipSegments(app),
+                          ),
+                          _ActionRow(
+                            icon: Icons.file_download_outlined,
+                            title: '导入片头片尾',
+                            subtitle: '合并 JSON 记录；同键以导入文件为准',
+                            onTap: () => _importSkipSegments(app),
+                          ),
+                          _ActionRow(
+                            icon: Icons.clear_all_rounded,
+                            title: '清空片头片尾',
+                            subtitle: '${app.skipSegments.length} 条记录',
+                            onTap: app.skipSegments.isEmpty
+                                ? null
+                                : () async {
+                                    final ok = await _confirm(
+                                      context,
+                                      '清空全部片头片尾记录？',
+                                      '此操作不可恢复',
+                                    );
+                                    if (ok == true) {
+                                      await app.clearSkipSegments();
+                                    }
+                                  },
                           ),
                           const Divider(height: 24),
                         ],

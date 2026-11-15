@@ -515,32 +515,44 @@ Future<NativeDriveLink> _trySharedDirectLink(
 /// 只看响应头，随后强制断开连接，不会把整个文件拉下来。
 ///
 /// ★ 必须**手动**跟随重定向（`followRedirects = false` + 自己取 Location）：
-///   百度的 `dlink` 会先 302 到 `*.baidupcs.com` 的真实流地址，而 Dart 的自动跟随
-///   在换 host 时会丢掉 `User-Agent`；百度 CDN 正是按 UA 判防盗链 ——
-///   同一 URL、同一套头，「自动跟随 → 403+text/plain」「手动跟随 → 206+bytes 0-0/…」。
-///   这个坑会让「直链明明可用」被判成不可用，上层再回退 jar 就是一直转圈。
+///   百度的 `dlink` 会先 302 到 `*.baidupcs.com` 的真实流地址，而 Dart 的自动
+///   跟随会新建请求，新请求已带默认 `User-Agent: Dart/x.y`，调用方设置的 UA
+///   不再被复制；百度 CDN 正是按 UA 判防盗链。同一 URL、同一套头，
+///   「自动跟随 → 403 + text/plain」「手动跟随 → 206 + bytes 0-0/…」。
 Future<String?> _probeSharedDirect(
   String url,
   Map<String, String> headers,
 ) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+  // 整条重定向链共用一份预算，避免 5 跳 × 8s 把探测拖到半分钟。
+  final deadline = DateTime.now().add(const Duration(seconds: 12));
   try {
     var current = Uri.parse(url);
-    final origin = current.host.toLowerCase();
+    final origin = current;
     HttpClientResponse? response;
     for (var hop = 0; hop <= 5; hop++) {
-      final request = await client
-          .getUrl(current)
-          .timeout(const Duration(seconds: 8));
-      final crossHost = current.host.toLowerCase() != origin;
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) {
+        return 'Range 探测超时（重定向链过长）';
+      }
+      final timeout = remaining < const Duration(seconds: 8)
+          ? remaining
+          : const Duration(seconds: 8);
+      final request = await client.getUrl(current).timeout(timeout);
+      final crossOrigin =
+          !origin.isScheme(current.scheme) ||
+          origin.host != current.host ||
+          origin.port != current.port;
       for (final entry in headers.entries) {
-        // 换域不带本机网盘 Cookie（实测 CDN 域不需要，且不该外泄）
-        if (crossHost && entry.key.toLowerCase() == 'cookie') continue;
+        // 跨源不带本机网盘 Cookie / Authorization（CDN 域不需要，也不该外泄）
+        final sensitive =
+            _probeSensitiveHeaders.contains(entry.key.toLowerCase());
+        if (crossOrigin && sensitive) continue;
         request.headers.set(entry.key, entry.value);
       }
       request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
       request.followRedirects = false;
-      final res = await request.close().timeout(const Duration(seconds: 8));
+      final res = await request.close().timeout(timeout);
       final code = res.statusCode;
       final location = res.headers.value(HttpHeaders.locationHeader);
       if (code < 300 || code >= 400 || location == null || location.isEmpty) {
@@ -564,8 +576,9 @@ Future<String?> _probeSharedDirect(
           caseSensitive: false,
         ).hasMatch(contentRange) &&
         !RegExp(r'text/|json|xml', caseSensitive: false).hasMatch(contentType);
-    if (valid) return null;
+    // 只看响应头；成功分支也主动 drain，避免 finally 的强制关闭留下连接异常。
     await response.drain<void>().catchError((Object _) {});
+    if (valid) return null;
     return 'HTTP ${response.statusCode}'
         '${contentRange.isNotEmpty ? '（$contentRange）' : ''}';
   } catch (e) {
@@ -574,6 +587,16 @@ Future<String?> _probeSharedDirect(
     client.close(force: true);
   }
 }
+
+/// 跨源重定向时不能继续携带的敏感头。
+const _probeSensitiveHeaders = {
+  'cookie',
+  'cookie2',
+  'authorization',
+  'proxy-authorization',
+  'www-authenticate',
+  'proxy-authenticate',
+};
 
 /// 分享链接：init 取 t → verify 取 BDCLND → 分享页 HTML → 按集名定位 → 签名取链。
 Future<NativeDriveLink> _resolveShareLink(

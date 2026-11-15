@@ -35,6 +35,12 @@ const _query = 'pr=ucpro&fr=pc';
 const _pageSize = 50;
 const _maxPages = 10;
 
+/// 整个分享最多列多少页（含所有子目录）。
+///
+/// 单目录 10 页的上限挡不住「根目录下几十个文件夹、每个再 10 页」的分享，
+/// 极端样本会几十秒才失败；这里给整体预算，超了就用手上已列到的文件匹配。
+const _maxTotalPages = 60;
+
 final _quarkFlagRe = RegExp(r'夸父|夸克|quark', caseSensitive: false);
 final _digitsRe = RegExp(r'^\d+$');
 final _fidBadRe = RegExp(r'[/:?]');
@@ -48,6 +54,7 @@ class QuarkShareRef {
     this.fileToken = '',
     this.dirFid = '',
     this.name = '',
+    this.stoken = '',
   });
 
   /// 分享 ID（`sId` / `pwd_id`）。
@@ -67,6 +74,12 @@ class QuarkShareRef {
 
   /// 文件名（定位兜底 / 提示用）。
   final String name;
+
+  /// 集参数里自带的分享令牌（`sToken`）；为空时再向 token 接口申请。
+  ///
+  /// fty 系壳每次播放都会下发新的 `sToken`，直接复用能省一次 POST；
+  /// 有提取码的分享也可能只认这份与 `sId` 一起生成的会话。
+  final String stoken;
 }
 
 /// 该文本是否是夸克分享（描述符 / 线路名明确是夸克 / 集参数 JSON 带 sId+fid）。
@@ -107,6 +120,7 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
         'file_name',
         'vodName',
       ]),
+      stoken: descriptorField(desc.data, <String>['stoken']),
     );
   }
 
@@ -136,6 +150,9 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
                 : _str(d['shareFidToken']),
             dirFid: _str(d['pdir_fid']),
             name: name,
+            stoken: _str(d['sToken']).isNotEmpty
+                ? _str(d['sToken'])
+                : _str(d['stoken']),
           );
         }
       }
@@ -205,17 +222,21 @@ Future<NativeDriveLink> _resolveInner(
   if (ref.pwdId.trim().isEmpty) return NativeDriveLink.failed('分享 ID 为空');
   final accountCookie = sanitizeCookie(cookie);
 
-  // 1) 取分享 stoken。token 接口不需要账号 Cookie（匿名也能拿），
-  //    带上是为了让服务端把会话与我们账号关联，下载时才认。
-  final tokenResult = await _post(
-    '/share/sharepage/token',
-    accountCookie,
-    <String, Object?>{'pwd_id': ref.pwdId, 'passcode': ref.passcode},
-  );
-  final stoken = _str(_dig(tokenResult.json, <Object>['data', 'stoken']));
+  // 1) 分享 stoken：集参数自带就复用（fty 每次播放下发新值），否则申请。
+  //    token 接口不需要账号 Cookie（匿名也能拿），带上是为了让服务端把
+  //    会话与我们账号关联，下载时才认。
+  var stoken = ref.stoken;
   if (stoken.isEmpty) {
-    final detail = _errDetail(tokenResult);
-    return NativeDriveLink.failed('分享不可用（${_clip(detail, 120)}）');
+    final tokenResult = await _post(
+      '/share/sharepage/token',
+      accountCookie,
+      <String, Object?>{'pwd_id': ref.pwdId, 'passcode': ref.passcode},
+    );
+    stoken = _str(_dig(tokenResult.json, <Object>['data', 'stoken']));
+    if (stoken.isEmpty) {
+      final detail = _errDetail(tokenResult);
+      return NativeDriveLink.failed('分享不可用（${_clip(detail, 120)}）');
+    }
   }
 
   // 2) 定位目标文件：优先用集参数自带的 fid + share_fid_token（无需列目录）；
@@ -302,10 +323,14 @@ Future<_Located?> _locateFile({
   final queue = <String>[ref.dirFid.isEmpty ? '0' : ref.dirFid];
   final visited = <String>{};
   final all = <_Located>[];
+  var pages = 0;
+  outer:
   while (queue.isNotEmpty) {
     final dir = queue.removeAt(0);
     if (!visited.add(dir)) continue;
     for (var page = 1; page <= _maxPages; page++) {
+      if (pages >= _maxTotalPages) break outer;
+      pages++;
       final result = await _get(
         '/share/sharepage/detail'
         '?pwd_id=${Uri.encodeQueryComponent(ref.pwdId)}'
@@ -390,19 +415,21 @@ Future<String?> _validate(
     }
     request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
     final response = await request.close().timeout(const Duration(seconds: 20));
-    // 消费掉响应体，避免连接悬挂
-    await response.drain<void>().catchError((Object _) {});
-    if (response.statusCode != 200 && response.statusCode != 206) {
-      return 'HTTP ${response.statusCode}';
-    }
+    final status = response.statusCode;
     final type = response.headers.contentType?.mimeType ?? '';
+    final length = response.contentLength;
+    // 只读第一个数据块就断开：CDN 忽略 Range 回 200 时，
+    // drain 会把整个大文件拖完（几个 GB），探针本身反而成了下载。
+    await response.take(1).drain<void>().catchError((Object _) {});
+    if (status != 200 && status != 206) {
+      return 'HTTP $status';
+    }
     if (type.contains('json') || type.contains('text/html')) {
       return '返回了 $type 而不是媒体流';
     }
     if (expectedSize > 0) {
-      final length = response.contentLength;
       // Range 请求下 contentLength 是被截断的长度，只在非 206 时比较
-      if (response.statusCode == 200 && length > 0 && length != expectedSize) {
+      if (status == 200 && length > 0 && length != expectedSize) {
         return '大小不符（$length ≠ $expectedSize）';
       }
     }
