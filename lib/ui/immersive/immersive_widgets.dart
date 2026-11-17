@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,9 +7,13 @@ import 'package:flutter/services.dart';
 import '../../app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/vod.dart';
+import '../../services/fonts/hero_fonts.dart';
 import '../pages/detail_page.dart';
 import '../widgets/mouse_drag_scroll.dart';
+import 'designed_title.dart';
+import 'hero_title_style.dart';
 import 'immersive_metrics.dart';
+import 'title_tint.dart';
 
 /// 沉浸观影统一的大屏主题：强制深色 + 透明 Scaffold 背景。
 ThemeData immersiveTheme(BuildContext context) {
@@ -141,8 +146,7 @@ class _ImmersiveFocusableState extends State<ImmersiveFocusable> {
                     widget.onLongPress!();
                   },
             child: Builder(
-              builder: (context) =>
-                  widget.builder(context, _hover || _focused),
+              builder: (context) => widget.builder(context, _hover || _focused),
             ),
           ),
         ),
@@ -150,6 +154,11 @@ class _ImmersiveFocusableState extends State<ImmersiveFocusable> {
     );
   }
 }
+
+/// 封面 ImageProvider：渲染和后台预取必须共用同一个 key，
+/// 否则 Flutter 的 ImageCache 命中不了，预取等于白下。
+ImageProvider immersiveCoverProvider(String url, int decodeWidth) =>
+    ResizeImage(NetworkImage(url), width: decodeWidth);
 
 /// 横图封面：先显示源里的竖版图，随后用豆瓣 / TMDB / IMDb 的横图替换。
 class ImmersiveBackdrop extends StatefulWidget {
@@ -207,80 +216,140 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
     final key = '$artwork|${widget.year}';
     if (key == _key) return;
     _key = key;
-    _future = AppScope.of(context).artworkService.backdrop(
-      artwork,
-      year: widget.year,
-    );
+    _future = AppScope.of(context).artworkService
+        .backdrop(artwork, year: widget.year);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // 沉浸模式只显示横图：源里的竖版海报（多半分辨率很低）不再铺底，
-        // 避免被裁成 16:9 后糊成一片；横图没到之前用深色渐变占位。
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF1A231B), Color(0xFF0B0F0B), Color(0xFF141A14)],
-              stops: [0, 0.55, 1],
-            ),
-          ),
-        ),
-        if (widget.placeholderTitle.trim().isNotEmpty)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                widget.placeholderTitle,
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.36),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
+    final fallback = widget.fallback.trim();
+    final placeholder = widget.placeholderTitle.trim();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 按容器实际宽度解码：300px 的卡片不去解 1920px 的图，
+        // 内存占用和首帧解码时间都能降一个数量级。
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final logicalWidth =
+            constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : 640.0;
+        final decodeWidth = (logicalWidth * dpr).round().clamp(320, 1920);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF1A231B),
+                    Color(0xFF0B0F0B),
+                    Color(0xFF141A14),
+                  ],
+                  stops: [0, 0.55, 1],
                 ),
               ),
             ),
-          ),
-        FutureBuilder<String?>(
-          future: _future,
-          builder: (context, snapshot) {
-            final url = snapshot.data;
-            if (url == null || url.isEmpty) return const SizedBox.shrink();
-            return Image.network(
-              url,
-              fit: widget.fit,
-              gaplessPlayback: true,
-              frameBuilder: (context, child, frame, sync) {
-                if (sync) return child;
-                return AnimatedOpacity(
-                  opacity: frame == null ? 0 : 1,
-                  duration: const Duration(milliseconds: 350),
-                  child: child,
+            // 源海报先模糊铺底：匹配横图要联网搜索 + 下载，等它回来之前
+            // 不再是一块纯黑；模糊后也看不出是把竖图裁成了 16:9。
+            if (fallback.isNotEmpty)
+              ClipRect(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                  child: Opacity(
+                    opacity: 0.62,
+                    child: Image.network(
+                      fallback,
+                      fit: BoxFit.cover,
+                      cacheWidth: 420,
+                      filterQuality: FilterQuality.none,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      frameBuilder: (context, child, frame, sync) {
+                        if (sync) return child;
+                        return AnimatedOpacity(
+                          opacity: frame == null ? 0 : 1,
+                          duration: const Duration(milliseconds: 240),
+                          child: child,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            // 模糊海报上再压一层暗角，保证左上角标题 / 卡片文字仍然清楚。
+            if (fallback.isNotEmpty)
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0x66000000),
+                      Color(0x22000000),
+                      Color(0x88000000),
+                    ],
+                    stops: [0, 0.5, 1],
+                  ),
+                ),
+              ),
+            if (placeholder.isNotEmpty && fallback.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    widget.placeholderTitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.36),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            FutureBuilder<String?>(
+              future: _future,
+              builder: (context, snapshot) {
+                final url = snapshot.data;
+                if (url == null || url.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return Image(
+                  image: immersiveCoverProvider(url, decodeWidth),
+                  fit: widget.fit,
+                  filterQuality: FilterQuality.medium,
+                  gaplessPlayback: true,
+                  frameBuilder: (context, child, frame, sync) {
+                    if (sync) return child;
+                    return AnimatedOpacity(
+                      opacity: frame == null ? 0 : 1,
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOut,
+                      child: child,
+                    );
+                  },
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 );
               },
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            );
-          },
-        ),
-        if (widget.scrim)
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xE6000000)],
-                stops: [0.45, 1],
-              ),
             ),
-          ),
-      ],
+            if (widget.scrim)
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xE6000000)],
+                    stops: [0.45, 1],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -396,9 +465,7 @@ class _ImmersiveCardState extends State<ImmersiveCard> {
                           year: widget.year,
                           fallback: widget.fallback,
                           scrim: widget.showText,
-                          placeholderTitle: widget.showText
-                              ? ''
-                              : widget.title,
+                          placeholderTitle: widget.showText ? '' : widget.title,
                           artworkTitle: widget.artworkTitle,
                         ),
                         if (widget.badge.isNotEmpty)
@@ -459,7 +526,10 @@ class _ImmersiveCardState extends State<ImmersiveCard> {
                                     color: Colors.white,
                                     fontWeight: FontWeight.w700,
                                     shadows: const [
-                                      Shadow(blurRadius: 8, color: Colors.black),
+                                      Shadow(
+                                        blurRadius: 8,
+                                        color: Colors.black,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -469,7 +539,9 @@ class _ImmersiveCardState extends State<ImmersiveCard> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.labelSmall?.copyWith(
-                                      color: Colors.white.withValues(alpha: 0.66),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.66,
+                                      ),
                                     ),
                                   ),
                               ],
@@ -601,9 +673,10 @@ class _ImmersiveShelfState extends State<ImmersiveShelf> {
   void _page(double direction) {
     if (!_controller.hasClients) return;
     final position = _controller.position;
-    final target = (position.pixels + direction * (position.viewportDimension * 0.82))
-        .clamp(0.0, position.maxScrollExtent)
-        .toDouble();
+    final target =
+        (position.pixels + direction * (position.viewportDimension * 0.82))
+            .clamp(0.0, position.maxScrollExtent)
+            .toDouble();
     _controller.animateTo(
       target,
       duration: const Duration(milliseconds: 420),
@@ -702,6 +775,9 @@ class ImmersiveHeroItem {
     this.description = '',
     this.fallback = '',
     this.actionLabel = '查看详情',
+    this.originalTitle = '',
+    this.genres = const [],
+    this.countries = const [],
   });
 
   final String title;
@@ -711,6 +787,32 @@ class ImmersiveHeroItem {
   final String fallback;
   final String actionLabel;
   final VoidCallback onTap;
+
+  /// 豆瓣原名（日文 / 韩文 / 英文），按地区和类型选字体时使用。
+  final String originalTitle;
+  final List<String> genres;
+  final List<String> countries;
+
+  ImmersiveHeroItem copyWith({
+    String? originalTitle,
+    List<String>? genres,
+    List<String>? countries,
+    String? description,
+    String? subtitle,
+  }) {
+    return ImmersiveHeroItem(
+      title: title,
+      onTap: onTap,
+      year: year,
+      subtitle: subtitle ?? this.subtitle,
+      description: description ?? this.description,
+      fallback: fallback,
+      actionLabel: actionLabel,
+      originalTitle: originalTitle ?? this.originalTitle,
+      genres: genres ?? this.genres,
+      countries: countries ?? this.countries,
+    );
+  }
 }
 
 class ImmersiveHero extends StatefulWidget {
@@ -726,13 +828,58 @@ class ImmersiveHero extends StatefulWidget {
 class _ImmersiveHeroState extends State<ImmersiveHero> {
   final PageController _controller = PageController();
   Timer? _timer;
+  Timer? _prefetchTimer;
   int _index = 0;
   bool _hover = false;
+  bool _prefetchScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _startTimer();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 轮播切换是 7 秒一次；提前把后面几张的封面地址解析好，
+    // 切过去时只剩图片下载，不再等豆瓣 / IMDb 搜索。
+    if (_prefetchScheduled) return;
+    _prefetchScheduled = true;
+    _schedulePrefetch();
+  }
+
+  void _schedulePrefetch({int delayMs = 800}) {
+    _prefetchTimer?.cancel();
+    _prefetchTimer = Timer(Duration(milliseconds: delayMs), () {
+      if (!mounted) return;
+      final items = widget.items;
+      if (items.isEmpty) return;
+      final artwork = AppScope.of(context).artworkService;
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      final decodeWidth = (MediaQuery.sizeOf(context).width * dpr)
+          .round()
+          .clamp(320, 1920);
+      // 只预取当前及接下来 3 张：全局图片缓存是 48MB，1920 宽的 Hero
+      // 解码后每张约 8MB，一次预取 8 张会把正在显示的图挤出去。
+      final start = _index.clamp(0, items.length - 1);
+      for (var offset = 0; offset < 4 && offset < items.length; offset++) {
+        final item = items[(start + offset) % items.length];
+        if (item.title.trim().isEmpty) continue;
+        // 已解析 / 正在解析的会命中缓存或 inflight，不会重复请求。
+        unawaited(() async {
+          final url = await artwork.backdrop(item.title, year: item.year);
+          if (!mounted || url == null || url.isEmpty) return;
+          // 光解析地址还不够：这里把图片本身也拉进 Flutter 的 ImageCache，
+          // 轮播切过去时不用再等下载 + 解码。
+          await precacheImage(
+            immersiveCoverProvider(url, decodeWidth),
+            context,
+            onError: (_, _) {},
+          );
+        }());
+      }
+    });
   }
 
   @override
@@ -742,6 +889,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
       _index = 0;
       if (_controller.hasClients) _controller.jumpToPage(0);
       _startTimer();
+      _schedulePrefetch();
     }
   }
 
@@ -775,16 +923,16 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
   @override
   void dispose() {
     _timer?.cancel();
+    _prefetchTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final m = ImmersiveMetrics.of(context);
     final items = widget.items;
     if (items.isEmpty) return const SizedBox.shrink();
+    final m = ImmersiveMetrics.of(context);
     return MouseRegion(
       onEnter: (_) => _hover = true,
       onExit: (_) => _hover = false,
@@ -797,7 +945,11 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
               child: PageView.builder(
                 controller: _controller,
                 itemCount: items.length,
-                onPageChanged: (value) => setState(() => _index = value),
+                onPageChanged: (value) {
+                  setState(() => _index = value);
+                  // 切页后重新排预取，保证后面几张始终是接下来的片目。
+                  _schedulePrefetch(delayMs: 300);
+                },
                 itemBuilder: (context, index) {
                   final item = items[index];
                   return Stack(
@@ -836,78 +988,68 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                         left: m.heroInset,
                         right: m.heroInset,
                         bottom: m.heroBottom,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              item.subtitle.toUpperCase(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: theme.colorScheme.primary,
-                                letterSpacing: 2.4,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              item.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.displayLarge?.copyWith(
-                                fontSize: m.heroTitleSize,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                height: 1.04,
-                                shadows: const [
-                                  Shadow(blurRadius: 22, color: Colors.black54),
+                        child: TitleTint(
+                          title: item.title,
+                          year: item.year,
+                          fallbackUrl: item.fallback,
+                          builder: (context, tint) => ListenableBuilder(
+                            listenable: HeroFontService.instance,
+                            builder: (context, _) {
+                              final plan = buildHeroTitlePlan(
+                                title: item.title,
+                                originalTitle: item.originalTitle,
+                                genres: item.genres,
+                                countries: item.countries,
+                                tint: tint,
+                              );
+                              final tagline = heroTagline(
+                                genres: item.genres,
+                                countries: item.countries,
+                                fallback: item.subtitle,
+                              );
+                              final heroTextMaxWidth = m.compact
+                                  ? MediaQuery.sizeOf(context).width -
+                                      m.heroInset * 2
+                                  : double.infinity;
+                              final info = _HeroInfoColumn(
+                                item: item,
+                                compact: plan.vertical,
+                                descriptionWidth: plan.vertical
+                                    ? (m.compact ? heroTextMaxWidth : 560)
+                                    : (m.compact ? heroTextMaxWidth : 760),
+                              );
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (plan.vertical)
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        DesignedTitle(
+                                          plan: plan,
+                                          maxWidth: heroTextMaxWidth,
+                                          maxHeight: widget.height - 220,
+                                          overline: tagline,
+                                        ),
+                                        const SizedBox(width: 26),
+                                        Flexible(child: info),
+                                      ],
+                                    )
+                                  else ...[
+                                    DesignedTitle(
+                                      plan: plan,
+                                      maxWidth: heroTextMaxWidth,
+                                      maxHeight: widget.height - 220,
+                                      overline: tagline,
+                                    ),
+                                    info,
+                                  ],
                                 ],
-                              ),
-                            ),
-                            if (item.year.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                item.year,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.66),
-                                ),
-                              ),
-                            ],
-                            if (item.description.isNotEmpty) ...[
-                              const SizedBox(height: 14),
-                              SizedBox(
-                                width: m.compact
-                                    ? MediaQuery.sizeOf(context).width -
-                                        m.heroInset * 2
-                                    : 760,
-                                child: Text(
-                                  item.description,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    color: Colors.white.withValues(alpha: 0.80),
-                                    height: 1.6,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 26),
-                            FilledButton.icon(
-                              onPressed: item.onTap,
-                              icon: const Icon(Icons.play_arrow_rounded, size: 24),
-                              label: Text(item.actionLabel),
-                              style: FilledButton.styleFrom(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: m.compact ? 18 : 30,
-                                  vertical: m.compact ? 12 : 18,
-                                ),
-                                textStyle: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ],
@@ -961,6 +1103,66 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
   }
 }
 
+/// 年份 / 简介 / 按钮。竖排标题时放到条幅右侧，横排时放在标题下方。
+class _HeroInfoColumn extends StatelessWidget {
+  const _HeroInfoColumn({
+    required this.item,
+    required this.compact,
+    required this.descriptionWidth,
+  });
+
+  final ImmersiveHeroItem item;
+  final bool compact;
+  final double descriptionWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (item.year.isNotEmpty) ...[
+          if (!compact) const SizedBox(height: 12),
+          Text(
+            item.year,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.66),
+            ),
+          ),
+        ],
+        if (item.description.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: descriptionWidth),
+            child: Text(
+              item.description,
+              maxLines: compact ? 2 : 3,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: Colors.white.withValues(alpha: 0.80),
+                height: 1.6,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 26),
+        FilledButton.icon(
+          onPressed: item.onTap,
+          icon: const Icon(Icons.play_arrow_rounded, size: 24),
+          label: Text(item.actionLabel),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 18),
+            textStyle: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 卡片点击：豆瓣推荐源没有可播线路，改为全源搜索。
 ///
 /// [autoPlay] 为 true 时详情加载完直接起播（继续观看 / 历史卡）；
@@ -972,18 +1174,16 @@ void openImmersiveItem(
   bool fromStart = false,
 }) {
   final app = AppScope.of(context);
-  final titleOnly = item.id.trim().isNotEmpty && item.id.trim() == item.name.trim();
+  final titleOnly =
+      item.id.trim().isNotEmpty && item.id.trim() == item.name.trim();
   if (app.isDoubanSourceKey(item.sourceKey) || titleOnly) {
     app.requestSearch(item.name);
     return;
   }
   Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => DetailPage(
-        item: item,
-        autoPlay: autoPlay,
-        fromStart: fromStart,
-      ),
+      builder: (_) =>
+          DetailPage(item: item, autoPlay: autoPlay, fromStart: fromStart),
     ),
   );
 }

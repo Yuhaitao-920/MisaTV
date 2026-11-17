@@ -55,6 +55,7 @@ void main() {
   final cookieSeen = <String>[];
   final baiduContextHits = <String>[];
   var deadHits = 0;
+  var imgCacheHits = 0;
 
   setUpAll(() async {
     root = await Directory.systemTemp.createTemp('kniephos-relay-');
@@ -133,6 +134,13 @@ void main() {
         await res.close();
         return;
       }
+      if (req.uri.path == '/cache.jpg') {
+        imgCacheHits++;
+        res.headers.set('content-type', 'image/jpeg');
+        res.write('img-$imgCacheHits');
+        await res.close();
+        return;
+      }
       if (req.uri.path == '/ua-only') {
         res.write('ua:${req.headers.value(HttpHeaders.userAgentHeader) ?? ''}');
         await res.close();
@@ -140,8 +148,7 @@ void main() {
       }
       if (req.uri.path == '/bili-cdn.mp4') {
         // 哔哩 CDN 的防盗链：没有 bilibili.com 的 Referer 就 403。
-        final referer =
-            req.headers.value(HttpHeaders.refererHeader) ?? '';
+        final referer = req.headers.value(HttpHeaders.refererHeader) ?? '';
         if (!referer.contains('bilibili.com')) {
           res.statusCode = 403;
           await res.close();
@@ -162,8 +169,7 @@ void main() {
       if (req.uri.path == '/cookie-session.mp4') {
         // 模拟网盘会话中途过期：第一次 403 并下发刷新后的 __puus，
         // 带上新 Cookie 后才给 200。
-        final cookie =
-            req.headers.value(HttpHeaders.cookieHeader) ?? '';
+        final cookie = req.headers.value(HttpHeaders.cookieHeader) ?? '';
         cookieSeen.add(cookie);
         if (!cookie.contains('__puus=fresh')) {
           res.statusCode = 403;
@@ -211,9 +217,7 @@ void main() {
         return;
       }
       if (req.uri.path == '/range-echo') {
-        res.write(
-          'range:${req.headers.value(HttpHeaders.rangeHeader) ?? ''}',
-        );
+        res.write('range:${req.headers.value(HttpHeaders.rangeHeader) ?? ''}');
         await res.close();
         return;
       }
@@ -314,6 +318,15 @@ void main() {
     expect(await get(wrapped!), 'ref:https://m.douban.com/');
   });
 
+  test('/img 第二次请求命中磁盘缓存，不再回源', () async {
+    imgCacheHits = 0;
+    final target = 'http://127.0.0.1:${upstream.port}/cache.jpg';
+    final wrapped = doubanCoverUrl(target)!;
+    expect(await get(wrapped), 'img-1');
+    expect(await get(wrapped), 'img-1');
+    expect(imgCacheHits, 1, reason: '第二次必须直接读 userdata/cache/images');
+  });
+
   test('/play 未提供 UA 时补浏览器 UA（网盘直链 403 防护）', () async {
     final target = 'http://127.0.0.1:${upstream.port}/ua-only';
     final body = await get(relay.playUrl(target));
@@ -334,8 +347,11 @@ void main() {
     final target = 'http://127.0.0.1:${upstream.port}/index.mpd';
     final body = await get(relay.playUrl(target, provider: 'bili'));
     expect(body, contains('<MPD'));
-    expect(body, contains('${relay.baseUrl}/play?'),
-        reason: 'BaseURL 必须换成中继地址');
+    expect(
+      body,
+      contains('${relay.baseUrl}/play?'),
+      reason: 'BaseURL 必须换成中继地址',
+    );
     expect(
       body.contains('127.0.0.1:${upstream.port}/bili-cdn.mp4'),
       isFalse,
@@ -428,9 +444,7 @@ void main() {
   test('/play 会话 Cookie 与账号 Cookie 合并，同名以新值覆盖', () async {
     cookieSeen.clear();
     final target = 'http://127.0.0.1:${upstream.port}/cookie-session.mp4';
-    final headers = {
-      'Cookie': '__pus=old; __puus=stale; foo=bar',
-    };
+    final headers = {'Cookie': '__pus=old; __puus=stale; foo=bar'};
     final body = await get(
       relay.playUrl(target, headers: headers, provider: 'cookie-merge'),
     );
@@ -456,9 +470,7 @@ void main() {
   test('/play 403 且没有新 Cookie 时只请求一次，不无限重试', () async {
     deadHits = 0;
     final target = 'http://127.0.0.1:${upstream.port}/always-403.mp4';
-    final result = await fetch(
-      relay.playUrl(target, provider: 'cookie-dead'),
-    );
+    final result = await fetch(relay.playUrl(target, provider: 'cookie-dead'));
     expect(result.status, 403);
     expect(deadHits, 1);
   });
@@ -738,10 +750,7 @@ void main() {
         headers: {'origin': origin},
       );
       expect(result.status, 200);
-      expect(
-        result.headers.value('access-control-allow-origin'),
-        origin,
-      );
+      expect(result.headers.value('access-control-allow-origin'), origin);
     });
 
     test('已授权的浏览器请求也不能借中继访问内网（SSRF）', () async {

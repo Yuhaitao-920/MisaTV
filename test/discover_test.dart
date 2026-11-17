@@ -168,6 +168,129 @@ void main() {
     test('非 movie/tv 或短 id 不参与匹配', () {
       expect(pickDoubanSubject(rows, '不存在的片', ''), isNull);
     });
+
+    test('同名多季按年份取最接近的一季', () {
+      const seasons = [
+        {'id': 11111111, 'title': '庆余年', 'type': 'tv', 'year': '2024'},
+        {'id': 22222222, 'title': '庆余年', 'type': 'tv', 'year': '2019'},
+        {'id': 33333333, 'title': '庆余年 第二季', 'type': 'tv', 'year': '2024'},
+      ];
+      expect(pickDoubanSubject(seasons, '庆余年', '2019')?.id, '22222222');
+      // 年份都对不上时取最接近的那一个（2024 而不是 2019）。
+      expect(pickDoubanSubject(seasons, '庆余年', '2023')?.id, '11111111');
+      // 只有续作、且年份对不上时宁可不给封面，也不能拿第二季顶第一季。
+      expect(
+        pickDoubanSubject(
+          const [
+            {'id': 33333333, 'title': '庆余年 第二季', 'type': 'tv', 'year': '2024'},
+          ],
+          '庆余年',
+          '2019',
+        ),
+        isNull,
+      );
+    });
+
+    test('最后一级匹配要求长度接近，避免续作串片', () {
+      const rows = [
+        {'id': 44444444, 'title': '流浪地球2', 'type': 'movie', 'year': '2023'},
+      ];
+      // 年份对不上：不能把第二部当成第一部。
+      expect(pickDoubanSubject(rows, '流浪地球', '2019'), isNull);
+      // 年份缺失时保留原有的宽松匹配能力。
+      expect(pickDoubanSubject(rows, '流浪地球', '')?.id, '44444444');
+    });
+
+    test('subject_suggest 用 episode 字段识别剧集', () {
+      final subject = pickDoubanSubject(
+        const [
+          {
+            'id': 35588177,
+            'title': '漫长的季节',
+            'type': 'movie',
+            'episode': '12',
+            'year': '2023',
+            'img':
+                'https://img9.doubanio.com/view/photo/s_ratio_poster/'
+                'public/p2890906384.jpg',
+          },
+        ],
+        '漫长的季节',
+        '2023',
+      );
+      expect(subject?.mediaType, 'tv');
+      // 顺带把海报缩略图换成大图。
+      expect(
+        subject?.img,
+        'https://img3.doubanio.com/view/photo/l/public/p2890906384.jpg',
+      );
+    });
+
+    test('季号后缀参与匹配时被剥掉', () {
+      const rows = [
+        {'id': 11111111, 'title': '庆余年 第一季', 'type': 'tv', 'year': '2019'},
+        {'id': 22222222, 'title': '庆余年 第二季', 'type': 'tv', 'year': '2024'},
+      ];
+      expect(pickDoubanSubject(rows, '庆余年', '2019')?.id, '11111111');
+      expect(pickDoubanSubject(rows, '庆余年', '2024')?.id, '22222222');
+    });
+
+    test('官方片名带前缀时同年仍可命中', () {
+      const rows = [
+        {'id': 4922787, 'title': '后宫·甄嬛传', 'type': 'tv', 'year': '2011'},
+      ];
+      expect(pickDoubanSubject(rows, '甄嬛传', '2011')?.id, '4922787');
+    });
+  });
+
+  group('parseDoubanSearchHtml', () {
+    test('解析 window.__DATA__ 的条目 / 类型 / 年份 / 大图', () {
+      const html = '''
+<!DOCTYPE html><html><body>
+<script>
+window.__DATA__ = {"count": 2, "items": [
+  {"id": 35588177, "title": "漫长的季节\\u200e (2023)",
+   "cover_url": "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2890906384.jpg",
+   "labels": [{"text": "剧集"}],
+   "more_url": "onclick=\\"moreurl(this,{from:'mv_subject_search',subject_id:'35588177',is_tv:'1'})\\"",
+   "url": "https://movie.douban.com/subject/35588177/"},
+  {"id": 26266893, "title": "流浪地球 (2019)",
+   "cover_url": "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2542069917.jpg",
+   "labels": [],
+   "url": "https://movie.douban.com/subject/26266893/"}
+]};
+</script></body></html>
+''';
+      final rows = parseDoubanSearchHtml(html);
+      expect(rows.length, 2);
+      expect(rows.first['id'], '35588177');
+      expect(rows.first['type'], 'tv');
+      expect(rows.first['title'], '漫长的季节');
+      expect(rows.first['year'], '2023');
+      expect(
+        rows.first['img'],
+        'https://img3.doubanio.com/view/photo/l/public/p2890906384.jpg',
+      );
+      expect(rows.last['type'], 'movie');
+      expect(rows.last['year'], '2019');
+    });
+
+    test('没有 __DATA__ / JSON 残缺时返回空', () {
+      expect(parseDoubanSearchHtml('<html></html>'), isEmpty);
+      expect(parseDoubanSearchHtml('window.__DATA__ = {"items": ['), isEmpty);
+    });
+
+    test('中文名 + 外文原名可只用前半段匹配', () {
+      const rows = [
+        {
+          'id': 30327897,
+          'title': '漫长的离别 長いお別れ',
+          'type': 'movie',
+          'year': '2019',
+        },
+      ];
+      expect(pickDoubanSubject(rows, '漫长的离别', '2019')?.id, '30327897');
+    });
   });
 
   group('parseDoubanInfo', () {
@@ -201,6 +324,18 @@ void main() {
     test('缺 id / title 返回 null', () {
       expect(parseDoubanInfo({'title': '没有 id'}, 'movie'), isNull);
       expect(parseDoubanInfo({'id': '1'}, 'movie'), isNull);
+    });
+
+    test('原名与制片国家用于 Hero 字体匹配', () {
+      final info = parseDoubanInfo({
+        'id': '1',
+        'title': '冰冷热带鱼',
+        'original_title': '冷たい熱帯魚',
+        'countries': ['日本'],
+        'genres': ['剧情', '惊悚', '犯罪'],
+      }, 'movie');
+      expect(info?.originalTitle, '冷たい熱帯魚');
+      expect(info?.countries, ['日本']);
     });
   });
 

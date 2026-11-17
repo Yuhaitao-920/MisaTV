@@ -29,6 +29,9 @@ import '../widgets/hover_marquee_text.dart';
 import '../widgets/hyms_captcha_dialog.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import '../widgets/poster_card.dart';
+import '../immersive/designed_title.dart';
+import '../immersive/hero_title_style.dart';
+import '../immersive/title_tint.dart';
 import '../immersive/immersive_metrics.dart';
 import '../immersive/immersive_widgets.dart';
 import 'player_page.dart';
@@ -74,6 +77,7 @@ class _DetailPageState extends State<DetailPage> {
   /// 沉浸观影：简介是否展开、选集横向滚动控制器。
   bool _immersiveIntroOpen = false;
   ScrollController? _immersiveEpsScroll;
+  ScrollController? _immersiveBottomScroll;
 
   /// 沉浸观影：TMDB 分集封面（与当前线路顺序一致，缺失为 null）。
   List<String?> _episodeStills = const [];
@@ -82,6 +86,7 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void dispose() {
     _immersiveEpsScroll?.dispose();
+    _immersiveBottomScroll?.dispose();
     super.dispose();
   }
 
@@ -248,6 +253,11 @@ class _DetailPageState extends State<DetailPage> {
       episodeNumbers: numbers,
     );
     if (!mounted || key != _episodeStillsKey) return;
+    // 全空通常是风控 / 网络抖动：不记住这次 key，切回该线路或重新进入
+    // 详情页时还能再试一次。
+    if (!stills.any((still) => still != null && still.isNotEmpty)) {
+      _episodeStillsKey = '';
+    }
     setState(() => _episodeStills = stills);
   }
 
@@ -1024,13 +1034,15 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 沉浸观影详情页：全屏横图 + 左侧信息 + 底部选集条。
   Widget _buildImmersive(BuildContext context, AppState app) {
-    final m = ImmersiveMetrics.of(context);
     final immersive = immersiveTheme(context);
     final theme = immersive;
     final detail = _detail;
     final douban = _douban;
     final item = widget.item;
-    final name = detail?.name ?? item.name;
+    // 个别 JAR 源（如立播）详情页字段会解析成空：标题 / 海报回落到列表项，
+    // 否则沉浸详情页会只剩背景和按钮，看起来像「文字和封面都没了」。
+    final detailName = (detail?.name ?? '').trim();
+    final name = detailName.isNotEmpty ? detailName : item.name;
     final rawYear = (detail?.year ?? douban?.year ?? '').trim();
     final year = _validYear(rawYear) ? rawYear : '';
     final poster = (detail?.cleanPic.isNotEmpty ?? false)
@@ -1116,13 +1128,22 @@ class _DetailPageState extends State<DetailPage> {
         : _cleanIntroText(douban?.intro ?? '');
     final rating = douban?.rating;
     final cast = _castMembers(detail).take(8).toList();
+    final m = ImmersiveMetrics.of(context);
     final recs = _extra?.recommendations.take(10).toList() ?? const [];
     final typeLabel = switch (douban?.mediaType) {
       'movie' => '电影',
       'tv' => '剧集',
       _ => (detail.type.isEmpty ? '影视' : detail.type),
     };
+    // 详情页也用同一套设计标题：豆瓣缺国家时用源站 area 兜底。
+    final countries = douban?.countries.isNotEmpty == true
+        ? douban!.countries
+        : splitMetaHints(detail.area);
     final controller = _immersiveEpsScroll ??= ScrollController();
+    final bottomScroll = _immersiveBottomScroll ??= ScrollController();
+    final bottomHeight = (MediaQuery.sizeOf(context).height * 0.31)
+        .clamp(m.compact ? 190.0 : 244.0, m.compact ? 240.0 : 300.0)
+        .toDouble();
 
     final currentIndex = history == null
         ? -1
@@ -1241,13 +1262,29 @@ class _DetailPageState extends State<DetailPage> {
                       padding: EdgeInsets.fromLTRB(m.gutter, 18, m.gutter, 0),
                       child: Row(
                         children: [
-                          Text(
-                            '$typeLabel · ${site?.displayName ?? item.sourceName}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                              letterSpacing: 1.6,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.9,
+                                  ),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '$typeLabel · ${site?.displayName ?? item.sourceName}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.52),
+                                  letterSpacing: 1.8,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                           const Spacer(),
                           IconButton(
@@ -1318,22 +1355,39 @@ class _DetailPageState extends State<DetailPage> {
                               width: m.compact
                                   ? MediaQuery.sizeOf(context).width -
                                       m.gutter * 2
-                                  : MediaQuery.sizeOf(context).width * 0.46,
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.displayMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                            color: Colors.white,
-                                            height: 1.04,
-                                            letterSpacing: -0.8,
-                                          ),
+                                  : MediaQuery.sizeOf(context).width * 0.52,
+                              child: LayoutBuilder(
+                                builder: (context, constraints) =>
+                                    SingleChildScrollView(
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minHeight: constraints.maxHeight,
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                    TitleTint(
+                                      title: name,
+                                      year: year,
+                                      fallbackUrl: poster,
+                                      builder: (context, tint) => DesignedTitle(
+                                        plan: buildHeroTitlePlan(
+                                          title: name,
+                                          originalTitle:
+                                              douban?.originalTitle ?? '',
+                                          genres: genres,
+                                          countries: countries,
+                                          allowVertical: false,
+                                          tint: tint,
+                                        ),
+                                        scale: 0.9,
+                                        maxWidth:
+                                            MediaQuery.sizeOf(context).width *
+                                            0.5,
+                                      ),
                                     ),
                                     const SizedBox(height: 16),
                                     Wrap(
@@ -1363,7 +1417,7 @@ class _DetailPageState extends State<DetailPage> {
                                         intro,
                                         maxLines: _immersiveIntroOpen
                                             ? null
-                                            : 4,
+                                            : 3,
                                         overflow: _immersiveIntroOpen
                                             ? TextOverflow.visible
                                             : TextOverflow.ellipsis,
@@ -1477,177 +1531,209 @@ class _DetailPageState extends State<DetailPage> {
                                         ],
                                       ),
                                     ],
-                                    if (recs.isNotEmpty) ...[
-                                      const SizedBox(height: 22),
-                                      Text(
-                                        '相关推荐',
-                                        style: theme.textTheme.labelMedium
-                                            ?.copyWith(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.5,
-                                              ),
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 1,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      SizedBox(
-                                        height: 186,
-                                        child: ScrollConfiguration(
-                                          behavior:
-                                              const MouseDragScrollBehavior(),
-                                          child: ListView.separated(
-                                            scrollDirection: Axis.horizontal,
-                                            itemCount: recs.length,
-                                            separatorBuilder: (_, _) =>
-                                                const SizedBox(width: 10),
-                                            itemBuilder: (context, index) {
-                                              final rec = recs[index];
-                                              return _ImmersiveRecommendCard(
-                                                item: rec,
-                                                onTap: () => _search(rec.title),
-                                              );
-                                            },
-                                          ),
+                                          ],
                                         ),
                                       ),
-                                    ],
-                                  ],
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
                           ],
                         ),
                       ),
                     ),
                     Container(
-                      height: m.compact ? 190 : 238,
-                      padding: EdgeInsets.fromLTRB(m.gutter, 14, m.gutter, 10),
+                      height: bottomHeight,
+                      padding: EdgeInsets.fromLTRB(m.gutter, 14, m.gutter, 0),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.42),
+                        color: Colors.black.withValues(alpha: 0.46),
                         border: Border(
                           top: BorderSide(
                             color: Colors.white.withValues(alpha: 0.06),
                           ),
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          Row(
+                      child: Scrollbar(
+                        controller: bottomScroll,
+                        thickness: 4,
+                        radius: const Radius.circular(2),
+                        child: SingleChildScrollView(
+                          controller: bottomScroll,
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '选集',
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                '${episodes.length} 集',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.46),
-                                ),
-                              ),
-                              const Spacer(),
-                              if (detail.flags.length > 1)
-                                Expanded(
-                                  flex: 3,
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    reverse: true,
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        for (final road in detail.flags)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              left: 6,
-                                            ),
-                                            child: _ImmersiveLineChip(
-                                              label: road.isEmpty
-                                                  ? '默认线路'
-                                                  : road,
-                                              selected: road == flag,
-                                              onTap: () => selectFlag(road),
-                                            ),
-                                          ),
-                                      ],
+                              Row(
+                                children: [
+                                  Text(
+                                    '选集',
+                                    style: theme.textTheme.headlineSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white,
+                                        ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    '${episodes.length} 集',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.46),
                                     ),
                                   ),
-                                ),
-                              if (currentIndex >= 0)
-                                TextButton(
-                                  onPressed: locateCurrent,
-                                  child: const Text('定位当前'),
-                                ),
-                              TextButton(
-                                onPressed: episodes.isEmpty
-                                    ? null
-                                    : () => _showEpisodePicker(
-                                        detail: detail,
-                                        flag: flag,
-                                        currentIndex: currentIndex,
+                                  const Spacer(),
+                                  if (detail.flags.length > 1)
+                                    Expanded(
+                                      flex: 3,
+                                      child: SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        reverse: true,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            for (final road in detail.flags)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  left: 6,
+                                                ),
+                                                child: _ImmersiveLineChip(
+                                                  label: road.isEmpty
+                                                      ? '默认线路'
+                                                      : road,
+                                                  selected: road == flag,
+                                                  onTap: () => selectFlag(road),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                child: const Text('全部选集'),
+                                    ),
+                                  if (currentIndex >= 0)
+                                    TextButton(
+                                      onPressed: locateCurrent,
+                                      child: const Text('定位当前'),
+                                    ),
+                                  TextButton(
+                                    onPressed: episodes.isEmpty
+                                        ? null
+                                        : () => _showEpisodePicker(
+                                            detail: detail,
+                                            flag: flag,
+                                            currentIndex: currentIndex,
+                                          ),
+                                    child: const Text('全部选集'),
+                                  ),
+                                  IconButton(
+                                    tooltip: '上一页',
+                                    onPressed: () => scrollEpisodes(-660),
+                                    icon: const Icon(
+                                      Icons.chevron_left_rounded,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '下一页',
+                                    onPressed: () => scrollEpisodes(660),
+                                    icon: const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              IconButton(
-                                tooltip: '上一页',
-                                onPressed: () => scrollEpisodes(-660),
-                                icon: const Icon(
-                                  Icons.chevron_left_rounded,
-                                  color: Colors.white70,
+                              const SizedBox(height: 6),
+                              SizedBox(
+                                height: 148,
+                                child: episodes.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          '该线路没有可播放的剧集',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.52,
+                                                ),
+                                              ),
+                                        ),
+                                      )
+                                    : ListView.separated(
+                                        controller: controller,
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: episodes.length,
+                                        separatorBuilder: (_, _) =>
+                                            const SizedBox(width: 14),
+                                        itemBuilder: (context, index) {
+                                          final episode = episodes[index];
+                                          final selected = index == currentIndex;
+                                          return _ImmersiveEpisodeCard(
+                                            episode: episode,
+                                            index: index,
+                                            title: name,
+                                            year: year,
+                                            fallback: poster,
+                                            still: _episodeStills.length > index
+                                                ? (_episodeStills[index] ?? '')
+                                                : '',
+                                            selected: selected,
+                                            onTap: () => _playEpisode(index),
+                                          );
+                                        },
+                                      ),
+                              ),
+                              if (recs.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  height: 1,
+                                  color: Colors.white.withValues(alpha: 0.07),
                                 ),
-                              ),
-                              IconButton(
-                                tooltip: '下一页',
-                                onPressed: () => scrollEpisodes(660),
-                                icon: const Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Expanded(
-                            child: episodes.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      '该线路没有可播放的剧集',
-                                      style: theme.textTheme.bodySmall
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '相关推荐',
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.6,
+                                          ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      '${recs.length} 部',
+                                      style: theme.textTheme.labelSmall
                                           ?.copyWith(
                                             color: Colors.white.withValues(
-                                              alpha: 0.52,
+                                              alpha: 0.42,
                                             ),
                                           ),
                                     ),
-                                  )
-                                : ListView.separated(
-                                    controller: controller,
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: episodes.length,
-                                    separatorBuilder: (_, _) =>
-                                        const SizedBox(width: 14),
-                                    itemBuilder: (context, index) {
-                                      final episode = episodes[index];
-                                      final selected = index == currentIndex;
-                                      return _ImmersiveEpisodeCard(
-                                        episode: episode,
-                                        index: index,
-                                        title: name,
-                                        year: year,
-                                        fallback: poster,
-                                        still: _episodeStills.length > index
-                                            ? (_episodeStills[index] ?? '')
-                                            : '',
-                                        selected: selected,
-                                        onTap: () => _playEpisode(index),
-                                      );
-                                    },
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  height: 148,
+                                  child: ScrollConfiguration(
+                                    behavior:
+                                        const MouseDragScrollBehavior(),
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: recs.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(width: 14),
+                                      itemBuilder: (context, index) {
+                                        final rec = recs[index];
+                                        return _ImmersiveRecommendCard(
+                                          item: rec,
+                                          onTap: () => _search(rec.title),
+                                        );
+                                      },
+                                    ),
                                   ),
+                                ),
+                              ],
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
@@ -1735,7 +1821,9 @@ class _DetailPageState extends State<DetailPage> {
         ? widget.item.cleanPic
         : (detail.cleanPic.isNotEmpty
               ? detail.cleanPic
-              : (douban?.coverUrl ?? widget.item.cleanPic));
+              : ((douban?.coverUrl.trim().isNotEmpty ?? false)
+                    ? douban!.coverUrl
+                    : widget.item.cleanPic));
     final introText = detail == null
         ? ''
         : (detail.des.trim().isNotEmpty
@@ -1753,13 +1841,17 @@ class _DetailPageState extends State<DetailPage> {
             image: doubanImageDisplayUrl(backdropImage),
             headers: isDoubanImageUrl(backdropImage)
                 ? const <String, String>{}
-                : (detail?.picHeaders ?? widget.item.picHeaders),
+                : (detail != null && backdropImage == detail.cleanPic
+                      ? detail.picHeaders
+                      : widget.item.picHeaders),
           ),
           SafeArea(
             child: Column(
               children: [
                 _TopBar(
-                  title: detail?.name ?? widget.item.name,
+                  title: (detail?.name ?? '').trim().isNotEmpty
+                      ? detail!.name
+                      : widget.item.name,
                   favorite:
                       detail != null &&
                       app.isFavorite(detail.sourceKey, detail.id),
@@ -1832,6 +1924,11 @@ class _DetailPageState extends State<DetailPage> {
                                     detail: detail,
                                     douban: douban,
                                     narrow: narrow,
+                                    // JAR 源详情偶尔缺标题 / 海报：用列表项兜底。
+                                    fallbackTitle: widget.item.name,
+                                    fallbackCover: widget.item.cleanPic,
+                                    fallbackCoverHeaders:
+                                        widget.item.picHeaders,
                                     introText: introText,
                                     introFromDouban: detail.des.trim().isEmpty,
                                     onExpandIntro: () => _showFullIntro(
@@ -1842,7 +1939,8 @@ class _DetailPageState extends State<DetailPage> {
                                     onOpenCover: () {
                                       final raw = detail.cleanPic.isNotEmpty
                                           ? detail.cleanPic
-                                          : (douban?.coverUrl ?? '');
+                                          : (douban?.coverUrl ??
+                                                widget.item.cleanPic);
                                       final isDouban = isDoubanImageUrl(raw);
                                       _openCover(
                                         isDouban
@@ -1852,7 +1950,7 @@ class _DetailPageState extends State<DetailPage> {
                                             ? const <String, String>{}
                                             : (detail.cleanPic.isNotEmpty
                                                   ? detail.picHeaders
-                                                  : const {}),
+                                                  : widget.item.picHeaders),
                                       );
                                     },
                                     onPlay: () {
@@ -2250,6 +2348,9 @@ class _DetailHeader extends StatelessWidget {
     required this.onOpenCover,
     required this.onPlay,
     required this.playLabel,
+    this.fallbackTitle = '',
+    this.fallbackCover = '',
+    this.fallbackCoverHeaders = const <String, String>{},
     this.progress = 0,
   });
 
@@ -2264,14 +2365,28 @@ class _DetailHeader extends StatelessWidget {
   final String playLabel;
   final double progress;
 
+  /// 详情字段为空时用列表项兜底，避免整页只剩背景和按钮。
+  final String fallbackTitle;
+  final String fallbackCover;
+  final Map<String, String> fallbackCoverHeaders;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final coverUrl = detail.cleanPic.isNotEmpty
+    final title = detail.name.trim().isNotEmpty
+        ? detail.name
+        : fallbackTitle;
+    final detailCover = detail.cleanPic.isNotEmpty
         ? detail.cleanPic
         : (douban?.coverUrl ?? '');
-    final coverHeaders = detail.cleanPic.isNotEmpty
+    final coverUrl = detailCover.isNotEmpty ? detailCover : fallbackCover;
+    // 兜底海报可能来自资源站，需要带上该站的防盗链请求头。
+    final coverHeaders = coverUrl.isEmpty
+        ? const <String, String>{}
+        : coverUrl == detail.cleanPic
         ? detail.picHeaders
+        : coverUrl == fallbackCover
+        ? fallbackCoverHeaders
         : const <String, String>{};
     final posterWidth = narrow ? 170.0 : 210.0;
     final posterHeight = posterWidth * 1.5;
@@ -2302,7 +2417,7 @@ class _DetailHeader extends StatelessWidget {
                       color: theme.colorScheme.primary.withValues(alpha: 0.18),
                     )
                   : Image.network(
-                      coverUrl,
+                      doubanImageDisplayUrl(coverUrl),
                       fit: BoxFit.cover,
                       headers: coverHeaders.isEmpty ? null : coverHeaders,
                       // 详情海报物理宽度 ~260px，按原图尺寸解码会浪费内存
@@ -2322,7 +2437,7 @@ class _DetailHeader extends StatelessWidget {
 
     final heading = <Widget>[
       HoverMarqueeText(
-        detail.name,
+        title,
         maxLines: 2,
         textAlign: narrow ? TextAlign.center : TextAlign.left,
         style: theme.textTheme.headlineMedium?.copyWith(
@@ -3276,7 +3391,7 @@ class _PlayGateOverlay extends StatelessWidget {
   }
 }
 
-/// 沉浸详情的相关推荐卡：小竖图 + 片名，点击回主界面全源搜索。
+/// 沉浸详情的相关推荐卡：16:9 横图 + 片名，点击回主界面全源搜索。
 class _ImmersiveRecommendCard extends StatelessWidget {
   const _ImmersiveRecommendCard({required this.item, required this.onTap});
 
@@ -3290,7 +3405,7 @@ class _ImmersiveRecommendCard extends StatelessWidget {
       onTap: onTap,
       onFocusChange: (focused) {
         if (!focused) return;
-        // 推荐墙可能在左侧信息栏的折叠区外：聚焦时把它滚进来。
+        // 推荐墙在底部选集下方，聚焦时把它滚进可视区域。
         unawaited(
           Scrollable.ensureVisible(
             context,
@@ -3301,13 +3416,13 @@ class _ImmersiveRecommendCard extends StatelessWidget {
         );
       },
       builder: (context, active) => SizedBox(
-        width: 108,
+        width: 198,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              height: 150,
+              height: 112,
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
@@ -3317,6 +3432,16 @@ class _ImmersiveRecommendCard extends StatelessWidget {
                       : Colors.white.withValues(alpha: 0.08),
                   width: active ? 1.6 : 1,
                 ),
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.16,
+                          ),
+                          blurRadius: 12,
+                        ),
+                      ]
+                    : const [],
               ),
               child: ImmersiveBackdrop(
                 title: item.title,

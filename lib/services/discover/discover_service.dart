@@ -140,6 +140,17 @@ class DiscoverService {
   int _blockedStreak = 0;
   DateTime? _breakerUntil;
 
+  /// `subject_suggest` 被限流（稳定返回空数组）后，短时间内直接跳过它，
+  /// 省掉一次必然失败的请求，让 HTML 搜索兜底更快出结果。
+  DateTime? _suggestEmptyUntil;
+
+  /// 联想 / HTML 搜索被 403 风控后同样短路 10 分钟。
+  ///
+  /// 2026-11 起这两个接口对无登录态的固定 IP 基本恒定 403，每次请求还要
+  /// 白等 0.3~0.8 秒；不短路的话一屏 20 张卡片光 403 就要排好几秒。
+  DateTime? _suggestBlockedUntil;
+  DateTime? _htmlSearchBlockedUntil;
+
   static const _headers = {
     'Accept': 'application/json',
     'User-Agent':
@@ -156,9 +167,14 @@ class DiscoverService {
   Future<_RexxarResp> _get(
     String url, {
     Duration timeout = const Duration(seconds: 12),
+    Map<String, String> headers = const {},
   }) async {
     try {
-      final res = await _http.getText(url, headers: _headers, timeout: timeout);
+      final res = await _http.getText(
+        url,
+        headers: headers.isEmpty ? _headers : {..._headers, ...headers},
+        timeout: timeout,
+      );
       return _RexxarResp(res.statusCode, res.body);
     } on AppHttpException catch (e) {
       return _RexxarResp(e.statusCode ?? 0, e.message);
@@ -325,7 +341,7 @@ class DiscoverService {
       '?q=${Uri.encodeQueryComponent(q)}',
       timeout: const Duration(seconds: 5),
     );
-    _noteStatus(resp.status);
+    // 同上：联想接口的固定 403 不参与熔断。
     if (resp.status != 200) return const [];
     final rows = _decodeOrNull(resp.text);
     if (rows is! List) return const [];
@@ -353,6 +369,9 @@ class DiscoverService {
   }
 
   /// 按片名找豆瓣条目（`subject_suggest`，未登录可用）。
+  ///
+  /// `subject_suggest` 现在对无 Cookie 的请求经常返回空数组（限流），
+  /// 因此空结果时自动回退到 `search.douban.com` 的 HTML 搜索。
   Future<DoubanSubject?> findSubject(String name, {String year = ''}) async {
     final n = name.trim();
     if (n.isEmpty) return null;
@@ -362,14 +381,88 @@ class DiscoverService {
         DateTime.now().difference(cached.at) < const Duration(hours: 24)) {
       return cached.value;
     }
+    final skipSuggest =
+        (_suggestEmptyUntil != null &&
+            DateTime.now().isBefore(_suggestEmptyUntil!)) ||
+        (_suggestBlockedUntil != null &&
+            DateTime.now().isBefore(_suggestBlockedUntil!));
+    if (!skipSuggest && !breakerOpen) {
+      final resp = await _get(
+        'https://movie.douban.com/j/subject_suggest'
+        '?q=${Uri.encodeQueryComponent(n)}',
+        timeout: const Duration(seconds: 8),
+      );
+      // 这个接口的 403 是固定风控，不代表 Rexxar 也不可用，不参与熔断。
+      if (resp.status == 200) {
+        final rows = _decodeOrNull(resp.text);
+        final subject = pickDoubanSubject(rows, n, year);
+        if (subject != null) {
+          _subjectCache[key] = _Cached(DateTime.now(), subject);
+          return subject;
+        }
+        if (rows is List && rows.isEmpty) {
+          _suggestEmptyUntil = DateTime.now().add(const Duration(minutes: 10));
+        }
+      } else if (resp.status == 403 || resp.status == 429) {
+        _suggestBlockedUntil = DateTime.now().add(const Duration(minutes: 10));
+      }
+    }
+    final subject = await htmlSearchSubject(n, year: year);
+    if (subject != null) {
+      _subjectCache[key] = _Cached(DateTime.now(), subject);
+      return subject;
+    }
+    // 联想和 HTML 搜索都被 403 风控时（2026-11 起很常见），
+    // Rexxar 搜索接口仍可用，是最后一条免 Key 的检索链路。
+    final rexxar = await searchSubject(n, year: year);
+    if (rexxar != null) _subjectCache[key] = _Cached(DateTime.now(), rexxar);
+    return rexxar;
+  }
+
+  /// HTML 搜索兜底：`search.douban.com/movie/subject_search` 未登录可用。
+  ///
+  /// 页面里带 `window.__DATA__`，一次返回 10~20 条影视条目，包含
+  /// 条目 id / 类型 / 年份 / 封面，比被限流的联想接口稳定得多。
+  Future<DoubanSubject?> htmlSearchSubject(
+    String name, {
+    String year = '',
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty || breakerOpen) return null;
+    if (_htmlSearchBlockedUntil != null &&
+        DateTime.now().isBefore(_htmlSearchBlockedUntil!)) {
+      return null;
+    }
+    final key = '$n|$year|html';
+    final cached = _subjectCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < const Duration(hours: 24)) {
+      return cached.value;
+    }
     final resp = await _get(
-      'https://movie.douban.com/j/subject_suggest?q=${Uri.encodeQueryComponent(n)}',
+      'https://search.douban.com/movie/subject_search'
+      '?search_text=${Uri.encodeQueryComponent(n)}&cat=1002',
       timeout: const Duration(seconds: 10),
+      headers: const {
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Referer': 'https://search.douban.com/movie/',
+      },
     );
-    _noteStatus(resp.status);
+    if (resp.status == 403 || resp.status == 429) {
+      // 同 subject_suggest：HTML 搜索的 403 是固定风控，不参与熔断，
+      // 只短路自己，避免把仍然可用的 Rexxar 接口一起停掉。
+      _htmlSearchBlockedUntil = DateTime.now().add(const Duration(minutes: 10));
+    }
     if (resp.status != 200) return null;
-    final subject = pickDoubanSubject(_decodeOrNull(resp.text), n, year);
-    if (subject != null) _subjectCache[key] = _Cached(DateTime.now(), subject);
+    final subject = pickDoubanSubject(
+      parseDoubanSearchHtml(resp.text),
+      n,
+      year,
+    );
+    if (subject != null) {
+      _subjectCache[key] = _Cached(DateTime.now(), subject);
+    }
     return subject;
   }
 
@@ -386,9 +479,17 @@ class DiscoverService {
       return cached.value;
     }
     final resp = await _get(
-      '$_base/search/subjects?q=${Uri.encodeQueryComponent(n)}'
-      '&start=0&count=6&type=movie',
+      '$_base/search/subjects?q=${Uri.encodeQueryComponent(n)}&for_mobile=1',
       timeout: const Duration(seconds: 10),
+      // 这个接口只认移动端 UA：桌面 UA 会直接 500，带 type/start/count
+      // 参数也会 500，只能传 q + for_mobile。
+      headers: const {
+        'Accept': 'application/json',
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+        'Referer': 'https://m.douban.com/search/',
+      },
     );
     _noteStatus(resp.status);
     if (resp.status != 200) return null;
@@ -735,13 +836,172 @@ String normalizeDoubanTitle(String value) => value.toLowerCase().replaceAll(
   '',
 );
 
+/// 匹配用的片名：去掉方向标记、年份与季号后缀。
+///
+/// 豆瓣联想把剧集写作「庆余年 第一季」，资源站通常只写「庆余年」；
+/// 不剥掉季号会直接匹配失败（表现为详情页和横图都刮不到）。
+String doubanMatchTitle(String raw) {
+  var text = cleanDoubanSearchTitle(raw);
+  text = text.replaceAll(RegExp(r'\s*第\s*[0-9一二三四五六七八九十两]+\s*[季部]\s*$'), '');
+  text = text.replaceAll(
+    RegExp(r'\s*(?:season|series)\s*[0-9]{1,2}\s*$', caseSensitive: false),
+    '',
+  );
+  text = text.replaceAll(
+    RegExp(r'\s*S[0-9]{1,2}\s*$', caseSensitive: false),
+    '',
+  );
+  return text.trim();
+}
+
+/// 豆瓣联想条目的真实类型。
+///
+/// `subject_suggest` 会把电视剧的 `type` 也写成 `movie`，真正的类型
+/// 藏在 `episode`（集数）里；不识别会让剧集走电影的详情 / 剧照接口。
+bool doubanRowIsTv(Map row) {
+  if ((row['type'] ?? '').toString() == 'tv') return true;
+  final episode = (row['episode'] ?? '').toString().trim();
+  if (episode.isNotEmpty && episode != '0') return true;
+  final uri = (row['uri'] ?? row['url'] ?? '').toString();
+  return uri.contains('/tv/');
+}
+
+/// 解析 `search.douban.com/movie/subject_search` 页面里的 `window.__DATA__`。
+///
+/// 返回的每一行与 `subject_suggest` 同口径（id / type / title / year / img），
+/// 方便复用 [pickDoubanSubject]。
+List<Map<String, dynamic>> parseDoubanSearchHtml(String html) {
+  final marker = html.indexOf('window.__DATA__');
+  if (marker < 0) return const [];
+  final start = html.indexOf('{', marker);
+  if (start < 0) return const [];
+  final end = _jsonObjectEnd(html, start);
+  if (end < 0) return const [];
+  Object? decoded;
+  try {
+    decoded = jsonDecode(html.substring(start, end));
+  } catch (_) {
+    return const [];
+  }
+  final items = decoded is Map ? decoded['items'] : null;
+  if (items is! List) return const [];
+  final out = <Map<String, dynamic>>[];
+  for (final raw in items) {
+    if (raw is! Map) continue;
+    final url = (raw['url'] ?? '').toString();
+    var id = (raw['id'] ?? '').toString().trim();
+    if (!RegExp(r'^\d{5,}$').hasMatch(id)) {
+      final match = RegExp(r'/subject/(\d+)').firstMatch(url);
+      id = match?.group(1) ?? '';
+    }
+    if (!RegExp(r'^\d{5,}$').hasMatch(id)) continue;
+    final rawTitle = (raw['title'] ?? '').toString();
+    final title = cleanDoubanSearchTitle(rawTitle);
+    if (title.isEmpty) continue;
+    final more = (raw['more_url'] ?? '').toString();
+    final labels = raw['labels'];
+    var isTv = more.contains("is_tv:'1'") || more.contains('is_tv: "1"');
+    if (!isTv && labels is List) {
+      isTv = labels.any((label) {
+        if (label is! Map) return false;
+        final text = (label['text'] ?? '').toString();
+        return text.contains('剧集') || text.contains('综艺');
+      });
+    }
+    final year = RegExp(r'((?:19|20)\d{2})\s*\)\s*$')
+        .firstMatch(rawTitle)
+        ?.group(1);
+    out.add({
+      'id': id,
+      'type': isTv ? 'tv' : 'movie',
+      'title': title,
+      'year': year ?? '',
+      'img': largeDoubanPoster((raw['cover_url'] ?? '').toString()),
+    });
+  }
+  return out;
+}
+
+/// 从 `window.__DATA__ = {…}` 里找出 JSON 对象的右花括号（跳过字符串）。
+int _jsonObjectEnd(String text, int start) {
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+  for (var i = start; i < text.length; i++) {
+    final code = text.codeUnitAt(i);
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (code == 0x5C) {
+        escaped = true;
+      } else if (code == 0x22) {
+        inString = false;
+      }
+      continue;
+    }
+    if (code == 0x22) {
+      inString = true;
+    } else if (code == 0x7B) {
+      depth++;
+    } else if (code == 0x7D) {
+      depth--;
+      if (depth == 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/// HTML 搜索结果的标题带方向标记与年份后缀：`漫长的季节‎ (2023)` → `漫长的季节`。
+String cleanDoubanSearchTitle(String raw) {
+  var text = raw
+      .replaceAll('\u200e', '')
+      .replaceAll('\u200f', '')
+      .replaceAll('\u200b', '')
+      .trim();
+  text = text.replaceAll(RegExp(r'\s*\(\s*(?:19|20)\d{2}\s*\)\s*$'), '');
+  return text.trim();
+}
+
+/// 豆瓣海报缩略图换大图：`/view/photo/s_ratio_poster/public/p1.jpg`
+/// → `/view/photo/l/public/p1.jpg`（同一图床，尺寸更大）。
+String largeDoubanPoster(String raw) {
+  final url = raw.trim();
+  if (url.isEmpty) return '';
+  final match = RegExp(r'/view/photo/[^/]+/public/(p\d+\.jpg)').firstMatch(url);
+  if (match == null) return url;
+  return 'https://img3.doubanio.com/view/photo/l/public/${match.group(1)}';
+}
+
+/// 结果里「中文名 + 外文原名」的写法，取前半段做宽松匹配：
+/// `漫长的离别 長いお別れ` → `漫长的离别`。
+///
+/// 只在后半段确实含非中文文字（假名 / 韩文 / 拉丁）时才截断，
+/// 避免把「你好 李焕英」这种本身带空格的中文片名截成「你好」。
+String doubanLeadCjkTitle(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return '';
+  final parts = text.split(RegExp(r'\s+'));
+  if (parts.length < 2) return '';
+  final lead = parts.first.trim();
+  if (lead.length < 2 || !RegExp(r'^[\u3400-\u9fff]').hasMatch(lead)) {
+    return '';
+  }
+  final rest = parts.skip(1).join(' ');
+  if (rest.isEmpty) return '';
+  if (!RegExp(r'[A-Za-z\u3040-\u30ff\uac00-\ud7af]').hasMatch(rest)) return '';
+  return lead;
+}
+
 /// 单行文本：压缩空白并按需截断。
 String oneLineText(String text, int max) {
   final s = text.replaceAll(RegExp(r'\s+'), ' ').trim();
   return s.length > max ? '${s.substring(0, max)}…' : s;
 }
 
-/// 从 `subject_suggest` 结果里挑出当前片对应的条目（先严后宽）。
+/// 从 `subject_suggest` / HTML 搜索结果里挑出当前片对应的条目（先严后宽）。
+///
+/// 放宽到最后一级时要求「长度接近 + 年份对得上」：以前只要互相包含就命中，
+/// 「庆余年」会拿到「庆余年 第二季」，「流浪地球」会拿到「流浪地球 2」。
 DoubanSubject? pickDoubanSubject(Object? rows, String name, String year) {
   if (rows is! List) return null;
   final want = normalizeDoubanTitle(name.trim());
@@ -762,32 +1022,82 @@ DoubanSubject? pickDoubanSubject(Object? rows, String name, String year) {
 
   DoubanSubject asSubject(Map row) => DoubanSubject(
     id: (row['id'] ?? '').toString(),
-    mediaType: (row['type'] ?? '') == 'tv' ? 'tv' : 'movie',
+    mediaType: doubanRowIsTv(row) ? 'tv' : 'movie',
     title: (row['title'] ?? '').toString().trim(),
     year: (row['year'] ?? '').toString().trim(),
-    img: (row['img'] ?? '').toString().trim(),
+    img: largeDoubanPoster((row['img'] ?? '').toString()),
   );
+
+  /// HTML 搜索的标题可能是「中文名 外文原名」，多给一个中文名匹配键。
+  List<String> titleKeys(Map row) {
+    final raw = (row['title'] ?? '').toString();
+    final keys = <String>[normalizeDoubanTitle(doubanMatchTitle(raw))];
+    final lead = doubanLeadCjkTitle(raw);
+    if (lead.isNotEmpty) {
+      keys.add(normalizeDoubanTitle(doubanMatchTitle(lead)));
+    }
+    return keys.where((key) => key.isNotEmpty).toList();
+  }
+
+  bool sameTitle(Map row) => titleKeys(row).contains(want);
 
   if (wantYear.isNotEmpty) {
     for (final row in usable) {
-      if (normalizeDoubanTitle((row['title'] ?? '').toString()) == want &&
-          (row['year'] ?? '').toString() == wantYear) {
-        return asSubject(row);
+      final rowYear = (row['year'] ?? '').toString().trim();
+      if (rowYear == wantYear && sameTitle(row)) return asSubject(row);
+    }
+  }
+  final same = usable.where(sameTitle).toList();
+  if (same.isNotEmpty) {
+    if (wantYear.isNotEmpty) {
+      final want = int.tryParse(wantYear);
+      final dated = same.where((row) {
+        final value = (row['year'] ?? '').toString().trim();
+        return value.isNotEmpty && int.tryParse(value) != null;
+      }).toList();
+      if (dated.isNotEmpty && dated.length == same.length && want != null) {
+        // 同名多季 / 多版本：只接受同年，或发布年与首播年差 1 的条目。
+        // 差 5 年那种基本就是另一季，宁可回到竖版海报也不能配错。
+        final close = dated.where((row) {
+          final year = int.parse((row['year'] ?? '').toString());
+          return (year - want).abs() <= 1;
+        }).toList();
+        if (close.isEmpty) return null;
+        close.sort((a, b) {
+          final ay = int.parse((a['year'] ?? '').toString());
+          final by = int.parse((b['year'] ?? '').toString());
+          return (ay - want).abs().compareTo((by - want).abs());
+        });
+        return asSubject(close.first);
+      }
+    }
+    return asSubject(same.first);
+  }
+  Map? flexible;
+  var flexibleScore = 0.0;
+  for (final row in usable) {
+    final rowYear = (row['year'] ?? '').toString().trim();
+    // 年份已知时，最后一级只接受同年（或源里没年份）的条目。
+    if (wantYear.isNotEmpty && rowYear.isNotEmpty && rowYear != wantYear) {
+      continue;
+    }
+    for (final key in titleKeys(row)) {
+      if (!key.contains(want) && !want.contains(key)) continue;
+      final shorter = key.length < want.length ? key.length : want.length;
+      final longer = key.length < want.length ? want.length : key.length;
+      final ratio = longer == 0 ? 0.0 : shorter / longer;
+      // 长度差太多说明不是同一部；年份完全对得上时放宽到 0.5，
+      // 兼容「甄嬛传」→「后宫·甄嬛传」这类带前缀的官方片名。
+      final minRatio = rowYear == wantYear && wantYear.isNotEmpty ? 0.5 : 0.62;
+      if (ratio < minRatio) continue;
+      final score = ratio * 100 + (rowYear == wantYear ? 20 : 0);
+      if (score > flexibleScore) {
+        flexibleScore = score;
+        flexible = row;
       }
     }
   }
-  for (final row in usable) {
-    if (normalizeDoubanTitle((row['title'] ?? '').toString()) == want) {
-      return asSubject(row);
-    }
-  }
-  for (final row in usable) {
-    final title = normalizeDoubanTitle((row['title'] ?? '').toString());
-    if (title.isNotEmpty && (title.contains(want) || want.contains(title))) {
-      return asSubject(row);
-    }
-  }
-  return null;
+  return flexible == null ? null : asSubject(flexible);
 }
 
 /// `{movie|tv}/{id}?for_mobile=1` 响应 → 详情元数据。
@@ -821,6 +1131,16 @@ DoubanInfo? parseDoubanInfo(
         .where((e) => e.isNotEmpty)
         .toList();
   }
+  final countries = <String>[];
+  final rawCountries = json['countries'];
+  if (rawCountries is List) {
+    for (final row in rawCountries) {
+      final name = row is Map
+          ? (row['name'] ?? '').toString().trim()
+          : row.toString().trim();
+      if (name.isNotEmpty && !countries.contains(name)) countries.add(name);
+    }
+  }
   final actors = names(json['actors']);
   return DoubanInfo(
     id: id,
@@ -833,6 +1153,8 @@ DoubanInfo? parseDoubanInfo(
         ? ((pic['large'] ?? pic['normal'] ?? '')).toString().trim()
         : '',
     genres: genres,
+    countries: countries,
+    originalTitle: (json['original_title'] ?? '').toString().trim(),
     directors: names(json['directors']),
     actors: actors,
     cast: mergeDoubanCast(actors, credits),

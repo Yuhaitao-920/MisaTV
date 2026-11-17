@@ -16,6 +16,7 @@ class FileDialogService {
   );
   static const zipType = XTypeGroup(label: 'ZIP', extensions: ['zip']);
   static const exeType = XTypeGroup(label: '播放器', extensions: ['exe']);
+  static const fontType = XTypeGroup(label: '字体', extensions: ['ttf', 'otf']);
 
   static Future<String?> pickFile({
     required List<XTypeGroup> types,

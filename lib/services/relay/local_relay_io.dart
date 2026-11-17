@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/errors/app_error.dart';
@@ -55,6 +56,21 @@ class LocalRelay {
 
   /// 边播边缓存的磁盘实现；未启用 / 未配置目录时为 null。
   StreamDiskCache? _streamCache;
+
+  /// `/img` 的封面磁盘缓存：跨启动复用，避免每次打开都重新下载 200KB 图。
+  ///
+  /// 只缓存 200 状态的图片响应，上限 256MB（超过后按最后修改时间淘汰到 200MB）。
+  Directory? _imgCacheDir;
+  int? _imgCacheBytes;
+  int _imgCacheSeq = 0;
+
+  /// 同一张图正在落盘时，后到的请求等它写完直接读缓存。
+  ///
+  /// 首屏卡片和 Hero 预取经常同时请求同一张封面，重复回源既慢又浪费流量。
+  final Map<String, Future<void>> _imgCacheInflight = {};
+
+  static const int _imgCacheLimitBytes = 256 * 1024 * 1024;
+  static const int _imgCacheWaterBytes = 200 * 1024 * 1024;
 
   /// 外部播放器选集列表的按需解析：`/ext/<token>/<index>` 调到这里，
   /// 返回可直接播放的地址（通常是本机 `/play` 中继地址）。
@@ -145,8 +161,15 @@ class LocalRelay {
     // 以前这一步压在首个分片请求上，历史缓存多时会把起播拖住。
     if (cacheEnabled?.call() == true) _streamCache?.warmUp();
     _externalEpisodeResolver = externalEpisodeResolver;
+    _imgCacheDir = fileRoot.trim().isEmpty
+        ? null
+        : Directory(p.join(fileRoot, 'cache', 'images'));
+    _imgCacheBytes = null;
     _client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15)
+      // 封面 / 海报会在浏览时反复回源，连接池多留一会儿：
+      // 默认 15 秒空闲就断开，翻两页再回来又要重做一次 TLS 握手。
+      ..idleTimeout = const Duration(seconds: 60)
       ..autoUncompress = false;
 
     HttpServer server;
@@ -190,6 +213,9 @@ class LocalRelay {
     _playTargetTokens.clear();
     _playCookieJar.clear();
     _streamCache = null;
+    _imgCacheDir = null;
+    _imgCacheBytes = null;
+    _imgCacheInflight.clear();
     try {
       await server?.close(force: true);
     } catch (_) {
@@ -956,12 +982,27 @@ class LocalRelay {
     if (guardPrivate && RelayAccessPolicy.isPrivateTarget(target)) {
       return _text(res, 403, '禁止访问本机/内网地址');
     }
+    final referer = (query['ref'] ?? '').trim();
+    // 封面缓存命中时直接读盘：应用重启后也不用再走一遍代理 / 图床。
+    final cacheKey = _imgCacheKey(target, referer);
+    if (await _serveImgCache(request, cacheKey)) return;
+    // 同一张图正在写入磁盘时等它完成：首屏卡片和 Hero 预取经常同时
+    // 请求同一张封面，重复回源既慢又浪费流量。
+    final inflight = _imgCacheInflight[cacheKey];
+    if (inflight != null) {
+      try {
+        // 上游卡住时不能无限等，超时后自己回源。
+        await inflight.timeout(const Duration(seconds: 10), onTimeout: () {});
+      } catch (_) {
+        // 前一个请求失败时自己再回源一次
+      }
+      if (await _serveImgCache(request, cacheKey)) return;
+    }
     final headers = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
           '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      if ((query['ref'] ?? '').trim().isNotEmpty)
-        'Referer': query['ref']!.trim(),
+      if (referer.isNotEmpty) 'Referer': referer,
     };
     // 代理链路抖动时（隧道被对端掐断、节点瞬断）重试一次再放弃：
     // 封面是并发拉取的，偶发失败在界面上就是「有个别封面不出来」。
@@ -973,8 +1014,7 @@ class LocalRelay {
       opened = await _open(target, headers: headers, method: request.method);
     }
     final upstream = opened.response;
-    if (guardPrivate &&
-        RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
+    if (guardPrivate && RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
       await upstream.drain<void>();
       return _text(res, 403, '禁止访问本机/内网地址');
     }
@@ -985,7 +1025,164 @@ class LocalRelay {
       await res.close();
       return;
     }
-    await upstream.pipe(res);
+    final contentType = _responseHeader(
+      upstream,
+      HttpHeaders.contentTypeHeader,
+    ).toLowerCase();
+    // 只缓存正常的图片响应；错误页 / 空响应写进缓存会一直坏到过期。
+    if (upstream.statusCode != 200 || !contentType.startsWith('image/')) {
+      await upstream.pipe(res);
+      return;
+    }
+    final dir = await _ensureImgCacheDir();
+    if (dir == null) {
+      await upstream.pipe(res);
+      return;
+    }
+    final finalFile = File(p.join(dir.path, '$cacheKey.img'));
+    final temp = File(p.join(dir.path, '$cacheKey.${_imgCacheSeq++}.part'));
+    final writeDone = Completer<void>();
+    _imgCacheInflight[cacheKey] = writeDone.future;
+    IOSink? sink;
+    try {
+      sink = temp.openWrite();
+      final writer = sink;
+      // 一边回给 Flutter 一边落盘：首屏不额外等一次下载。
+      await res.addStream(
+        upstream.transform(
+          StreamTransformer<List<int>, List<int>>.fromHandlers(
+            handleData: (chunk, out) {
+              writer.add(chunk);
+              out.add(chunk);
+            },
+          ),
+        ),
+      );
+      await res.close();
+      await writer.close();
+      await temp.rename(finalFile.path);
+      try {
+        await File(p.join(dir.path, '$cacheKey.type'))
+            .writeAsString(contentType);
+      } catch (_) {
+        // 类型信息写失败不影响图片读取（读取时按 jpg 兜底）
+      }
+      _imgCacheBytes = (_imgCacheBytes ?? 0) + (await finalFile.length());
+      _maybePruneImgCache();
+    } catch (_) {
+      // 播放器 / 图片组件提前断开：半截文件不能留在缓存里。
+      try {
+        await sink?.close();
+      } catch (_) {}
+      try {
+        if (await temp.exists()) await temp.delete();
+      } catch (_) {}
+      try {
+        await res.close();
+      } catch (_) {}
+    } finally {
+      _imgCacheInflight.remove(cacheKey);
+      if (!writeDone.isCompleted) writeDone.complete();
+    }
+  }
+
+  String _imgCacheKey(String target, String referer) =>
+      sha1.convert(utf8.encode('$target\u0001$referer')).toString();
+
+  Future<Directory?> _ensureImgCacheDir() async {
+    final dir = _imgCacheDir;
+    if (dir == null) return null;
+    try {
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 命中磁盘缓存时直接返回文件；返回 false 表示需要回源。
+  Future<bool> _serveImgCache(HttpRequest request, String key) async {
+    final dir = _imgCacheDir;
+    if (dir == null) return false;
+    final file = File(p.join(dir.path, '$key.img'));
+    try {
+      if (!await file.exists()) return false;
+      final length = await file.length();
+      if (length <= 0) {
+        await file.delete();
+        return false;
+      }
+      final res = request.response;
+      var type = 'image/jpeg';
+      try {
+        final meta = File(p.join(dir.path, '$key.type'));
+        if (await meta.exists()) {
+          final value = (await meta.readAsString()).trim();
+          if (value.startsWith('image/')) type = value;
+        }
+      } catch (_) {
+        // 类型文件损坏时按 jpg 兜底
+      }
+      res.statusCode = 200;
+      res.headers.set(HttpHeaders.contentTypeHeader, type);
+      res.headers.set(HttpHeaders.cacheControlHeader, 'public, max-age=604800');
+      res.headers.contentLength = length;
+      if (request.method == 'HEAD') {
+        await res.close();
+        return true;
+      }
+      await file.openRead().pipe(res);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 缓存超过 256MB 时在后台按最旧优先淘汰到 200MB。
+  void _maybePruneImgCache() {
+    final bytes = _imgCacheBytes;
+    if (bytes == null || bytes < _imgCacheLimitBytes) return;
+    unawaited(_pruneImgCache());
+  }
+
+  Future<void> _pruneImgCache() async {
+    final dir = _imgCacheDir;
+    if (dir == null) return;
+    final entries = <({File file, int size, DateTime at})>[];
+    var total = 0;
+    try {
+      await for (final entity in dir.list()) {
+        if (entity is! File || !entity.path.endsWith('.img')) continue;
+        try {
+          final stat = await entity.stat();
+          total += stat.size;
+          entries.add((file: entity, size: stat.size, at: stat.modified));
+        } catch (_) {
+          // 单个文件读不到就跳过
+        }
+      }
+    } catch (_) {
+      return;
+    }
+    if (total <= _imgCacheWaterBytes) {
+      _imgCacheBytes = total;
+      return;
+    }
+    entries.sort((a, b) => a.at.compareTo(b.at));
+    for (final entry in entries) {
+      if (total <= _imgCacheWaterBytes) break;
+      try {
+        await entry.file.delete();
+        final meta = File(
+          '${entry.file.path.substring(0, entry.file.path.length - 4)}.type',
+        );
+        if (await meta.exists()) await meta.delete();
+        total -= entry.size;
+      } catch (_) {
+        // 被占用的文件下次再删
+      }
+    }
+    _imgCacheBytes = total;
   }
 
   /// 蜘蛛调试口：`/debug/spider`。
@@ -1122,8 +1319,7 @@ class LocalRelay {
       method: request.method,
     );
     final upstream = opened.response;
-    if (guardPrivate &&
-        RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
+    if (guardPrivate && RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
       await upstream.drain<void>();
       return _text(res, 403, '禁止访问本机/内网地址');
     }
@@ -1237,7 +1433,8 @@ class LocalRelay {
     final fileToken = (q['fileToken'] ?? q['token'] ?? '').trim();
     final fileId = (q['fileId'] ?? q['fsid'] ?? '').trim();
     final name = (q['name'] ?? '').trim();
-    final onlyFileId = shareId.isEmpty && fileToken.isEmpty && fileId.isNotEmpty;
+    final onlyFileId =
+        shareId.isEmpty && fileToken.isEmpty && fileId.isNotEmpty;
     final tokens = _driveTokens();
     final baiduLike =
         provider.startsWith('baidu') ||
@@ -1276,10 +1473,7 @@ class LocalRelay {
             episodeName: name,
           );
           if (link.ok) {
-            AppLog.i(
-              'relay',
-              'do=pan 百度分享上下文命中 shareId=${ctx['share_id']}',
-            );
+            AppLog.i('relay', 'do=pan 百度分享上下文命中 shareId=${ctx['share_id']}');
           } else {
             AppLog.w('relay', 'do=pan 百度上下文解链失败：${link.reason}');
             link = null;
@@ -1397,8 +1591,7 @@ class LocalRelay {
       range: _shouldClampRange(provider, target) ? clampRange(range) : range,
     );
     final upstream = opened.response;
-    if (guardPrivate &&
-        RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
+    if (guardPrivate && RelayAccessPolicy.isPrivateTarget(opened.finalUrl)) {
       await upstream.drain<void>();
       return _text(res, 403, '禁止访问本机/内网地址');
     }

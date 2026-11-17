@@ -242,13 +242,19 @@ class LocalStore {
   Future<void> saveMovieQuotesCacheJson(String json) =>
       _prefs.setString(kMovieQuotes, json);
 
+  /// 沉浸封面解析结果缓存（JSON：请求键 → `{u: 图片地址, t: 时间戳}`）。
+  ///
+  /// 命中后不必再走豆瓣 / IMDb 搜索，应用重启也能立刻拿到封面地址。
+  static const kArtworkCache = 'kniephos.artworkCache';
+  String get artworkCacheJson => _prefs.getString(kArtworkCache) ?? '';
+  Future<void> saveArtworkCacheJson(String json) =>
+      _prefs.setString(kArtworkCache, json);
+
   /// assrt.net 字幕接口 token（可空；空时只用免 token 的 SubtitleCat）。
   String get assrtToken =>
       CredentialVault.unprotect(_prefs.getString(kAssrtToken) ?? '') ?? '';
-  Future<void> setAssrtToken(String token) => _prefs.setString(
-    kAssrtToken,
-    CredentialVault.protect(token.trim()),
-  );
+  Future<void> setAssrtToken(String token) =>
+      _prefs.setString(kAssrtToken, CredentialVault.protect(token.trim()));
 
   /// 用户自定义字幕 API 配置（每行 名称@URL模板）。
   String get customSubtitleApis => _prefs.getString(kCustomSubtitleApis) ?? '';
@@ -604,13 +610,12 @@ class LocalStore {
     }
   }
 
-  Future<void> saveMediaServers(List<MediaServer> servers) =>
-      _prefs.setString(
-        kMediaServers,
-        CredentialVault.protect(
-          jsonEncode(servers.map((e) => e.toJson()).toList()),
-        ),
-      );
+  Future<void> saveMediaServers(List<MediaServer> servers) => _prefs.setString(
+    kMediaServers,
+    CredentialVault.protect(
+      jsonEncode(servers.map((e) => e.toJson()).toList()),
+    ),
+  );
 
   List<String> loadLocalMediaDirs() {
     final raw = _prefs.getString(kLocalMediaDirs);

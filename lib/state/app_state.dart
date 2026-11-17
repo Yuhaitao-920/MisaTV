@@ -150,6 +150,7 @@ class AppState extends ChangeNotifier {
   late final ArtworkService artworkService = ArtworkService(
     http,
     () => playerSettings,
+    store: store,
   );
   late final EpgService epgService = EpgService();
   late final DavService davService = DavService(store);
@@ -167,9 +168,7 @@ class AppState extends ChangeNotifier {
   final DownloadManager downloadManager = DownloadManager();
 
   /// 播放器「下载视频」的任务管理：记录持久化，支持暂停 / 继续 / 删除。
-  late final VideoDownloadManager videoDownloads = VideoDownloadManager(
-    store,
-  );
+  late final VideoDownloadManager videoDownloads = VideoDownloadManager(store);
 
   /// 局域网同步服务：给其他设备提供同步包与「一起看」房间。
   late final LanServer lanServer = LanServer(
@@ -442,6 +441,7 @@ class AppState extends ChangeNotifier {
     }
     return out;
   }
+
   List<LiveBean> get lives {
     final subscription = liveConfig?.lives ?? const <LiveBean>[];
     if (localLives.isEmpty) return subscription;
@@ -1142,10 +1142,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// 导入前预览：拉取 / 解析订阅并与当前点播档案比较，不落盘。
-  Future<ImportPreview> previewImportFromUrl(
-    String url, {
-    String? name,
-  }) async {
+  Future<ImportPreview> previewImportFromUrl(String url, {String? name}) async {
     final payload = await _loadImportUrl(url, name: name);
     return _buildImportPreview(
       payload.text,
@@ -1155,10 +1152,7 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<ImportPreview> previewImportText(
-    String text, {
-    String? name,
-  }) async {
+  Future<ImportPreview> previewImportText(String text, {String? name}) async {
     if (text.trim().isEmpty) throw AppException('请粘贴配置 JSON');
     return _buildImportPreview(text, url: '', baseUrl: '', name: name);
   }
@@ -1616,9 +1610,8 @@ class AppState extends ChangeNotifier {
     final plan = buildWarmUpPlan(
       sites: sites,
       runtimeReady: jarReady,
-      weightOf: (site) => searchService.breaker.failureCount(
-        SearchService.healthKeyOf(site),
-      ),
+      weightOf: (site) =>
+          searchService.breaker.failureCount(SearchService.healthKeyOf(site)),
     );
     for (final item in plan) {
       final ok = await sourceService.jar.warmUpSite(
@@ -2507,82 +2500,85 @@ class AppState extends ChangeNotifier {
   /// 覆盖 Dart 侧的 CMS / JS / PY 请求。jar 蜘蛛走的是 JVM 内的 OkHttp，
   /// 这里看不到 —— 调试面板会明确标注这一点，不假装能看全。
   SpiderDebugRunner get spiderDebugRunner =>
-      ({required String method, required Map<String, dynamic> args, required void Function(String) onRequest}) async {
-    final siteKey = (args['site'] ?? '').toString();
-    final site = usableSites.firstWhere(
-      (s) => s.key == siteKey,
-      orElse: () =>
-          throw SpiderDebugException('找不到站点：$siteKey（先检查订阅）'),
-    );
-    final previous = AppHttp.observer;
-    AppHttp.observer = (verb, url) => onRequest('$verb $url');
-    try {
-      switch (method) {
-        case 'home':
-          final result = await sourceService.home(site);
-          return jsonEncode({
-            'items': result.items.map((e) => e.toJson()).toList(),
-            'classes': result.classes
-                .map((c) => {'id': c.id, 'name': c.name})
-                .toList(),
-            'page': result.page,
-            'pagecount': result.pagecount,
-            'total': result.total,
-          });
-        case 'category':
-          final result = await sourceService.category(
-            site,
-            (args['tid'] ?? '').toString(),
-            (args['pg'] ?? '1').toString(),
-            const {},
-          );
-          return jsonEncode({
-            'items': result.items.map((e) => e.toJson()).toList(),
-            'page': result.page,
-            'pagecount': result.pagecount,
-          });
-        case 'detail':
-          final detail = await sourceService.detail(
-            site,
-            (args['id'] ?? '').toString(),
-          );
-          return detail == null ? 'null' : jsonEncode(detail.toJson());
-        case 'search':
-          final items = await sourceService.search(
-            site,
-            (args['wd'] ?? '').toString(),
-          );
-          return jsonEncode({
-            'items': items.map((e) => e.toJson()).toList(),
-          });
-        case 'live':
-          final text = await sourceService.liveContent(
-            site,
-            (args['url'] ?? '').toString(),
-          );
-          return text;
-        case 'play':
-          final config = this.config;
-          if (config == null) {
-            throw const SpiderDebugException('当前没有生效的订阅配置');
+      ({
+        required String method,
+        required Map<String, dynamic> args,
+        required void Function(String) onRequest,
+      }) async {
+        final siteKey = (args['site'] ?? '').toString();
+        final site = usableSites.firstWhere(
+          (s) => s.key == siteKey,
+          orElse: () => throw SpiderDebugException('找不到站点：$siteKey（先检查订阅）'),
+        );
+        final previous = AppHttp.observer;
+        AppHttp.observer = (verb, url) => onRequest('$verb $url');
+        try {
+          switch (method) {
+            case 'home':
+              final result = await sourceService.home(site);
+              return jsonEncode({
+                'items': result.items.map((e) => e.toJson()).toList(),
+                'classes': result.classes
+                    .map((c) => {'id': c.id, 'name': c.name})
+                    .toList(),
+                'page': result.page,
+                'pagecount': result.pagecount,
+                'total': result.total,
+              });
+            case 'category':
+              final result = await sourceService.category(
+                site,
+                (args['tid'] ?? '').toString(),
+                (args['pg'] ?? '1').toString(),
+                const {},
+              );
+              return jsonEncode({
+                'items': result.items.map((e) => e.toJson()).toList(),
+                'page': result.page,
+                'pagecount': result.pagecount,
+              });
+            case 'detail':
+              final detail = await sourceService.detail(
+                site,
+                (args['id'] ?? '').toString(),
+              );
+              return detail == null ? 'null' : jsonEncode(detail.toJson());
+            case 'search':
+              final items = await sourceService.search(
+                site,
+                (args['wd'] ?? '').toString(),
+              );
+              return jsonEncode({
+                'items': items.map((e) => e.toJson()).toList(),
+              });
+            case 'live':
+              final text = await sourceService.liveContent(
+                site,
+                (args['url'] ?? '').toString(),
+              );
+              return text;
+            case 'play':
+              final config = this.config;
+              if (config == null) {
+                throw const SpiderDebugException('当前没有生效的订阅配置');
+              }
+              final result = await sourceService.resolvePlay(
+                site: site,
+                config: config,
+                flag: (args['flag'] ?? '').toString(),
+                rawUrl: (args['url'] ?? '').toString(),
+                jarReady: jarReady,
+              );
+              return jsonEncode(result.toJson());
+            default:
+              throw SpiderDebugException('不支持的 method：$method');
           }
-          final result = await sourceService.resolvePlay(
-            site: site,
-            config: config,
-            flag: (args['flag'] ?? '').toString(),
-            rawUrl: (args['url'] ?? '').toString(),
-            jarReady: jarReady,
-          );
-          return jsonEncode(result.toJson());
-        default:
-          throw SpiderDebugException('不支持的 method：$method');
-      }
-    } on SourceException catch (e) {
-      throw SpiderDebugException(e.message);
-    } finally {
-      AppHttp.observer = previous;
-    }
-  };
+        } on SourceException catch (e) {
+          throw SpiderDebugException(e.message);
+        } finally {
+          AppHttp.observer = previous;
+        }
+      };
 
   /// 播放地址是否需要经本地中继：带 header / HLS / 网盘直链（需要注入 Cookie）
   /// 或开启了 m3u8 去广告时必须走中继。蜘蛛自己的 `127.0.0.1` 取流代理已带
@@ -2607,9 +2603,8 @@ class AppState extends ChangeNotifier {
     // `<BaseURL>` 指向 bilivideo CDN 且**要求 Referer**；直连时播放器只拿到
     // MPD 原文，去取分片不带 Referer → 403，用户侧就是「一点开就报错」。
     // 这类地址必须经中继，由中继改写 BaseURL 并注入 Referer（见 _rewriteMpd）。
-    final shellDash = localProxy &&
-        lower.contains('/proxy') &&
-        lower.contains('type=mpd');
+    final shellDash =
+        localProxy && lower.contains('/proxy') && lower.contains('type=mpd');
     if (localProxy && !shellDash) return false;
     if (shellDash) return true;
     // DASH 清单（`.mpd`）同样要经中继：它内部的 <BaseURL> 指向 CDN，
@@ -2662,7 +2657,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 播放地址对应的网盘 provider（下载记录持久化后重新包中继用）。
-  String providerForPlay(PlayResult play) => _providerForPlay(play.url, play.flag);
+  String providerForPlay(PlayResult play) =>
+      _providerForPlay(play.url, play.flag);
 
   String _providerForPlay(String url, String flag) {
     final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
@@ -3357,10 +3353,7 @@ class AppState extends ChangeNotifier {
     historyTombstones = HistoryTombstones(
       deletedVersions: {
         ...historyTombstones.deletedVersions,
-        key: HistorySyncVersion.of(
-          updatedAt: now,
-          eventId: 'delete:$key:$now',
-        ),
+        key: HistorySyncVersion.of(updatedAt: now, eventId: 'delete:$key:$now'),
       },
       clearVersion: historyTombstones.clearVersion,
     );
@@ -3941,7 +3934,9 @@ class AppState extends ChangeNotifier {
     // 对端在收到我们的数据后可能又合并出新结果，再应用一次即可两端一致。
     final replyBundle = reply['bundle'];
     if (replyBundle is Map) {
-      await applySyncBundle(SyncBundle.fromJson(Map<String, dynamic>.from(replyBundle)));
+      await applySyncBundle(
+        SyncBundle.fromJson(Map<String, dynamic>.from(replyBundle)),
+      );
     }
     syncSettings = syncSettings.copyWith(
       lastSyncAt: DateTime.now().millisecondsSinceEpoch,

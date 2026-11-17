@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import '../../core/logging/app_log.dart';
 import '../../core/net/app_http.dart';
 import '../../core/net/proxy_runtime.dart';
 import '../../models/user_data.dart';
 import '../discover/discover_models.dart';
 import '../discover/discover_service.dart';
+import '../local_store.dart';
 import 'tmdb_auth.dart';
 import 'tmdb_network.dart';
 
@@ -15,28 +18,48 @@ import 'tmdb_network.dart';
 ///
 /// 统一返回可直接显示的网络地址：
 ///   · 豆瓣：走本地 `/img` 中继（图床校验 Referer）；
-///   · TMDB / IMDb：直接使用官方图床地址。
+///   · TMDB / IMDb / TVmaze：同样走中继，由中继做跨启动的磁盘缓存。
 class ArtworkService {
-  ArtworkService(this.http, this.config);
+  ArtworkService(this.http, this.config, {this.store}) {
+    _restoreCache();
+  }
 
   final AppHttp http;
 
   /// 读取当前封面设置（优先级 / TMDB Key）。
   final PlayerSettings Function() config;
 
+  /// 解析结果的持久化缓存（可为空，测试 / 无存储场景直接跳过）。
+  final LocalStore? store;
+
   late final DiscoverService _douban = DiscoverService(http);
 
-  final Map<String, String> _cache = {};
+  final Map<String, _CachedBackdrop> _cache = {};
   final Map<String, Future<String?>> _inflight = {};
   final Map<String, List<String?>> _stillCache = {};
   final Map<String, Future<List<String?>>> _stillInflight = {};
   String? _biliCookie;
   DateTime? _biliCookieAt;
+  String? _wbiMixinKey;
+  DateTime? _wbiKeyAt;
   final List<Completer<void>> _waiters = [];
   int _active = 0;
 
-  static const int _maxConcurrent = 3;
-  static const Duration _spacing = Duration(milliseconds: 90);
+  static const int _maxConcurrent = 4;
+  static const Duration _spacing = Duration(milliseconds: 50);
+  static const Duration _successTtl = Duration(days: 7);
+  static const Duration _failureTtl = Duration(minutes: 10);
+  static const Duration _sourceTimeout = Duration(seconds: 4);
+
+  /// 首选源没有合格横图时，最多再等其它来源这么久。
+  ///
+  /// 以前要等所有来源都返回或超时（最长 7 秒）才仲裁；弱网下一张封面
+  /// 卡住会连带整屏卡片排队。1.8 秒内出现「够用」的图就先上屏。
+  static const Duration _fallbackWait = Duration(milliseconds: 1800);
+
+  /// 封面缓存版本：解析逻辑变化（新增来源 / 收紧比例）时递增，
+  /// 旧的错误匹配与低清地址会在下一次启动时自动失效。
+  static const String _cacheVersion = 'v7';
   static const String _desktopUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -52,10 +75,15 @@ class ArtworkService {
         ? metadataYear(rawTitle)
         : year.trim();
     final key =
-        '${normalizeArtworkPriority(settings.artworkPriority)}|'
+        '$_cacheVersion|${normalizeArtworkPriority(settings.artworkPriority)}|'
         '${settings.tmdbReadToken}|${settings.tmdbApiKey}|$artworkTitle|$effectiveYear';
     final cached = _cache[key];
-    if (cached != null) return Future.value(cached.isEmpty ? null : cached);
+    if (cached != null) {
+      final ttl = cached.found ? _successTtl : _failureTtl;
+      if (DateTime.now().difference(cached.at) < ttl) {
+        return Future.value(cached.value.isEmpty ? null : cached.value);
+      }
+    }
     final pending = _inflight[key];
     if (pending != null) return pending;
     final future = _run(key, artworkTitle, effectiveYear);
@@ -77,12 +105,13 @@ class ArtworkService {
         : year.trim();
     for (final source in const ['douban', 'tmdb', 'imdb']) {
       try {
-        final url = await _trySource(source, artworkTitle, effectiveYear);
+        final artwork = await _trySource(source, artworkTitle, effectiveYear);
+        final url = (artwork?.url ?? '').trim();
         results.add(
           ArtworkProbeResult(
             source: source,
-            url: (url ?? '').trim(),
-            error: (url ?? '').trim().isEmpty ? '没有找到横图' : '',
+            url: url,
+            error: url.isEmpty ? '没有找到横图' : '',
           ),
         );
       } catch (e) {
@@ -136,7 +165,10 @@ class ArtworkService {
     _stillInflight[key] = future;
     return future
         .then((value) {
-          _rememberStills(key, value);
+          // 全空通常是风控 / 网络抖动：不要负缓存，否则本次运行不再重试。
+          if (value.any((still) => still != null && still.isNotEmpty)) {
+            _rememberStills(key, value);
+          }
           return value;
         })
         .whenComplete(() => _stillInflight.remove(key));
@@ -157,35 +189,253 @@ class ArtworkService {
         priority,
         ...const ['douban', 'tmdb', 'imdb'].where((s) => s != priority),
       ];
-      for (final source in order) {
-        if (source == 'tmdb' && !_tmdbConfigured) continue;
-        try {
-          final url = await _trySource(source, name, year);
-          if (url != null && url.trim().isNotEmpty) {
-            AppLog.i('artwork', '$name（$year）封面来源：$source');
-            _remember(key, url.trim());
-            return url.trim();
-          }
-        } catch (e) {
-          AppLog.w('artwork', '$name 的 $source 封面获取失败：$e');
+      final sources = <String>[
+        for (final source in order)
+          if (source != 'tmdb' || _tmdbConfigured) source,
+      ];
+      // 所有来源并发取：串行时要等前一个来源超时才轮到下一个，
+      // 「豆瓣没有横图 → IMDb」会白白多等一倍时间。
+      // 记录每个来源的完成结果，后面对未完成的来源只做限时等待。
+      final settled = <String, _Artwork?>{};
+      final futures = <String, Future<_Artwork?>>{
+        for (final source in sources)
+          source: _trySourceSafe(source, name, year).then((artwork) {
+            settled[source] = artwork;
+            return artwork;
+          }),
+      };
+      final lead = sources.first;
+      final first = await futures[lead]!;
+      // 首选源拿到「够用」的图就直接返回：1280 宽以上的豆瓣图床
+      // 通常 30~130ms，再等 IMDb / TMDB 也不会明显更清晰。
+      if (first != null && first.good) {
+        AppLog.i(
+          'artwork',
+          '$name（$year）封面来源：$lead ${first.width}x${first.height}',
+        );
+        _remember(key, first.url);
+        return first.url;
+      }
+      // 首选源没有合格横图时补一条 B 站官方横图：番剧 / 国产剧的条目背景图
+      // 或第一集封面，hdslb CDN 国内很快。
+      if (!futures.containsKey('bilibili')) {
+        futures['bilibili'] = _trySourceSafe('bilibili', name, year).then((
+          artwork,
+        ) {
+          settled['bilibili'] = artwork;
+          return artwork;
+        });
+      }
+      // 豆瓣搜索接口（suggest / HTML / rexxar）2026-11 起要求登录，
+      // 直接用必应站内搜索找豆瓣条目 ID，再按 ID 取免登录的剧照。
+      if (!futures.containsKey('douban-bing')) {
+        futures['douban-bing'] = _trySourceSafe(
+          'douban-bing',
+          name,
+          year,
+        ).then((artwork) {
+          settled['douban-bing'] = artwork;
+          return artwork;
+        });
+      }
+      // 360 图片搜索兜底（Win-box 同款）：豆瓣 / B 站都没有条目时，
+      // 中文横图搜索往往还能找到官方剧照或壁纸。
+      if (!futures.containsKey('360')) {
+        futures['360'] = _trySourceSafe('360', name, year).then((artwork) {
+          settled['360'] = artwork;
+          return artwork;
+        });
+      }
+      // 必应图片兜底也提前发起：国产剧在豆瓣没有横图、B 站也没上架时，
+      // 它往往是唯一能出图的来源。请求与其它来源并行跑完，命中合格图时
+      // 同样可以快速上屏（结果已按「标题含片名 + 官方图床」过滤）。
+      final bingFuture = _trySourceSafe('bing', name, year);
+      final rest = <Future<_Artwork?>>[
+        for (final entry in futures.entries)
+          if (entry.key != lead) entry.value,
+      ];
+      // 任何来源先拿到「够用」的横图就立刻采用，不再等最慢的那个。
+      // 必应图片现在只收官方视频站物料，命中了也可以快速上屏。
+      final goodSignal = Completer<_Artwork?>();
+      for (final future in [...rest, bingFuture]) {
+        unawaited(
+          future.then((artwork) {
+            if (artwork != null &&
+                artwork.good &&
+                !goodSignal.isCompleted) {
+              goodSignal.complete(artwork);
+            }
+          }),
+        );
+      }
+      final early = await goodSignal.future.timeout(
+        _fallbackWait,
+        onTimeout: () => null,
+      );
+      if (early != null) {
+        AppLog.i(
+          'artwork',
+          '$name（$year）封面来源：${early.source} '
+              '${early.width}x${early.height}（快速命中）',
+        );
+        _remember(key, early.url);
+        return early.url;
+      }
+      // 到这里说明 1.8 秒内没有来源给出「够用」的横图。再给剩余来源
+      // 1.8 秒；必应图片早已并行发起，通常这时已经完成，不占关键路径。
+      await Future.any<void>([
+        Future.wait<_Artwork?>(rest),
+        Future<void>.delayed(_fallbackWait),
+      ]);
+      // 手头已完成的结果都拿出来仲裁。
+      var found = _usableArtworks(settled);
+      // 正式来源都拿不出 1280 宽以上横图时，用必应图片搜一张官方剧照。
+      if (found.isEmpty || found.every((artwork) => artwork.width < 1280)) {
+        final bing = await bingFuture.timeout(
+          _fallbackWait,
+          onTimeout: () => null,
+        );
+        if (bing != null) {
+          settled['bing'] = bing;
+          found = _usableArtworks(settled);
         }
       }
-      _remember(key, '');
-      return null;
+      if (found.isEmpty) {
+        // 一张都还没有时不能放弃：宁可多等几秒也不要「明明有图却显示无封面」，
+        // 而且负缓存会挂 10 分钟。
+        await Future.wait<_Artwork?>(rest);
+        found = _usableArtworks(settled);
+      }
+      if (found.isEmpty) {
+        AppLog.i('artwork', '$name（$year）没有找到可用横图');
+        _remember(key, '');
+        return null;
+      }
+      // 多来源都有图时按「分辨率 + 接近 16:9 + 官方横图」仲裁，
+      // 不再是谁先返回就用谁的 600px 剧照。
+      _Artwork best = found.first;
+      for (final artwork in found.skip(1)) {
+        if (artwork.score > best.score) best = artwork;
+      }
+      AppLog.i(
+        'artwork',
+        '$name（$year）封面来源：${best.source} '
+            '${best.width}x${best.height}（候选 ${found.length}）',
+      );
+      _remember(key, best.url);
+      return best.url;
     } finally {
       _release();
     }
   }
 
-  void _remember(String key, String value) {
-    if (_cache.length >= 800) _cache.remove(_cache.keys.first);
-    _cache[key] = value;
+  /// 只保留能直接铺 16:9 的图：2.35:1 之类超宽图裁到卡片里会「异形」。
+  static List<_Artwork> _usableArtworks(Map<String, _Artwork?> settled) => [
+    for (final artwork in settled.values)
+      if (artwork != null &&
+          artwork.url.trim().isNotEmpty &&
+          artwork.usable)
+        artwork,
+  ];
+
+  Future<_Artwork?> _trySourceSafe(
+    String source,
+    String name,
+    String year,
+  ) async {
+    try {
+      // 搜索类来源要多打一两次接口，4 秒容易在中途被截断，单独放宽；
+      // 其它来源保持原时限。
+      final timeout = switch (source) {
+        'douban-bing' => const Duration(seconds: 8),
+        '360' => const Duration(seconds: 7),
+        _ => _sourceTimeout,
+      };
+      return await _trySource(
+        source,
+        name,
+        year,
+      ).timeout(timeout, onTimeout: () => null);
+    } catch (e) {
+      AppLog.w('artwork', '$name 的 $source 封面获取失败：$e');
+      return null;
+    }
   }
 
-  Future<String?> _trySource(String source, String name, String year) {
+  void _remember(String key, String value) {
+    if (_cache.length >= 800) _cache.remove(_cache.keys.first);
+    _cache[key] = _CachedBackdrop(
+      value,
+      DateTime.now(),
+      found: value.trim().isNotEmpty,
+    );
+    if (value.trim().isNotEmpty) _schedulePersist();
+  }
+
+  Timer? _persistTimer;
+
+  /// 成功结果落盘（防抖）：下次启动直接复用地址，不再重新搜索。
+  void _schedulePersist() {
+    if (store == null) return;
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 900), _persistCache);
+  }
+
+  void _persistCache() {
+    final target = store;
+    if (target == null) return;
+    final now = DateTime.now();
+    final rows = <MapEntry<String, _CachedBackdrop>>[
+      for (final entry in _cache.entries)
+        if (entry.value.found &&
+            now.difference(entry.value.at) < _successTtl &&
+            entry.value.value.trim().isNotEmpty)
+          entry,
+    ]..sort((a, b) => b.value.at.compareTo(a.value.at));
+    final data = <String, Object?>{
+      for (final entry in rows.take(600))
+        entry.key: {
+          'u': entry.value.value,
+          't': entry.value.at.millisecondsSinceEpoch,
+        },
+    };
+    target.saveArtworkCacheJson(jsonEncode(data)).catchError((Object _) {});
+  }
+
+  void _restoreCache() {
+    final raw = store?.artworkCacheJson ?? '';
+    if (raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final now = DateTime.now();
+      for (final entry in decoded.entries) {
+        // 旧版本的键不带版本前缀：那时可能缓存了错误的 IMDb 匹配或
+        // 低清剧照，不能继续沿用。
+        final cacheKey = entry.key.toString();
+        if (!cacheKey.startsWith('$_cacheVersion|')) continue;
+        final value = entry.value;
+        if (value is! Map) continue;
+        final url = (value['u'] ?? '').toString().trim();
+        final atMs = (value['t'] as num?)?.toInt() ?? 0;
+        if (url.isEmpty || atMs <= 0) continue;
+        final at = DateTime.fromMillisecondsSinceEpoch(atMs);
+        if (now.difference(at) >= _successTtl) continue;
+        _cache[cacheKey] = _CachedBackdrop(url, at, found: true);
+      }
+    } catch (_) {
+      // 坏缓存不能挡住启动，直接忽略
+    }
+  }
+
+  Future<_Artwork?> _trySource(String source, String name, String year) {
     return switch (source) {
       'tmdb' => _tmdbBackdrop(name, year),
       'imdb' => _imdbBackdrop(name, year),
+      'bilibili' => _biliBackdrop(name, year),
+      'douban-bing' => _doubanBackdropViaBing(name, year),
+      '360' => _so360Backdrop(name, year),
+      'bing' => _bingBackdrop(name, year),
       _ => _doubanBackdrop(name, year),
     };
   }
@@ -210,61 +460,346 @@ class ArtworkService {
 
   // ------------------------------------------------------------------ 豆瓣
 
-  Future<String?> _doubanBackdrop(String name, String year) async {
+  Future<_Artwork?> _doubanBackdrop(String name, String year) async {
+    final seen = <String>{};
     for (final candidate in titleCandidates(name)) {
-      final subject =
-          await _douban.findSubject(candidate, year: year) ??
-          await _douban.searchSubject(candidate, year: year);
+      // findSubject 内部：subject_suggest（常被限流）→ HTML 搜索兜底。
+      final subject = await _douban.findSubject(candidate, year: year);
       if (subject == null) continue;
+      // 同一个条目换个候选片名还会再命中，别重复拉照片。
+      if (!seen.add('${subject.mediaType}|${subject.id}')) continue;
       // 只取剧照横图；没有合格横图就换下一个候选片名，
       // 不用竖版海报裁切铺底（低分辨率竖图放大后非常模糊）。
       final photo = await _widestDoubanPhoto(subject.mediaType, subject.id);
-      if (photo != null && photo.trim().isNotEmpty) return photo;
+      if (photo != null && photo.url.trim().isNotEmpty) return photo;
+      // 剧照里没有横图（国产剧很常见）时，预告片封面是一张准确的 16:9 图。
+      final trailer = await _doubanTrailerCover(
+        subject.mediaType,
+        subject.id,
+      );
+      if (trailer != null && trailer.url.trim().isNotEmpty) return trailer;
     }
     return null;
   }
 
-  /// 豆瓣剧照里挑一张最宽、分辨率最高的图（横图宽高比 > 1.2）。
-  Future<String?> _widestDoubanPhoto(String mediaType, String id) async {
-    final type = mediaType == 'tv' ? 'tv' : 'movie';
-    final res = await http.getText(
-      'https://m.douban.com/rexxar/api/v2/$type/$id/photos'
-      '?start=0&count=20&for_mobile=1',
-      headers: {
-        'User-Agent': _desktopUa,
-        'Referer': 'https://m.douban.com/$type/subject/$id/',
-      },
-      timeout: const Duration(seconds: 12),
-    );
-    final decoded = jsonDecode(res.body);
-    final photos = decoded is Map ? decoded['photos'] : null;
-    if (photos is! List) return null;
-    String? best;
-    double bestScore = 0;
-    for (final item in photos) {
-      if (item is! Map) continue;
-      final image = item['image'];
-      if (image is! Map) continue;
-      final large = image['large'] is Map ? image['large'] as Map : image;
-      final url = (large['url'] ?? '').toString().trim();
-      final width = (large['width'] as num?)?.toDouble() ?? 0;
-      final height = (large['height'] as num?)?.toDouble() ?? 0;
-      if (url.isEmpty || width <= 0 || height <= 0) continue;
-      final ratio = width / height;
-      // 分辨率太低的图放到大屏上一样糊，直接跳过。
-      if (ratio < 1.2 || width < 1200) continue;
-      final score = width * ratio;
-      if (score > bestScore) {
-        bestScore = score;
-        best = url;
+  /// 用搜索引擎补豆瓣条目：豆瓣自己的搜索接口已要求登录（`need_login`），
+  /// 但按条目 ID 取剧照的接口仍然免登录。先用必应站内搜索找到
+  /// `movie.douban.com/subject/<id>`，再照常取剧照 / 预告片封面。
+  Future<_Artwork?> _doubanBackdropViaBing(String name, String year) async {
+    final ids = <String>[];
+    for (final candidate in titleCandidates(name).take(2)) {
+      for (final id in await _doubanIdsViaBing(candidate, year)) {
+        if (ids.contains(id)) continue;
+        ids.add(id);
+        if (ids.length >= 2) break;
+      }
+      if (ids.length >= 2) break;
+    }
+    if (ids.isEmpty) return null;
+    // 站内搜索只给 subject id，不带 movie / tv 类型，也可能搜到同名不同片。
+    // 先读条目详情核对片名 / 年份，确认是同一部片后再取剧照。
+    final subjects = <(String, String)>[];
+    for (final id in ids) {
+      for (final type in const ['movie', 'tv']) {
+        final subject = await _doubanSubject(type, id);
+        if (subject == null) continue;
+        if (!_doubanSubjectMatches(subject, name, year)) break;
+        subjects.add((type, id));
+        break;
+      }
+      if (subjects.length >= 2) break;
+    }
+    for (final subject in subjects) {
+      final photos = await _doubanPhotoPage(subject.$1, subject.$2, 0);
+      if (photos.isEmpty) continue;
+      final artwork = _pickDoubanPhotos([photos]);
+      if (artwork != null) {
+        AppLog.i('artwork', '$name 必应豆瓣命中 ${subject.$1}/${subject.$2}');
+        return artwork;
       }
     }
-    return best?.isNotEmpty == true
-        ? relayImageUrl(best!, referer: 'https://m.douban.com/')
-        : null;
+    // 剧照全是竖版海报时，预告片封面是 16:9 的官方物料。
+    for (final subject in subjects) {
+      final trailer = await _doubanTrailerCover(subject.$1, subject.$2);
+      if (trailer != null) return trailer;
+    }
+    return null;
+  }
+
+  /// 豆瓣条目详情（免登录）：用来核对搜索结果确实是这部片。
+  Future<Map?> _doubanSubject(String type, String id) async {
+    try {
+      final res = await http.getText(
+        'https://m.douban.com/rexxar/api/v2/$type/$id?for_mobile=1',
+        headers: {
+          'User-Agent': _desktopUa,
+          'Accept': 'application/json',
+          'Referer': 'https://m.douban.com/$type/subject/$id/',
+        },
+        timeout: const Duration(seconds: 5),
+      );
+      final decoded = jsonDecode(res.body);
+      return decoded is Map ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 条目片名（含原名 / 别名）与年份是否都对得上。
+  static bool _doubanSubjectMatches(Map subject, String title, String year) {
+    final names = <String>[
+      (subject['title'] ?? '').toString(),
+      (subject['original_title'] ?? '').toString(),
+      if (subject['aka'] is List)
+        for (final aka in subject['aka'] as List) aka.toString(),
+    ];
+    final key = titleMatchKey(title);
+    // 两个字的通用片名只认完全同名：搜「爸爸」时，必应会给出
+    // 《爸爸去哪儿》这类前缀相同的条目，取了就是错片。
+    final matched = key.length <= 2
+        ? names.any(
+            (name) => name.trim().isNotEmpty && titleMatchKey(name) == key,
+          )
+        : names.any(
+            (name) => name.trim().isNotEmpty && _titleMatches(name, title),
+          );
+    if (!matched) return false;
+    final wanted = year.trim();
+    final actual = (subject['year'] ?? '').toString().trim();
+    if (wanted.isNotEmpty && actual.isNotEmpty && wanted != actual) {
+      return false;
+    }
+    return true;
+  }
+
+  /// 必应站内搜索豆瓣条目 ID：结果标题必须能对上片名，
+  /// 避免把「相关影片 / 影评」页面里的 ID 当成这部片。
+  Future<List<String>> _doubanIdsViaBing(String title, String year) async {
+    final key = titleMatchKey(title);
+    if (key.length < 2) return const [];
+    final query = [
+      'site:movie.douban.com/subject',
+      title,
+      if (year.trim().isNotEmpty) year.trim(),
+    ].join(' ');
+    final uri = Uri.https('cn.bing.com', '/search', {
+      'q': query,
+      'count': '20',
+      'setlang': 'zh-CN',
+    });
+    try {
+      final res = await http.getText(
+        uri.toString(),
+        headers: const {
+          'User-Agent': _desktopUa,
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+        timeout: const Duration(seconds: 6),
+      );
+      final ids = <String>[];
+      for (final match in RegExp(
+        r'movie\.douban\.com/subject/(\d+)/?[^"]*"[^>]*>(.*?)</a>',
+        dotAll: true,
+      ).allMatches(res.body)) {
+        final id = match.group(1) ?? '';
+        if (id.isEmpty || ids.contains(id)) continue;
+        final text = _htmlUnescape(
+          (match.group(2) ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
+        );
+        if (!_titleMatches(text, title)) continue;
+        ids.add(id);
+        if (ids.length >= 2) break;
+      }
+      if (ids.isNotEmpty) {
+        AppLog.i('artwork', '必应豆瓣 $title → ${ids.join(',')}');
+      }
+      return ids;
+    } catch (e) {
+      AppLog.w('artwork', '必应豆瓣搜索失败（$title）：$e');
+      return const [];
+    }
+  }
+
+  /// 豆瓣剧照里挑一张最宽、分辨率最高、最接近 16:9 的图。
+  ///
+  /// 先翻第一页；第一页就有 1280 宽以上的标准横图时直接返回，避免每部片
+  /// 都固定打 4 个照片请求。电视剧横图少且排得靠后，才继续翻后面几页。
+  Future<_Artwork?> _widestDoubanPhoto(String mediaType, String id) async {
+    final type = mediaType == 'tv' ? 'tv' : 'movie';
+    final firstPage = await _doubanPhotoPage(type, id, 0);
+    final first = _pickDoubanPhotos([firstPage]);
+    if (first != null && first.width >= 1280 && first.usable) return first;
+    if (type != 'tv') return first;
+    // 第一页不满 50 张说明已经是全部剧照，再翻只是三次空请求。
+    if (firstPage.length < 50) return first;
+    final pages = await Future.wait([
+      for (final start in const [50, 100, 150])
+        _doubanPhotoPage(type, id, start),
+    ]);
+    return _pickDoubanPhotos([firstPage, ...pages]) ?? first;
+  }
+
+  static _Artwork? _pickDoubanPhotos(Iterable<List> pages) {
+    _Artwork? best;
+    var bestScore = 0.0;
+    for (final photos in pages) {
+      for (final item in photos) {
+        if (item is! Map) continue;
+        final image = item['image'];
+        if (image is! Map) continue;
+        final large = image['large'] is Map ? image['large'] as Map : image;
+        var url = (large['url'] ?? '').toString().trim();
+        final width = (large['width'] as num?)?.toDouble() ?? 0;
+        final height = (large['height'] as num?)?.toDouble() ?? 0;
+        if (url.isEmpty || width <= 0 || height <= 0) continue;
+        final ratio = width / height;
+        // 竖图 / 4:3 / 2.35:1 超宽图裁进 16:9 卡片都会「异形」或糊，
+        // 只接受接近 16:9 且足够宽的剧照。
+        if (width < 1200 || ratio < 1.45 || ratio > 2.0) continue;
+        url = _fullDoubanPhotoUrl(url);
+        var score = width;
+        if (ratio >= 1.6 && ratio <= 1.9) {
+          score += 600;
+        } else if (ratio >= 1.5) {
+          score += 250;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = _Artwork(
+            relayImageUrl(url, referer: 'https://m.douban.com/'),
+            width: width.round(),
+            height: height.round(),
+            source: 'douban',
+          );
+        }
+      }
+    }
+    return best;
+  }
+
+  /// 豆瓣预告片封面：720×405 的 16:9 官方截图。
+  ///
+  /// 分辨率不如剧照，但胜在「一定有、且一定对应该条目」——国产剧的剧照
+  /// 列表经常 200 张全是竖版海报，这时它就是最快的合格兜底。
+  Future<_Artwork?> _doubanTrailerCover(
+    String mediaType,
+    String id,
+  ) async {
+    try {
+      final type = mediaType == 'tv' ? 'tv' : 'movie';
+      final res = await http.getText(
+        'https://m.douban.com/rexxar/api/v2/$type/$id/trailers?for_mobile=1',
+        headers: {
+          'User-Agent': _desktopUa,
+          'Referer': 'https://m.douban.com/$type/subject/$id/',
+        },
+        timeout: const Duration(seconds: 5),
+      );
+      final decoded = jsonDecode(res.body);
+      final trailers = decoded is Map ? decoded['trailers'] : null;
+      if (trailers is! List) return null;
+      // 优先「预告片」而不是花絮 / MV：正片物料更接近海报视觉。
+      Map? pick;
+      for (final item in trailers) {
+        if (item is! Map) continue;
+        final cover = (item['cover_url'] ?? '').toString().trim();
+        if (cover.isEmpty) continue;
+        pick ??= item;
+        final title = (item['title'] ?? '').toString();
+        if (title.contains('预告')) {
+          pick = item;
+          break;
+        }
+      }
+      final cover = (pick?['cover_url'] ?? '').toString().trim();
+      if (cover.isEmpty) return null;
+      return _Artwork(
+        relayImageUrl(cover, referer: 'https://movie.douban.com/'),
+        width: 720,
+        height: 405,
+        source: 'douban-trailer',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List> _doubanPhotoPage(String type, String id, int start) async {
+    try {
+      final res = await http.getText(
+        'https://m.douban.com/rexxar/api/v2/$type/$id/photos'
+        '?start=$start&count=50&for_mobile=1',
+        headers: {
+          'User-Agent': _desktopUa,
+          'Referer': 'https://m.douban.com/$type/subject/$id/',
+        },
+        timeout: const Duration(seconds: 8),
+      );
+      final decoded = jsonDecode(res.body);
+      final photos = decoded is Map ? decoded['photos'] : null;
+      return photos is List ? photos : const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 豆瓣照片地址还原成原图：
+  /// `…/view/photo/large/public/p2890906384.jpg?…w/600…`（600px 签名缩略图）
+  /// → `https://img3.doubanio.com/view/photo/l/public/p2890906384.jpg`。
+  static String _fullDoubanPhotoUrl(String raw) {
+    final match = RegExp(r'/public/(p\d+)\.jpg').firstMatch(raw);
+    if (match == null) return raw;
+    return 'https://img3.doubanio.com/view/photo/l/public/'
+        '${match.group(1)}.jpg';
   }
 
   // ------------------------------------------------------------------ B 站
+
+  /// B 站番剧 / 影视的官方横图。
+  ///
+  /// 优先 `bkg_cover`（条目背景横图），没有就用第一集的 16:9 封面。
+  /// hdslb CDN 国内直连很快，而且标题是 B 站自己匹配好的，准确率比
+  /// 中文片名去 IMDb 撞运气高得多。
+  Future<_Artwork?> _biliBackdrop(String name, String year) async {
+    final cookie = await _biliCookieValue();
+    if (cookie.isEmpty) return null;
+    final seen = <int>{};
+    for (final candidate in titleCandidates(name)) {
+      try {
+        final hit = await _biliSearch(candidate, year, cookie, 0, null);
+        if (hit == null) continue;
+        final seasonId = (hit['season_id'] as num?)?.toInt() ?? 0;
+        if (seasonId <= 0 || !seen.add(seasonId)) continue;
+        final result = await _biliSeason(seasonId, cookie);
+        if (result == null) continue;
+        final candidates = <String>[
+          (result['bkg_cover'] ?? '').toString().trim(),
+          for (final episode in result['episodes'] is List
+              ? result['episodes'] as List
+              : const <Object>[])
+            if (episode is Map)
+              (episode['cover'] ?? episode['ep_cover'] ?? '').toString().trim(),
+        ];
+        for (final raw in candidates) {
+          if (raw.isEmpty) continue;
+          final url = raw.startsWith('http://')
+              ? 'https://${raw.substring(7)}'
+              : raw;
+          // B 站横图原图通常 1920×1080，这里按 1600×900 保守估值仲裁。
+          return _Artwork(
+            relayImageUrl(url, referer: 'https://www.bilibili.com/'),
+            width: 1600,
+            height: 900,
+            source: 'bilibili',
+          );
+        }
+      } catch (e) {
+        AppLog.w('artwork', 'B 站横图获取失败（$candidate）：$e');
+        return null;
+      }
+    }
+    return null;
+  }
 
   /// B 站番剧分集封面：无需 Key，国内可直连。
   Future<List<String?>> _biliEpisodeStills(
@@ -274,28 +809,65 @@ class ArtworkService {
     List<int> episodeNumbers,
     int? seasonHint,
   ) async {
-    final cookie = await _biliCookieValue();
+    var cookie = await _biliCookieValue();
     if (cookie.isEmpty) return const <String?>[];
     for (final candidate in episodeTitleCandidates(name)) {
-      final hit = await _biliSearch(
-        candidate,
-        year,
-        cookie,
-        episodeCount,
-        seasonHint,
-      );
-      if (hit == null) continue;
-      final seasonId = (hit['season_id'] as num?)?.toInt() ?? 0;
-      if (seasonId <= 0) continue;
-      final result = await _biliSeason(seasonId, cookie);
-      final stills = _biliStillsFromSeason(
-        result,
-        episodeCount,
-        episodeNumbers,
-      );
-      if (stills.any((still) => still != null)) return stills;
+      try {
+        final stills = await _biliStillsForCandidate(
+          candidate,
+          cookie,
+          year,
+          episodeCount,
+          episodeNumbers,
+          seasonHint,
+        );
+        if (stills != null) return stills;
+      } on AppHttpException catch (e) {
+        // 412/403 基本是 Cookie 失效或风控：清缓存、重新取首页 Cookie，
+        // 当前候选重试一次；其它错误交给上层转 TMDB。
+        if (e.statusCode != 412 && e.statusCode != 403) rethrow;
+        AppLog.w('artwork', 'B 站搜索被拦截（HTTP ${e.statusCode}），刷新 Cookie 后重试');
+        _biliCookie = null;
+        _biliCookieAt = null;
+        _wbiMixinKey = null;
+        _wbiKeyAt = null;
+        cookie = await _biliCookieValue();
+        if (cookie.isEmpty) rethrow;
+        final stills = await _biliStillsForCandidate(
+          candidate,
+          cookie,
+          year,
+          episodeCount,
+          episodeNumbers,
+          seasonHint,
+        );
+        if (stills != null) return stills;
+      }
     }
     return const <String?>[];
+  }
+
+  Future<List<String?>?> _biliStillsForCandidate(
+    String candidate,
+    String cookie,
+    String year,
+    int episodeCount,
+    List<int> episodeNumbers,
+    int? seasonHint,
+  ) async {
+    final hit = await _biliSearch(
+      candidate,
+      year,
+      cookie,
+      episodeCount,
+      seasonHint,
+    );
+    if (hit == null) return null;
+    final seasonId = (hit['season_id'] as num?)?.toInt() ?? 0;
+    if (seasonId <= 0) return null;
+    final result = await _biliSeason(seasonId, cookie);
+    final stills = _biliStillsFromSeason(result, episodeCount, episodeNumbers);
+    return stills.any((still) => still != null) ? stills : null;
   }
 
   static List<String?> _biliStillsFromSeason(
@@ -361,6 +933,30 @@ class ArtworkService {
         now.difference(at) < const Duration(hours: 6)) {
       return cached;
     }
+    // 搜索风控只认首页下发的 buvid3 + b_nut。finger/spi 的 b_3/b_4
+    // 单独使用会稳定 412（2026-11 实测），所以首页优先、SPI 兜底。
+    try {
+      await http.probeText(
+        'https://www.bilibili.com/',
+        headers: {
+          'User-Agent': _desktopUa,
+          'Accept':
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+        timeout: const Duration(seconds: 12),
+        maxBytes: 4096,
+      );
+      final warm = http.cookiesFor('https://www.bilibili.com/');
+      if (warm.isNotEmpty) {
+        _biliCookie = warm;
+        _biliCookieAt = now;
+        return warm;
+      }
+    } catch (e) {
+      AppLog.w('artwork', 'B 站首页 Cookie 获取失败：$e');
+    }
+    // 兜底：首页不可用时再用 finger/spi（部分网络下仍可能被搜索风控拦）。
     try {
       final res = await http.getText(
         'https://api.bilibili.com/x/frontend/finger/spi',
@@ -402,18 +998,134 @@ class ArtworkService {
     // 显式季号优先；否则用片名里的季号（`第二季` / `2`）。
     final wantedSeason =
         seasonHint ?? (query.explicitSeason ? query.season : null);
+    Map<String, dynamic>? best;
+    var bestScore = 0;
+    var bestYear = '';
+    var bestType = '';
+    var confident = false;
+    // 番剧和影视（国产剧 / 自制剧）属于两个分类：只搜 media_bangumi 会漏掉
+    // 大量真人剧。先搜番剧；如果已经按季号 + 集数精确命中，就不再多打一次
+    // 接口，减少触发风控的概率。
+    for (final searchType in const ['media_bangumi', 'media_ft']) {
+      final List results;
+      try {
+        results = await _biliSearchResults(searchType, name, cookie);
+      } catch (e) {
+        // 412/403 要交给上层刷新 Cookie 后重试；media_ft 失败只跳过该分类。
+        if (searchType == 'media_bangumi') rethrow;
+        AppLog.w('artwork', 'B 站 $searchType 搜索失败，跳过：$e');
+        continue;
+      }
+      for (final item in results) {
+        if (item is! Map) continue;
+        final title = _cleanBiliText((item['title'] ?? '').toString());
+        final original = _cleanBiliText((item['org_title'] ?? '').toString());
+        final titleInfo = _titleInfo(title, trailingSequel: true);
+        final originalInfo = _titleInfo(original, trailingSequel: true);
+        // 只认归一后完全一致的片名。以前用 contains 通配，
+        // 「鬼灭之刃 柱训练篇」「鬼灭之刃 第二季」都会被当成「鬼灭之刃」，
+        // 再按集数决胜就会刮到完全错误的季。
+        final hitInfo = _biliTitleHit(query, titleInfo)
+            ? titleInfo
+            : (_biliTitleHit(query, originalInfo) ? originalInfo : null);
+        if (hitInfo == null) continue;
+        final hitSeason = titleInfo.explicitSeason
+            ? titleInfo.season
+            : (originalInfo.explicitSeason ? originalInfo.season : null);
+        var seasonPenalty = 0;
+        if (wantedSeason != null) {
+          // 没有季号标记的条目按第一季处理：搜第二季时不能拿第一季来顶。
+          if ((hitSeason ?? 1) != wantedSeason) continue;
+        } else if (hitSeason != null && hitSeason > 1) {
+          // 片名没写季号时不直接丢弃续作：资源站常把「某某 第二季」写成
+          // 普通片名，直接排除会一个候选都命中不了。这里只降权，
+          // 有第一季时仍然优先第一季。
+          seasonPenalty = -20;
+        }
+        final epSize = (item['ep_size'] as num?)?.toInt() ?? 0;
+        var score = 100 + seasonPenalty;
+        if (wantedSeason == null && hitSeason == null) score += 10;
+        final pubYear = _yearFromBiliTime(item['pubtime']);
+        if (year.isNotEmpty && pubYear == year) score += 10;
+        if (episodeCount > 0 && epSize > 0) {
+          final diff = (epSize - episodeCount).abs();
+          if (diff == 0) {
+            score += 8;
+          } else if (diff <= 2) {
+            score += 3;
+          } else if (diff > 6) {
+            score -= 6;
+          }
+        }
+        // 同一部番的中配/粤配封面相同：没有指定配音时优先原版条目。
+        final hitDub = titleInfo.dub || originalInfo.dub;
+        if (hitDub) score += query.dub ? 2 : -2;
+        if (score > bestScore) {
+          bestScore = score;
+          bestYear = pubYear;
+          best = Map<String, dynamic>.from(item);
+          bestType = searchType;
+          confident =
+              epSize > 0 &&
+              epSize == episodeCount &&
+              (wantedSeason == null
+                  ? hitSeason == null
+                  : (hitSeason ?? 1) == wantedSeason);
+        }
+      }
+      if (best != null && confident) break;
+    }
+    final picked = best == null
+        ? '无结果'
+        : '选中 ${_cleanBiliText((best['title'] ?? '').toString())} '
+              '[$bestType] ep=${best['ep_size']} 年份=$bestYear';
+    AppLog.i(
+      'artwork',
+      'B 站匹配 $name → key=${query.key} 季=${wantedSeason ?? 1} $picked',
+    );
+    return best;
+  }
+
+  /// B 站命中判定：完全一致优先；「主标题 + 副标题」允许前缀命中，
+  /// 但续作 / 篇章 / 剧场版必须排除。
+  ///
+  /// 例：「复仇者联盟4 加码臻享版」清洗成「复仇者联盟4」后，B 站条目是
+  /// 「复仇者联盟4：终局之战」，属于同一部片；而「鬼灭之刃」不能命中
+  /// 「鬼灭之刃 柱训练篇」。
+  static bool _biliTitleHit(_TitleInfo query, _TitleInfo hit) {
+    if (query.key == hit.key) return true;
+    final short = query.key.length <= hit.key.length ? query.key : hit.key;
+    final long = query.key.length <= hit.key.length ? hit.key : query.key;
+    if (short.length < 4 || !long.startsWith(short)) return false;
+    final suffix = long.substring(short.length);
+    return !RegExp(
+      r'(第|篇|季|章|剧场版|ova|oad|special|final|最终|完结|前传|后传|外传|特别|上篇|下篇|中篇|part|[0-9])',
+      caseSensitive: false,
+    ).hasMatch(suffix);
+  }
+
+  Future<List> _biliSearchResults(
+    String searchType,
+    String keyword,
+    String cookie,
+  ) async {
+    final params = <String, String>{
+      'search_type': searchType,
+      'keyword': keyword,
+      // 默认只返回 10 条，正片（第一季）常被续作/中配版挤出列表；
+      // 放宽到 30 条才能看到全部候选。
+      'page_size': '30',
+    };
+    // WBI 签名：搜索接口对未签名的请求风控更严，带上 `w_rid` + `wts`
+    // 能明显降低 412。取不到密钥时退回普通接口，不让签名故障挡住刮削。
+    var endpoint = 'https://api.bilibili.com/x/web-interface/search/type';
+    final mixinKey = await _wbiMixinKeyValue(cookie);
+    if (mixinKey.isNotEmpty) {
+      params.addAll(_wbiSign(params, mixinKey));
+      endpoint = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
+    }
     final res = await http.getText(
-      Uri.parse('https://api.bilibili.com/x/web-interface/search/type')
-          .replace(
-            queryParameters: {
-              'search_type': 'media_bangumi',
-              'keyword': name,
-              // 默认只返回 10 条，正片（第一季）常被续作/中配版挤出列表；
-              // 放宽到 30 条才能看到全部候选。
-              'page_size': '30',
-            },
-          )
-          .toString(),
+      Uri.parse(endpoint).replace(queryParameters: params).toString(),
       headers: {
         'User-Agent': _desktopUa,
         'Referer': 'https://www.bilibili.com/',
@@ -423,70 +1135,179 @@ class ArtworkService {
       timeout: const Duration(seconds: 15),
     );
     final decoded = jsonDecode(res.body);
-    if (decoded is! Map) return null;
+    if (decoded is! Map) return const [];
     final code = decoded['code'];
-    if (code is num && code.toInt() != 0) return null;
+    if (code is num && code.toInt() != 0) return const [];
     final data = decoded['data'];
     final results = data is Map ? data['result'] : null;
-    if (results is! List) return null;
-    Map<String, dynamic>? best;
-    var bestScore = 0;
-    var bestYear = '';
-    for (final item in results) {
-      if (item is! Map) continue;
-      final title = _cleanBiliText((item['title'] ?? '').toString());
-      final original = _cleanBiliText((item['org_title'] ?? '').toString());
-      final titleInfo = _titleInfo(title, trailingSequel: true);
-      final originalInfo = _titleInfo(original, trailingSequel: true);
-      // 只认归一后完全一致的片名。以前用 contains 通配，
-      // 「鬼灭之刃 柱训练篇」「鬼灭之刃 第二季」都会被当成「鬼灭之刃」，
-      // 再按集数决胜就会刮到完全错误的季。
-      final hitInfo = titleInfo.key == query.key
-          ? titleInfo
-          : (originalInfo.key == query.key ? originalInfo : null);
-      if (hitInfo == null) continue;
-      final hitSeason = titleInfo.explicitSeason
-          ? titleInfo.season
-          : (originalInfo.explicitSeason ? originalInfo.season : null);
-      if (wantedSeason != null) {
-        // 没有季号标记的条目按第一季处理：搜第二季时不能拿第一季来顶。
-        if ((hitSeason ?? 1) != wantedSeason) continue;
-      } else if (hitSeason != null && hitSeason > 1) {
-        continue;
+    return results is List ? results : const [];
+  }
+
+  /// WBI mixinKey 的固定重排表（B 站前端常量）。
+  static const List<int> _wbiMixinKeyEncTab = [
+    46,
+    47,
+    18,
+    2,
+    53,
+    8,
+    23,
+    32,
+    15,
+    50,
+    10,
+    31,
+    58,
+    3,
+    45,
+    35,
+    27,
+    43,
+    5,
+    49,
+    33,
+    9,
+    42,
+    19,
+    29,
+    28,
+    14,
+    39,
+    12,
+    38,
+    41,
+    13,
+    37,
+    48,
+    7,
+    16,
+    24,
+    55,
+    40,
+    61,
+    26,
+    17,
+    0,
+    1,
+    60,
+    51,
+    30,
+    4,
+    22,
+    25,
+    54,
+    21,
+    56,
+    59,
+    6,
+    63,
+    57,
+    62,
+    11,
+    36,
+    20,
+    34,
+    44,
+    52,
+  ];
+
+  /// 取 WBI 的 mixinKey：`nav` 接口不需要登录，未登录也会返回 `wbi_img`。
+  Future<String> _wbiMixinKeyValue(String cookie) async {
+    final now = DateTime.now();
+    final cached = _wbiMixinKey;
+    final at = _wbiKeyAt;
+    if (cached != null &&
+        at != null &&
+        now.difference(at) < const Duration(hours: 6)) {
+      return cached;
+    }
+    try {
+      final res = await http.getText(
+        'https://api.bilibili.com/x/web-interface/nav',
+        headers: {
+          'User-Agent': _desktopUa,
+          'Referer': 'https://www.bilibili.com/',
+          'Accept': 'application/json',
+          'Cookie': cookie,
+        },
+        timeout: const Duration(seconds: 12),
+      );
+      final decoded = jsonDecode(res.body);
+      // 未登录时 code=-101，但 data.wbi_img 仍然存在，不能按 code 判断。
+      final data = decoded is Map ? decoded['data'] : null;
+      final wbi = data is Map ? data['wbi_img'] : null;
+      final imgKey = _wbiKeyFromUrl(
+        wbi is Map ? (wbi['img_url'] ?? '').toString() : '',
+      );
+      final subKey = _wbiKeyFromUrl(
+        wbi is Map ? (wbi['sub_url'] ?? '').toString() : '',
+      );
+      if (imgKey.isEmpty || subKey.isEmpty) return '';
+      final orig = imgKey + subKey;
+      final mixin = StringBuffer();
+      for (final index in _wbiMixinKeyEncTab) {
+        if (index >= orig.length || mixin.length >= 32) break;
+        mixin.write(orig[index]);
       }
-      final epSize = (item['ep_size'] as num?)?.toInt() ?? 0;
-      var score = 100;
-      if (wantedSeason == null && hitSeason == null) score += 10;
-      final pubYear = _yearFromBiliTime(item['pubtime']);
-      if (year.isNotEmpty && pubYear == year) score += 10;
-      if (episodeCount > 0 && epSize > 0) {
-        final diff = (epSize - episodeCount).abs();
-        if (diff == 0) {
-          score += 8;
-        } else if (diff <= 2) {
-          score += 3;
-        } else if (diff > 6) {
-          score -= 6;
-        }
-      }
-      // 同一部番的中配/粤配封面相同：没有指定配音时优先原版条目。
-      final hitDub = titleInfo.dub || originalInfo.dub;
-      if (hitDub) score += query.dub ? 2 : -2;
-      if (score > bestScore) {
-        bestScore = score;
-        bestYear = pubYear;
-        best = Map<String, dynamic>.from(item);
+      final key = mixin.toString();
+      if (key.length != 32) return '';
+      _wbiMixinKey = key;
+      _wbiKeyAt = now;
+      return key;
+    } catch (e) {
+      AppLog.w('artwork', 'B 站 WBI 密钥获取失败：$e');
+      return '';
+    }
+  }
+
+  /// 从 `https://i0.hdslb.com/bfs/wbi/<key>.png` 里取出 `<key>`。
+  static String _wbiKeyFromUrl(String url) {
+    final name = url.split('/').last.trim();
+    if (name.isEmpty) return '';
+    final dot = name.indexOf('.');
+    return dot > 0 ? name.substring(0, dot) : name;
+  }
+
+  /// 生成 `wts` / `w_rid`：按 key 排序 → 过滤 `!'()*` → RFC 3986 编码
+  /// → 拼 mixinKey 后取 MD5。
+  static Map<String, String> _wbiSign(
+    Map<String, String> params,
+    String mixinKey,
+  ) {
+    final wts = '${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final all = <String, String>{...params, 'wts': wts};
+    final keys = all.keys.toList()..sort();
+    final query = keys
+        .map((key) {
+          final value = all[key]!.replaceAll(RegExp(r"[!'()*]"), '');
+          return '${_wbiEncode(key)}=${_wbiEncode(value)}';
+        })
+        .join('&');
+    return {
+      'wts': wts,
+      'w_rid': md5.convert(utf8.encode('$query$mixinKey')).toString(),
+    };
+  }
+
+  /// `encodeURIComponent` 口径：空格编码成 %20，而不是 `+`。
+  static String _wbiEncode(String input) {
+    final out = StringBuffer();
+    for (final byte in utf8.encode(input)) {
+      final plain =
+          (byte >= 0x30 && byte <= 0x39) || // 0-9
+          (byte >= 0x41 && byte <= 0x5A) || // A-Z
+          (byte >= 0x61 && byte <= 0x7A) || // a-z
+          byte == 0x2D || // -
+          byte == 0x2E || // .
+          byte == 0x5F || // _
+          byte == 0x7E; // ~
+      if (plain) {
+        out.writeCharCode(byte);
+      } else {
+        out.write('%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}');
       }
     }
-    final picked = best == null
-        ? '无结果'
-        : '选中 ${_cleanBiliText((best['title'] ?? '').toString())} '
-              'ep=${best['ep_size']} 年份=$bestYear';
-    AppLog.i(
-      'artwork',
-      'B 站匹配 $name → key=${query.key} 季=${wantedSeason ?? 1} $picked',
-    );
-    return best;
+    return out.toString();
   }
 
   static String _yearFromBiliTime(Object? raw) {
@@ -559,7 +1380,7 @@ class ArtworkService {
     final results = decoded is Map ? decoded['results'] : null;
     if (results is! List) return null;
     Map<String, dynamic>? best;
-    var bestScore = -1;
+    var bestScore = -1.0;
     var bestPopularity = -1.0;
     for (final item in results) {
       if (item is! Map) continue;
@@ -570,16 +1391,36 @@ class ArtworkService {
       final title = (item['title'] ?? item['name'] ?? '').toString();
       final original = (item['original_title'] ?? item['original_name'] ?? '')
           .toString();
-      final titleInfo = _titleInfo(title, trailingSequel: trailingSequel);
-      final originalInfo = _titleInfo(original, trailingSequel: trailingSequel);
-      // 与 B 站一致：只认归一后完全相等的片名，避免续作 / 同名前缀串片。
-      if (titleInfo.key != query.key && originalInfo.key != query.key) {
-        continue;
+      final titleKey = _titleInfo(title, trailingSequel: trailingSequel).key;
+      final originalKey = _titleInfo(
+        original,
+        trailingSequel: trailingSequel,
+      ).key;
+      // 完全相等优先；续作 / 副标题差异允许「包含」但降权，
+      // 否则《流浪地球2》这类片名会把第一部的封面刮过来。
+      var matchScore = 0.0;
+      if (titleKey == query.key || originalKey == query.key) {
+        matchScore = 120;
+      } else {
+        for (final key in [titleKey, originalKey]) {
+          if (key.isEmpty) continue;
+          if (key.contains(query.key) || query.key.contains(key)) {
+            final shorter = key.length < query.key.length
+                ? key.length
+                : query.key.length;
+            final longer = key.length < query.key.length
+                ? query.key.length
+                : key.length;
+            final ratio = longer == 0 ? 0.0 : shorter / longer;
+            if (ratio >= 0.62) matchScore = 55;
+          }
+        }
       }
+      if (matchScore <= 0) continue;
       final date = (item['release_date'] ?? item['first_air_date'] ?? '')
           .toString();
-      var score = 100;
-      if (year.isNotEmpty && date.startsWith(year)) score += 10;
+      var score = matchScore;
+      if (year.isNotEmpty && date.startsWith(year)) score += 35;
       if (preferTv) score += mediaType == 'tv' ? 10 : 0;
       final popularity = (item['popularity'] as num?)?.toDouble() ?? 0;
       if (score > bestScore ||
@@ -613,7 +1454,7 @@ class ArtworkService {
     return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
   }
 
-  Future<String?> _tmdbBackdrop(String name, String year) async {
+  Future<_Artwork?> _tmdbBackdrop(String name, String year) async {
     for (final candidate in titleCandidates(name)) {
       // 「… 2」可能是第二季，也可能是《玩具总动员2》这种片名的一部分：
       // 先按完整片名找，找不到再把结尾数字当季号剥掉重试。
@@ -627,43 +1468,76 @@ class ArtworkService {
           trailingSequel: stripSequel,
         );
         if (best == null) continue;
-        final backdrop = (best['backdrop_path'] ?? '').toString().trim();
-        if (backdrop.isNotEmpty) return _tmdbImage(backdrop);
-        // 搜索结果没带 backdrop 时，再查一次 images 接口（TV/电影分开）。
         final mediaType = (best['media_type'] ?? '').toString();
         final id = (best['id'] ?? '').toString();
-        if (id.isEmpty) continue;
-        final imagesJson = await _tmdbJson('$mediaType/$id/images', {
-          'include_image_language': 'zh,en,null',
-        });
-        final backdrops = imagesJson?['backdrops'];
-        if (backdrops is List) {
-          Map? bestImage;
-          var bestWidth = 0;
-          for (final item in backdrops) {
-            if (item is! Map) continue;
-            final path = (item['file_path'] ?? '').toString().trim();
-            if (path.isEmpty) continue;
-            final width = (item['width'] as num?)?.toInt() ?? 0;
-            if (width < 1200) continue;
-            final language = (item['iso_639_1'] ?? '').toString();
-            // 优先挑最宽的无文字横图，其次英文 / 中文，最后退而求其次。
-            final score =
-                width +
-                (language == 'zh' || language == 'en' ? 40 : 0) +
-                (language.isEmpty ? 60 : 0);
-            if (score > bestWidth) {
-              bestWidth = score;
-              bestImage = item;
-            }
-          }
-          if (bestImage != null) {
-            return _tmdbImage((bestImage['file_path'] ?? '').toString());
-          }
+        // 搜索结果只带一张 backdrop_path，尺寸未知且不一定是无水印版本；
+        // 有 id 时以 images 库为准，挑最宽的无文字 16:9 横图。
+        if (id.isNotEmpty) {
+          final imagesJson = await _tmdbJson('$mediaType/$id/images', {
+            'include_image_language': 'zh,en,null',
+          });
+          final artwork = _pickTmdbBackdrop(imagesJson?['backdrops']);
+          if (artwork != null) return artwork;
+        }
+        final backdrop = (best['backdrop_path'] ?? '').toString().trim();
+        if (backdrop.isNotEmpty) {
+          return _Artwork(
+            relayImageUrl(
+              _tmdbImage(backdrop),
+              referer: 'https://www.themoviedb.org/',
+            ),
+            // backdrop_path 固定是 16:9 原图，给一个保守尺寸参与仲裁。
+            width: 1600,
+            height: 900,
+            source: 'tmdb',
+          );
         }
       }
     }
     return null;
+  }
+
+  /// 从 TMDB `images.backdrops` 里挑最宽的官方横图。
+  ///
+  /// `iso_639_1 == null` 表示没有文字（纯画面），最适合铺 Hero；
+  /// 有文字的海报图会被降权，避免标题叠标题。
+  static _Artwork? _pickTmdbBackdrop(Object? backdrops) {
+    if (backdrops is! List) return null;
+    _Artwork? best;
+    var bestScore = 0.0;
+    for (final item in backdrops) {
+      if (item is! Map) continue;
+      final path = (item['file_path'] ?? '').toString().trim();
+      if (path.isEmpty) continue;
+      final width = (item['width'] as num?)?.toInt() ?? 0;
+      final height = (item['height'] as num?)?.toInt() ?? 0;
+      if (width < 1200 || height <= 0) continue;
+      final ratio = width / height;
+      if (ratio < 1.45 || ratio > 2.0) continue;
+      final language = (item['iso_639_1'] ?? '').toString();
+      var score = width.toDouble();
+      if (ratio >= 1.6 && ratio <= 1.9) score += 400;
+      if (language.isEmpty) {
+        score += 260;
+      } else if (language == 'zh' || language == 'en') {
+        score -= 60;
+      } else {
+        score -= 200;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = _Artwork(
+          relayImageUrl(
+            _tmdbImage(path),
+            referer: 'https://www.themoviedb.org/',
+          ),
+          width: width,
+          height: height,
+          source: 'tmdb',
+        );
+      }
+    }
+    return best;
   }
 
   Future<List<String?>> _runEpisodeStills(
@@ -676,25 +1550,53 @@ class ArtworkService {
     await _acquire();
     try {
       if (_spacing > Duration.zero) await Future<void>.delayed(_spacing);
-      final bili = await _biliEpisodeStills(
-        name,
-        year,
-        episodeCount,
-        episodeNumbers,
-        seasonHint,
-      );
-      if (bili.any((still) => still != null)) return bili;
-      if (!_tmdbConfigured) return const <String?>[];
-      for (final candidate in episodeTitleCandidates(name)) {
-        final stills = await _tmdbEpisodeStillsForName(
-          candidate,
+      var bili = const <String?>[];
+      try {
+        bili = await _biliEpisodeStills(
+          name,
           year,
           episodeCount,
-          seasonHint,
           episodeNumbers,
+          seasonHint,
         );
-        if (stills.any((still) => still != null)) return stills;
+      } catch (e) {
+        // B 站风控 / 网络失败只影响 B 站，不能挡住 TMDB 兜底。
+        AppLog.w('artwork', '$name 的 B 站分集封面失败，转 TMDB：$e');
       }
+      if (bili.any((still) => still != null)) {
+        AppLog.i(
+          'artwork',
+          '$name 的分集封面来源：B 站 '
+              '${bili.whereType<String>().length}/$episodeCount 集',
+        );
+        return bili;
+      }
+      if (!_tmdbConfigured) {
+        AppLog.i('artwork', '$name 没有分集封面：B 站无结果且未配置 TMDB');
+        return const <String?>[];
+      }
+      for (final candidate in episodeTitleCandidates(name)) {
+        try {
+          final stills = await _tmdbEpisodeStillsForName(
+            candidate,
+            year,
+            episodeCount,
+            seasonHint,
+            episodeNumbers,
+          );
+          if (stills.any((still) => still != null)) {
+            AppLog.i(
+              'artwork',
+              '$name 的分集封面来源：TMDB '
+                  '${stills.whereType<String>().length}/$episodeCount 集',
+            );
+            return stills;
+          }
+        } catch (e) {
+          AppLog.w('artwork', '$name 的 TMDB 分集封面失败：$e');
+        }
+      }
+      AppLog.i('artwork', '$name 没有分集封面：B 站与 TMDB 都无结果');
       return const <String?>[];
     } catch (e) {
       AppLog.w('artwork', '$name 的分集封面获取失败：$e');
@@ -729,6 +1631,7 @@ class ArtworkService {
       detail['seasons'],
       episodeCount,
       seasonHint,
+      year: year,
     );
     if (seasonNumbers.isEmpty) return const <String?>[];
     final seasonEpisodes = <int, List<String?>>{};
@@ -742,19 +1645,25 @@ class ArtworkService {
   }
 
   /// 选出与站点集数对应的 TMDB 季：季号提示 → 集数完全一致 → 单季取前 N 集
-  /// → 多季集数之和一致。与 Kazumi/AVBox 的 mapEpisodes 口径一致。
+  /// → 多季集数之和一致 → 年份对得上的季 → 最近一季兜底。
+  /// 与 Kazumi/AVBox 的 mapEpisodes 口径一致。
   static List<int> pickSeasons(
     Object? seasons,
     int episodeCount,
-    int? seasonHint,
-  ) {
+    int? seasonHint, {
+    String year = '',
+  }) {
     if (seasons is! List || episodeCount <= 0) return const [];
-    final parsed = <({int number, int count})>[];
+    final parsed = <({int number, int count, String airYear})>[];
     for (final raw in seasons) {
       if (raw is! Map) continue;
       final number = (raw['season_number'] as num?)?.toInt() ?? 0;
       final count = (raw['episode_count'] as num?)?.toInt() ?? 0;
-      if (number > 0 && count > 0) parsed.add((number: number, count: count));
+      if (number <= 0 || count <= 0) continue;
+      final airDate = (raw['air_date'] ?? '').toString().trim();
+      final airYear =
+          RegExp(r'^(19|20)\d{2}').firstMatch(airDate)?.group(0) ?? '';
+      parsed.add((number: number, count: count, airYear: airYear));
     }
     parsed.sort((a, b) => a.number.compareTo(b.number));
     if (parsed.isEmpty) return const [];
@@ -782,7 +1691,9 @@ class ArtworkService {
         }
       }
     }
-    final exact = parsed.where((season) => season.count == episodeCount);
+    final exact = parsed
+        .where((season) => season.count == episodeCount)
+        .toList();
     if (exact.length == 1) return [exact.first.number];
     if (parsed.length == 1 && episodeCount <= parsed.first.count) {
       return [parsed.first.number];
@@ -790,6 +1701,18 @@ class ArtworkService {
     final total = parsed.fold<int>(0, (sum, season) => sum + season.count);
     if (total == episodeCount) {
       return [for (final season in parsed) season.number];
+    }
+    // 续作常常只靠年份区分：片名带年份时，优先选该年播出的季。
+    if (seasonHint == null && year.isNotEmpty) {
+      final byYear = parsed.where((season) => season.airYear == year).toList();
+      if (byYear.length == 1) return [byYear.first.number];
+    }
+    // 多季集数相同（常见 12/12）时集数无法区分，资源站通常列的是当前
+    // 正在播的那一季：取最近一季，否则会完全不给封面。
+    if (exact.length > 1) return [exact.last.number];
+    // 最后兜底：站点集数比最近季少（更新中 / 预告占位），用最近一季补齐。
+    if (seasonHint == null && episodeCount <= parsed.last.count) {
+      return [parsed.last.number];
     }
     return const [];
   }
@@ -1089,11 +2012,49 @@ class ArtworkService {
     '完整版',
     '加长版',
     '导演剪辑版',
+    '加码臻享版',
+    '臻享版',
+    '加码版',
+    '尊享版',
+    '特别版',
+    '重映版',
+    '院线版',
+    'imax版',
+    'imax',
+    '杜比版',
+    '点映版',
+    '公映版',
+    '修复版',
+    '高清版',
+    '超清版',
+    '蓝光版',
+    '未删减版',
+    '无删减版',
+    '抢先版',
+    '尝鲜版',
+    '会员版',
+    '网络版',
+    'tv版',
+    '普通话版',
+    '原声版',
+    '双语版',
+    '中字版',
+    '国粤双语',
+    '国英双语',
     '中配版',
     '日语版',
     '国语版',
     '粤语版',
   ];
+
+  /// 版本标签一次替换：按长度倒序，让「中字版」先于「中字」命中，
+  /// 避免只删掉词根留下一个孤零零的「版」。
+  static final RegExp _metadataTagRegex = RegExp(
+    ([..._metadataTags]..sort((a, b) => b.length.compareTo(a.length)))
+        .map(RegExp.escape)
+        .join('|'),
+    caseSensitive: false,
+  );
 
   /// 片名归一：去掉括号里的版本说明、清晰度/压制/语言标签和结尾年份。
   static String cleanMetadataTitle(String raw) {
@@ -1101,12 +2062,7 @@ class ArtworkService {
       RegExp(r'\[[^\]]*\]|\([^)]*\)|【[^】]*】|（[^）]*）'),
       ' ',
     );
-    for (final tag in _metadataTags) {
-      text = text.replaceAll(
-        RegExp(RegExp.escape(tag), caseSensitive: false),
-        ' ',
-      );
-    }
+    text = text.replaceAll(_metadataTagRegex, ' ');
     text = text.replaceAll(
       RegExp(r'\d+(?:\.\d+)?\s*(?:gb|mb|gib|mib)\b', caseSensitive: false),
       ' ',
@@ -1211,9 +2167,10 @@ class ArtworkService {
       list.add(text);
     }
 
-    add(original);
+    // 先搜最干净的片名：原始资源名里的集数 / 清晰度标签会把搜索结果带偏。
     add(cleaned);
     add(base);
+    add(original);
     return list;
   }
 
@@ -1309,35 +2266,59 @@ class ArtworkService {
     final clean = path.trim();
     if (clean.isEmpty) return '';
     if (clean.startsWith('http')) return clean;
-    return 'https://image.tmdb.org/t/p/w300${clean.startsWith('/') ? '' : '/'}$clean';
+    return 'https://image.tmdb.org/t/p/w780${clean.startsWith('/') ? '' : '/'}$clean';
   }
 
   // ------------------------------------------------------------------ IMDb
 
   /// IMDb 公开建议接口找条目 → GraphQL 取剧照（无需账号或 Key）。
-  Future<String?> _imdbBackdrop(String name, String year) async {
+  ///
+  /// 剧集还会并发查 TVmaze（按 IMDb id 映射）：TVmaze 的分集剧照通常是
+  /// 1920×1080 的官方图，比豆瓣竖版海报裁切清晰得多。
+  Future<_Artwork?> _imdbBackdrop(String name, String year) async {
     for (final candidate in titleCandidates(name)) {
-      final id = await _imdbFind(candidate, year);
-      if (id == null) continue;
-      // 只接受横图；IMDb 没有合格横图时换下一个候选片名。
-      final image = await _imdbImages(id);
-      if (image != null && image.trim().isNotEmpty) return image;
+      final match = await _imdbFind(candidate, year);
+      if (match == null) continue;
+      final id = (match['id'] ?? '').toString();
+      if (id.isEmpty) continue;
+      final kind = (match['qid'] ?? '').toString();
+      final isTv = kind.startsWith('tv');
+      final englishTitle = (match['l'] ?? '').toString().trim();
+      final itemYear = (match['y'] as num?)?.toInt().toString().trim() ?? year;
+      final results = await Future.wait([
+        _imdbImages(id),
+        if (isTv)
+          _tvmazeStill(id, title: englishTitle, year: itemYear)
+        else
+          Future<_Artwork?>.value(),
+      ]);
+      _Artwork? best;
+      for (final artwork in results) {
+        if (artwork == null) continue;
+        if (best == null || artwork.score > best.score) best = artwork;
+      }
+      if (best != null) return best;
     }
     return null;
   }
 
-  Future<String?> _imdbFind(String name, String year) async {
+  Future<Map<String, dynamic>?> _imdbFind(String name, String year) async {
+    final queryKey = titleMatchKey(name);
+    if (queryKey.isEmpty) return null;
     final res = await http.getText(
       'https://v3.sg.media-imdb.com/suggestion/x/'
       '${Uri.encodeComponent(name)}.json',
       headers: {'User-Agent': _desktopUa},
-      timeout: const Duration(seconds: 12),
+      timeout: const Duration(seconds: 8),
     );
     final decoded = jsonDecode(res.body);
     final list = decoded is Map ? decoded['d'] : null;
     if (list is! List) return null;
     Map? best;
-    var bestScore = -1;
+    var bestScore = -1000.0;
+    var bestTitleMatched = false;
+    Map? firstYear;
+    var index = 0;
     for (final item in list) {
       if (item is! Map) continue;
       final id = (item['id'] ?? '').toString();
@@ -1351,24 +2332,56 @@ class ArtworkService {
           kind != 'tvMovie') {
         continue;
       }
-      var score = 0;
-      if (title == name) {
-        score += 5;
-      } else if (title.contains(name) || name.contains(title)) {
-        score += 2;
+      if (year.isNotEmpty && '$itemYear' == year) firstYear ??= item;
+      final itemKey = titleMatchKey(title);
+      var titleScore = 0.0;
+      if (itemKey == queryKey) {
+        titleScore = 120;
+      } else if (itemKey.contains(queryKey) || queryKey.contains(itemKey)) {
+        final shorter = itemKey.length < queryKey.length
+            ? itemKey.length
+            : queryKey.length;
+        final longer = itemKey.length < queryKey.length
+            ? queryKey.length
+            : itemKey.length;
+        final ratio = longer == 0 ? 0.0 : shorter / longer;
+        titleScore = ratio >= 0.6 ? 50 : 8;
       }
-      if (year.isNotEmpty && '$itemYear' == year) score += 3;
+      var score = titleScore;
+      if (year.isNotEmpty) {
+        if ('$itemYear' == year) {
+          score += 40;
+        } else if (itemYear != null) {
+          score -= 12;
+        }
+      }
+      // 建议接口按相关度排序，越靠前越可能是同一部。
+      score += (10 - index.clamp(0, 10)) * 0.6;
       if (score > bestScore) {
         bestScore = score;
+        bestTitleMatched = titleScore > 0;
         best = item;
       }
+      index++;
     }
-    return best?['id']?.toString();
+    // 中文片名对应的 IMDb 条目名是英文（《漫长的季节》→ The Long Season），
+    // 标题永远匹配不上。以前直接信任接口第一条，结果《黑球》《生日快乐》
+    // 这类通用词会匹配到完全无关的片子（《黑球》→ La bola negra）。
+    // 年份加分会让「只有年份相同」的条目也拿到 40 分，所以判断要看标题本身
+    // 有没有匹配上，而不是看总分：标题完全不匹配时只接受「年份一致 + 片名
+    // 足够长」的同年条目，其余交给豆瓣 / B 站 / 必应，宁缺毋滥。
+    if (RegExp(r'[\u3400-\u9fff]').hasMatch(name) && !bestTitleMatched) {
+      if (year.isNotEmpty && firstYear != null && queryKey.length >= 4) {
+        return Map<String, dynamic>.from(firstYear);
+      }
+      return null;
+    }
+    return best == null ? null : Map<String, dynamic>.from(best);
   }
 
-  Future<String?> _imdbImages(String imdbId) async {
+  Future<_Artwork?> _imdbImages(String imdbId) async {
     final query =
-        'query { title(id: "$imdbId") { id images(first: 24) '
+        'query { title(id: "$imdbId") { id images(first: 50) '
         '{ edges { node { url width height } } } } }';
     final res = await http.postJson(
       'https://api.graphql.imdb.com/',
@@ -1378,7 +2391,7 @@ class ArtworkService {
         'Origin': 'https://www.imdb.com',
         'Referer': 'https://www.imdb.com/',
       },
-      timeout: const Duration(seconds: 15),
+      timeout: const Duration(seconds: 10),
     );
     final decoded = jsonDecode(res.body);
     final data = decoded is Map ? decoded['data'] : null;
@@ -1386,27 +2399,535 @@ class ArtworkService {
     final images = title is Map ? title['images'] : null;
     final edges = images is Map ? images['edges'] : null;
     if (edges is! List) return null;
-    String? best;
-    var bestWidth = 0;
-    // IMDb 图库混有竖版海报和低分辨率剧照：优先挑最宽的横幅，太小的直接丢弃。
-    for (final pass in const [(1.5, 1200), (1.2, 1000)]) {
-      for (final edge in edges) {
-        if (edge is! Map) continue;
-        final node = edge['node'];
-        if (node is! Map) continue;
-        final url = (node['url'] ?? '').toString().trim();
-        final width = (node['width'] as num?)?.toInt() ?? 0;
-        final height = (node['height'] as num?)?.toInt() ?? 0;
-        if (url.isEmpty || width < pass.$2 || height <= 0) continue;
-        if (width / height < pass.$1) continue;
-        if (width > bestWidth) {
-          bestWidth = width;
-          best = url;
-        }
+    _Artwork? best;
+    var bestScore = 0.0;
+    // IMDb 图库混有竖版海报和低分辨率剧照：只挑横图，按宽度 + 16:9 接近度排序。
+    for (final edge in edges) {
+      if (edge is! Map) continue;
+      final node = edge['node'];
+      if (node is! Map) continue;
+      final url = (node['url'] ?? '').toString().trim();
+      final width = (node['width'] as num?)?.toInt() ?? 0;
+      final height = (node['height'] as num?)?.toInt() ?? 0;
+      if (url.isEmpty || width < 1200 || height <= 0) continue;
+      final ratio = width / height;
+      // 2.35:1 超宽图裁进 16:9 会切掉主体，4:3 则上下留黑边，直接排除。
+      if (ratio < 1.45 || ratio > 2.0) continue;
+      var score = width.toDouble();
+      if (ratio >= 1.6 && ratio <= 1.9) {
+        score += 500;
+      } else if (ratio >= 1.5) {
+        score += 200;
       }
-      if (best != null) return best;
+      if (score > bestScore) {
+        bestScore = score;
+        // 超过 1920 的 Amazon 图会被裁成 1920×1080，按实际尺寸计分。
+        final cropped = width > 1920 && url.contains('media-amazon.com/images/');
+        final shownWidth = cropped ? 1920 : width;
+        final shownHeight = cropped ? 1080 : height;
+        best = _Artwork(
+          relayImageUrl(
+            _imdbDisplayUrl(url, width),
+            referer: 'https://www.imdb.com/',
+          ),
+          width: shownWidth,
+          height: shownHeight,
+          source: 'imdb',
+        );
+      }
     }
     return best;
+  }
+
+  /// IMDb 图库常见 4000~8000 宽的原图（单张 2~5MB），Hero 只需要 1920。
+  ///
+  /// Amazon 图床支持在 URL 里裁剪 / 缩放：统一换成 1920×1080 中心裁切版，
+  /// 体积从几 MB 降到 ~200KB，加载速度和内存占用都会明显改善。
+  static String _imdbDisplayUrl(String url, int width) {
+    if (width < 1920) return url;
+    if (!url.contains('media-amazon.com/images/')) return url;
+    final index = url.lastIndexOf('._V1_');
+    if (index < 0) return url;
+    final dot = url.lastIndexOf('.');
+    final ext = dot > index ? url.substring(dot + 1) : 'jpg';
+    return '${url.substring(0, index)}'
+        '._V1_QL75_UX1920_CR0,0,1920,1080_.$ext';
+  }
+
+  // ------------------------------------------------------------------ 必应图片
+
+  /// 中文片名的最后一条兜底：必应图片搜索「片名 剧照」。
+  ///
+  /// 豆瓣没有横图、B 站也没上架时（很多国产剧 / 网络电影属于这种情况），
+  /// 用搜索引擎找一张官方剧照比让 IMDb 去猜英文片名可靠。
+  ///
+  /// 先按「壁纸尺寸」搜：这个档位的种子大多是腾讯 / 爱奇艺 / 优酷 / 芒果的
+  /// 官方横版物料（带剧名 logo 的主视觉），比新闻里截的带字幕截图干净得多；
+  /// 一张都没有时再放宽到 large，避免冷门片完全搜不到。
+  Future<_Artwork?> _bingBackdrop(String name, String year) async {
+    if (!RegExp(r'[\u3400-\u9fff]').hasMatch(name)) return null;
+    final title = dramaTitle(name).isEmpty ? name : dramaTitle(name);
+    // 一两个字的通用片名（如《黑球》）搜索结果极杂，搜索结果页标题里
+    // 随便出现这两个字就算「命中」，很容易把无关视频封面当成剧照。
+    if (titleMatchKey(title).length < 3) return null;
+    final keyword = [
+      title,
+      if (year.trim().isNotEmpty) year.trim(),
+      '剧照',
+    ].join(' ');
+    for (final size in const ['wallpaper', 'large']) {
+      final found = await _bingSearch(title, keyword, size);
+      if (found != null) return found;
+    }
+    return null;
+  }
+
+  Future<_Artwork?> _bingSearch(
+    String title,
+    String keyword,
+    String sizeFilter,
+  ) async {
+    final uri = Uri.https('cn.bing.com', '/images/search', {
+      'q': keyword,
+      'qft': '+filterui:aspect-wide+filterui:imagesize-$sizeFilter',
+      'form': 'IRFLTR',
+      'first': '1',
+    });
+    try {
+      final res = await http.getText(
+        uri.toString(),
+        headers: {
+          'User-Agent': _desktopUa,
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+        timeout: const Duration(seconds: 6),
+      );
+      _Artwork? best;
+      var bestScore = 0.0;
+      for (final match in RegExp(r'm="(\{.*?\})"').allMatches(res.body)) {
+        final raw = _htmlUnescape(match.group(1) ?? '');
+        if (raw.isEmpty) continue;
+        Object? decoded;
+        try {
+          decoded = jsonDecode(raw);
+        } catch (_) {
+          continue;
+        }
+        if (decoded is! Map) continue;
+        final url = (decoded['murl'] ?? '').toString().trim();
+        if (url.isEmpty) continue;
+        // 结果页标题里必须出现片名：搜冷门 / 不存在的片名时，搜索引擎会
+        // 退而求其次返回「相关」文章配图（比如搜《长长的季节2》给出
+        // 《漫长的季节》的拉片封面），这类图铺在卡片上就是错片。
+        final resultTitle = (decoded['t'] ?? '').toString();
+        if (!_titleMatches(resultTitle, title)) continue;
+        // 自媒体解说 / 混剪的封面会把大字糊在剧照上，即使分辨率够也不能用。
+        if (_bingJunkTitle(resultTitle)) continue;
+        final official = _isOfficialImageHost(url);
+        // 只收官方视频站 / 官方图床的图。搜索引擎只保证「页面标题里出现过
+        // 片名」，搜「男子气概」这类通用词时，综艺选手的个人封面、健身文章
+        // 配图都会被判成命中——这类图直接上屏就是「封面匹配错误」。
+        if (!official) continue;
+        // 腾讯 / 爱奇艺 / 优酷 / iflix 的官方封面地址里不带尺寸，但必应已经
+        // 按 aspect-wide 过滤过，直接按 1920×1080 计分。
+        final size = _bingImageSize(url);
+        final (width, height) = size ?? (1920, 1080);
+        final ratio = width / height;
+        if (width < 1200 || ratio < 1.45 || ratio > 2.0) continue;
+        var score = width.toDouble();
+        if (ratio >= 1.6 && ratio <= 1.9) {
+          score += 500;
+        } else if (ratio >= 1.5) {
+          score += 200;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = _Artwork(
+            relayImageUrl(url),
+            width: width,
+            height: height,
+            source: 'bing-official',
+          );
+        }
+      }
+      return best;
+    } catch (e) {
+      AppLog.w('artwork', '必应图片搜索失败（$keyword）：$e');
+      return null;
+    }
+  }
+
+  /// 搜索结果标题是否在「讲这部片」：忽略空白 / 标点后要求完整包含片名，
+  /// 查询带季号时结果必须出现同一个季号。
+  ///
+  /// 比「必须《片名》或片名开头」宽松：像「2025 年电影《深度安静》首映」
+  /// 这种标题也能命中；但「电影《独一无二》」不会命中「独一无二的浪漫」。
+  static bool _titleMatches(String text, String title) {
+    final haystack = _relevanceKey(text);
+    final needle = _relevanceKey(title);
+    if (haystack.isEmpty || needle.isEmpty) return false;
+    final season = so360SeasonNo(title);
+    if (season > 0 && so360SeasonNo(text) != season) return false;
+    return haystack.contains(needle);
+  }
+
+  /// 自媒体解说 / 混剪 / 盘点 / 花絮类标题，封面通常糊着大字，
+  /// 或者只是拍摄现场，不适合做背景图。
+  static bool _bingJunkTitle(String title) => RegExp(
+    r'(解析|解说|拉片|混剪|剪辑|逐帧|盘点|影评|剧评|速看|一口气|图解|吐槽|'
+    r'花絮|预告|片段|特辑|采访|发布会|路透|饭拍|生图)',
+  ).hasMatch(title);
+
+  /// 官方视频站 / 门户娱乐频道图床：这些域名上的横图基本都是剧集物料。
+  ///
+  /// 结果标题仍须能对上片名（见 [_titleMatches]），所以新浪 / 搜狐 /
+  /// 网易这类门户的「《片名》高清剧照」也可以收；腾讯投稿 CDN
+  /// `puui.qpic.cn` 与 B 站 UGC 封面 `hdslb.com` 仍然排除，它们混着大量
+  /// 自媒体解说封面。
+  static bool _isOfficialImageHost(String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (host.isEmpty) return false;
+    return host == 'vpic.cms.qq.com' ||
+        host.endsWith('.vpic.cms.qq.com') ||
+        host.contains('iqiyipic.com') ||
+        host.contains('ykimg.com') ||
+        host.contains('mgtv.com') ||
+        host.contains('doubanio.com') ||
+        host.contains('sinaimg.cn') ||
+        host.contains('qhimg.com') ||
+        host.contains('itc.cn') ||
+        host.contains('126.net') ||
+        host.contains('ifengimg.com') ||
+        host.contains('xhscdn.com') ||
+        host.contains('wetvinfo.com') ||
+        host.contains('ytimg.com');
+  }
+
+  /// 从图片 URL 里能读到的尺寸；读不到就返回 null（宁可不用）。
+  static (int, int)? _bingImageSize(String url) {
+    // 腾讯视频封面：`.../vpic_cover/xxx.jpg/1280`，固定 16:9。
+    if (url.contains('/vpic_cover/')) {
+      final tail = RegExp(r'/(\d{3,4})$').firstMatch(url);
+      final width = int.tryParse(tail?.group(1) ?? '') ?? 1280;
+      return (width, (width * 9 / 16).round());
+    }
+    // 微博 / 新浪图床：`.../w1080h1440/...`、36 氪：`oswg1080oswg809`。
+    final os = RegExp(r'oswg(\d+)oswg(\d+)').firstMatch(url);
+    if (os != null) {
+      final width = int.tryParse(os.group(1)!) ?? 0;
+      final height = int.tryParse(os.group(2)!) ?? 0;
+      return width > 0 && height > 0 ? (width, height) : null;
+    }
+    final wh = RegExp(r'w(\d+)h(\d+)').firstMatch(url);
+    if (wh != null) {
+      final width = int.tryParse(wh.group(1)!) ?? 0;
+      final height = int.tryParse(wh.group(2)!) ?? 0;
+      return width > 0 && height > 0 ? (width, height) : null;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------------- 360
+
+  /// 360 图片搜索兜底（Win-box 同款）：无 Key、无鉴权，中文影视物料最全。
+  ///
+  /// 接口：`https://image.so.com/j?q=<关键词>&src=srp&sn=0&pn=10`
+  /// 关键词固定用「片名 + 年份 + 横版 剧照」，没有结果再试「高清 壁纸」。
+  Future<_Artwork?> _so360Backdrop(String name, String year) async {
+    final title = dramaTitle(name).isEmpty ? name.trim() : dramaTitle(name);
+    // 两个字的通用片名（如《爸爸》）会搜到《爸爸去哪儿》，宁可不补。
+    if (titleMatchKey(title).length < 3) return null;
+    final prefix = year.trim().isEmpty ? title : '$title ${year.trim()}';
+    for (final suffix in const ['横版 剧照', '高清 壁纸']) {
+      final candidates = await _fetchSo360('$prefix $suffix');
+      final best = pickSo360Backdrop(candidates, title, year: year);
+      if (best != null) {
+        AppLog.i(
+          'artwork',
+          '$name 360 补图命中 ${best.width}x${best.height}',
+        );
+        return _Artwork(
+          relayImageUrl(best.url, referer: 'https://image.so.com/'),
+          width: best.width,
+          height: best.height,
+          source: '360',
+        );
+      }
+    }
+    return null;
+  }
+
+  Future<List<So360Image>> _fetchSo360(String keyword) async {
+    try {
+      final uri = Uri.https('image.so.com', '/j', {
+        'q': keyword,
+        'src': 'srp',
+        'correct': keyword,
+        'sn': '0',
+        'pn': '10',
+      });
+      final res = await http.getText(
+        uri.toString(),
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': _desktopUa,
+          'Referer': 'https://image.so.com/',
+        },
+        timeout: const Duration(seconds: 6),
+      );
+      return parseSo360(jsonDecode(res.body));
+    } catch (e) {
+      AppLog.w('artwork', '360 图片搜索失败（$keyword）：$e');
+      return const [];
+    }
+  }
+
+  /// 解析 360 图片搜索结果（纯函数，供单测）。
+  static List<So360Image> parseSo360(Object? json) {
+    if (json is! Map) return const [];
+    final list = json['list'];
+    if (list is! List) return const [];
+    final out = <So360Image>[];
+    for (final raw in list) {
+      if (raw is! Map) continue;
+      final url = (raw['img'] ?? raw['thumb'] ?? '').toString().trim();
+      if (!RegExp(r'^https?://', caseSensitive: false).hasMatch(url)) continue;
+      final title = (raw['title'] ?? raw['litetitle'] ?? '').toString().trim();
+      final width = int.tryParse((raw['width'] ?? '').toString()) ?? 0;
+      final height = int.tryParse((raw['height'] ?? '').toString()) ?? 0;
+      out.add(So360Image(title: title, url: url, width: width, height: height));
+    }
+    return out;
+  }
+
+  static final RegExp _relevanceNoise = RegExp(
+    r'''[\s·・\-—_.,，。:：;；!！?？'"“”‘’()（）\[\]【】<>《》/\\|]+''',
+  );
+
+  /// 相关性比较键：小写 + 去空白 / 常见标点。
+  static String _relevanceKey(String raw) =>
+      _toHalfWidth(raw).toLowerCase().replaceAll(_relevanceNoise, '');
+
+  static int _cn2num(String token) {
+    const digits = {
+      '一': 1,
+      '二': 2,
+      '两': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+    };
+    if (RegExp(r'^\d+$').hasMatch(token)) return int.tryParse(token) ?? 0;
+    final match = RegExp(
+      r'^([一二三四五六七八九]?)(十?)([一二三四五六七八九]?)$',
+    ).firstMatch(token);
+    if (match == null) return 0;
+    final head = match.group(1) ?? '';
+    final ten = match.group(2) ?? '';
+    final tail = match.group(3) ?? '';
+    if (head.isEmpty && ten.isEmpty && tail.isEmpty) return 0;
+    final tens = ten.isNotEmpty
+        ? (head.isEmpty ? 10 : (digits[head] ?? 0) * 10)
+        : 0;
+    final ones = tail.isEmpty ? 0 : (digits[tail] ?? 0);
+    final value = tens + ones;
+    return value > 0 ? value : (digits[head] ?? 0);
+  }
+
+  /// 「第4季 / 第四季 / 第十二部」→ 季号；没有季号返回 0。
+  static int so360SeasonNo(String raw) {
+    final match = RegExp(
+      r'第\s*(\d+|[一二两三四五六七八九十]+)\s*[季部]',
+    ).firstMatch(raw);
+    if (match == null) return 0;
+    return _cn2num(match.group(1)!);
+  }
+
+  /// 360 结果相关性（Win-box 同款）：结果标题与查询词要有足够长的共同子串
+  /// （中文 ≥4 字 / 拉丁 ≥6 字符）；查询带季号时结果必须是同一季。
+  ///
+  /// 长剧情式片名直接搜会撞上无关图，宁可不出封面也不给错图。
+  static bool so360RelevantHit(String query, String title) {
+    final q = _relevanceKey(query);
+    final t = _relevanceKey(title);
+    if (q.isEmpty || t.isEmpty) return false;
+    final season = so360SeasonNo(query);
+    if (season > 0 && so360SeasonNo(title) != season) return false;
+    if (t.contains(q) || q.contains(t)) return true;
+    final min = RegExp(r'[\u3400-\u9fff]').hasMatch(q) ? 4 : 6;
+    final shorter = q.length <= t.length ? q : t;
+    final longer = q.length <= t.length ? t : q;
+    for (var length = shorter.length; length >= min; length--) {
+      for (var i = 0; i + length <= shorter.length; i++) {
+        if (longer.contains(shorter.substring(i, i + length))) return true;
+      }
+    }
+    return false;
+  }
+
+  /// 从 360 结果里挑一张可用的横图（纯函数，供单测）。
+  ///
+  /// 过滤：竖图 / 缩略图 / 年份冲突 / 自媒体解说 / 网盘下载文 / B 站与百度
+  /// 缩略图 CDN；排序：剧照关键词加分，越接近 16:9 越优先，同分取面积大的。
+  static So360Image? pickSo360Backdrop(
+    List<So360Image> candidates,
+    String name, {
+    String year = '',
+  }) {
+    final wanted = _relevanceKey(name);
+    if (wanted.isEmpty) return null;
+    final picked = <So360Image>[];
+    for (final candidate in candidates) {
+      final ratio = candidate.height > 0
+          ? candidate.width / candidate.height
+          : 0.0;
+      if (candidate.width < 800 ||
+          candidate.height < 400 ||
+          ratio < 1.4 ||
+          ratio > 2.4) {
+        continue;
+      }
+      if (!_relevanceKey(candidate.title).contains(wanted)) continue;
+      if (!so360RelevantHit(name, candidate.title)) continue;
+      if (_bingJunkTitle(candidate.title)) continue;
+      if (RegExp(
+        r'(游戏|攻略|下载|百度云|网盘|资源)',
+        caseSensitive: false,
+      ).hasMatch(candidate.title)) {
+        continue;
+      }
+      final host = (Uri.tryParse(candidate.url)?.host ?? '').toLowerCase();
+      if (host.contains('hdslb.com') || host.contains('bilibili')) continue;
+      if (host.contains('baidu.com') || host.contains('bdstatic.com')) {
+        continue;
+      }
+      final years = RegExp(r'(?:19|20)\d{2}')
+          .allMatches(candidate.title)
+          .map((match) => match.group(0)!)
+          .toSet();
+      final wantedYear = year.trim();
+      if (wantedYear.isNotEmpty &&
+          years.isNotEmpty &&
+          !years.contains(wantedYear)) {
+        continue;
+      }
+      if (picked.any((item) => item.url == candidate.url)) continue;
+      picked.add(candidate);
+    }
+    if (picked.isEmpty) return null;
+    double score(So360Image candidate) {
+      var value = 0.0;
+      if (RegExp(
+        r'剧照|横版|壁纸|still|backdrop',
+        caseSensitive: false,
+      ).hasMatch(candidate.title)) {
+        value += 10;
+      }
+      if (RegExp(r'下载|百度云|网盘|资源').hasMatch(candidate.title)) {
+        value -= 20;
+      }
+      value -= ((candidate.width / candidate.height) - 16 / 9).abs();
+      return value;
+    }
+
+    picked.sort((a, b) {
+      final byScore = score(b).compareTo(score(a));
+      if (byScore != 0) return byScore;
+      return (b.width * b.height).compareTo(a.width * a.height);
+    });
+    return picked.first;
+  }
+
+  /// 只处理必应 `m="..."` 属性里用到的 HTML 实体。
+  static String _htmlUnescape(String raw) => raw
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&apos;', "'")
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>');
+
+  /// TVmaze 分集剧照：先按 IMDb id 映射，映射不到再用英文片名 + 年份搜索。
+  ///
+  /// 日韩 / 国产剧在 TVmaze 上常常没有 IMDb 映射，但用英文名能搜到
+  /// （《漫长的季节》→ The Long Season），剧照通常是 1920×1080。
+  ///
+  /// 接口不返回尺寸；`original_untouched` 对主流剧集通常是 1920×1080，
+  /// 这里按 1600×900 保守估值参与仲裁（不会压过真正的 1920 宽豆瓣剧照）。
+  Future<_Artwork?> _tvmazeStill(
+    String imdbId, {
+    String title = '',
+    String year = '',
+  }) async {
+    try {
+      var showId = 0;
+      final lookup = await http.getText(
+        'https://api.tvmaze.com/lookup/shows?imdb=$imdbId',
+        headers: const {'Accept': 'application/json'},
+        timeout: const Duration(seconds: 5),
+      );
+      if (lookup.statusCode == 200) {
+        final show = jsonDecode(lookup.body);
+        showId = (show is Map ? show['id'] as num? : null)?.toInt() ?? 0;
+      }
+      if (showId <= 0 && title.isNotEmpty) {
+        final search = await http.getText(
+          'https://api.tvmaze.com/search/shows'
+          '?q=${Uri.encodeQueryComponent(title)}',
+          headers: const {'Accept': 'application/json'},
+          timeout: const Duration(seconds: 6),
+        );
+        if (search.statusCode != 200) return null;
+        final rows = jsonDecode(search.body);
+        if (rows is! List) return null;
+        var fallbackId = 0;
+        for (final row in rows) {
+          if (row is! Map) continue;
+          final show = row['show'];
+          if (show is! Map) continue;
+          final id = (show['id'] as num?)?.toInt() ?? 0;
+          if (id <= 0) continue;
+          if (fallbackId == 0) fallbackId = id;
+          final premiered = (show['premiered'] ?? '').toString();
+          if (year.isNotEmpty && premiered.startsWith(year)) {
+            showId = id;
+            break;
+          }
+        }
+        if (showId <= 0) showId = fallbackId;
+      }
+      if (showId <= 0) return null;
+      final res = await http.getText(
+        'https://api.tvmaze.com/shows/$showId/episodes',
+        headers: const {'Accept': 'application/json'},
+        timeout: const Duration(seconds: 6),
+      );
+      if (res.statusCode != 200) return null;
+      final episodes = jsonDecode(res.body);
+      if (episodes is! List) return null;
+      for (final episode in episodes) {
+        if (episode is! Map) continue;
+        final image = episode['image'];
+        if (image is! Map) continue;
+        final url = (image['original'] ?? image['medium'] ?? '')
+            .toString()
+            .trim();
+        if (url.isEmpty) continue;
+        return _Artwork(
+          relayImageUrl(url, referer: 'https://www.tvmaze.com/'),
+          width: 1600,
+          height: 900,
+          source: 'tvmaze',
+        );
+      }
+    } catch (_) {
+      // TVmaze 只是补充来源，失败不影响 IMDb 主链路。
+    }
+    return null;
   }
 }
 
@@ -1441,4 +2962,81 @@ class ArtworkProbeResult {
   final String error;
 
   bool get ok => url.isNotEmpty;
+}
+
+/// 一张候选横图：URL + 真实尺寸 + 来源，用于多来源之间的质量仲裁。
+/// 360 图片搜索的一条结果（供单测直接构造）。
+class So360Image {
+  const So360Image({
+    required this.title,
+    required this.url,
+    this.width = 0,
+    this.height = 0,
+  });
+
+  final String title;
+  final String url;
+  final int width;
+  final int height;
+}
+
+class _Artwork {
+  const _Artwork(this.url, {this.width = 0, this.height = 0, this.source = ''});
+
+  final String url;
+  final int width;
+  final int height;
+  final String source;
+
+  double get ratio => height > 0 ? width / height : 0;
+
+  /// 尺寸未知（如 TMDB 搜索结果只给 backdrop_path）时按最低分参与兜底。
+  bool get hasSize => width > 0 && height > 0 && ratio >= 1.15;
+
+  /// 能直接铺 16:9：竖图、4:3 和 2.35:1 超宽图都会裁出「异形」，不参与仲裁。
+  bool get usable => hasSize && ratio >= 1.45 && ratio <= 2.0;
+
+  /// 「够用」：≥1280 宽的标准横图，先上屏再说。
+  bool get good => usable && width >= 1280;
+
+  double get score {
+    if (!hasSize) return 1;
+    var value = width.toDouble();
+    final deviation = (ratio - 16 / 9).abs();
+    value += (1 - deviation.clamp(0.0, 1.0)) * 300;
+    if (ratio >= 1.5 && ratio <= 1.95) {
+      value += 500;
+    } else if (ratio > 2.2) {
+      value -= 400;
+    }
+    // 官方/无水印横图优先：TMDB 的 backdrop 最干净，其次 IMDb；
+    // 豆瓣剧照有字幕和综艺花字的情况更多。
+    if (source == 'tmdb') {
+      value += 350;
+    } else if (source == 'imdb') {
+      value += 120;
+    }
+    // B 站横图是条目自己的官方物料，中文片名匹配由 B 站完成，准确率高，
+    // 且 hdslb CDN 国内直连很快。
+    if (source == 'bilibili') {
+      value += 900;
+    }
+    // 国内网络下豆瓣图床（img*.doubanio.com）实测 32~128ms，
+    // Amazon / TVmaze 要 600ms~2.5s；1600 宽已经足够铺满 1080p Hero，
+    // 同等分辨率优先用豆瓣，避免为了多 300px 白等一两秒。
+    if (source.startsWith('douban')) {
+      value += width >= 1400 ? 800 : 300;
+    }
+    // 必应图片只是最后的兜底：来源不可控，分数压低避免压过正规图源。
+    if (source == 'bing-official') value += 80;
+    return value;
+  }
+}
+
+class _CachedBackdrop {
+  const _CachedBackdrop(this.value, this.at, {required this.found});
+
+  final String value;
+  final DateTime at;
+  final bool found;
 }

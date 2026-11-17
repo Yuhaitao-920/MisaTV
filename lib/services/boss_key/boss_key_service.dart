@@ -90,10 +90,7 @@ class BossKeyService {
       return false;
     }
     try {
-      await hotKeyManager.register(
-        hotKey,
-        keyDownHandler: (_) => _onPressed(),
-      );
+      await hotKeyManager.register(hotKey, keyDownHandler: (_) => _onPressed());
       _hotKey = hotKey;
       AppLog.i('boss', '老板键已注册：${bossKeyLabel(value)}');
       return true;
@@ -175,6 +172,46 @@ class BossKeyService {
       AppLog.i('boss', '老板键：已恢复窗口');
     } finally {
       _busy = false;
+    }
+  }
+
+  /// 退出前释放托盘图标与全局热键。
+  ///
+  /// Windows 不会在进程结束后自动清掉 `Shell_NotifyIcon` 注册的图标：
+  /// 不显式隐藏并释放，任务栏通知区域就会留下一个点不掉的「幽灵」图标，
+  /// 多次启动后越堆越多。关窗清理必须在窗口销毁前调用这里。
+  Future<void> shutdown() async {
+    _app = null;
+    final hotKey = _hotKey;
+    _hotKey = null;
+    if (hotKey != null) {
+      try {
+        await hotKeyManager.unregister(hotKey);
+      } catch (_) {
+        // 退出阶段忽略：热键可能已经随系统注销
+      }
+    }
+    final tray = _tray;
+    final menu = _menu;
+    _tray = null;
+    _menu = null;
+    _menuItems.clear();
+    if (tray != null) {
+      try {
+        tray.setVisible(false);
+      } catch (_) {
+        // 窗口 / 消息循环已失效时忽略
+      }
+      try {
+        tray.dispose();
+      } catch (_) {
+        // 句柄已释放时忽略
+      }
+    }
+    try {
+      menu?.dispose();
+    } catch (_) {
+      // 菜单句柄已释放时忽略
     }
   }
 
@@ -281,10 +318,8 @@ class BossKeyService {
     };
     if (key == null) return null;
     final modifiers = switch (value) {
-      'ctrl+shift+b' || 'ctrl+shift+f' => [
-        HotKeyModifier.control,
-        HotKeyModifier.shift,
-      ],
+      'ctrl+shift+b' ||
+      'ctrl+shift+f' => [HotKeyModifier.control, HotKeyModifier.shift],
       'ctrl+alt+b' => [HotKeyModifier.control, HotKeyModifier.alt],
       'alt+q' || 'alt+x' || 'alt+z' => [HotKeyModifier.alt],
       _ => const <HotKeyModifier>[],

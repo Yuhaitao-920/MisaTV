@@ -238,6 +238,8 @@ class DoubanInfo {
     this.rating,
     this.cover = '',
     this.genres = const [],
+    this.countries = const [],
+    this.originalTitle = '',
     this.directors = const [],
     this.actors = const [],
     this.cast = const [],
@@ -251,6 +253,12 @@ class DoubanInfo {
   final double? rating;
   final String cover;
   final List<String> genres;
+
+  /// 制片国家 / 地区（豆瓣的 `countries`）。
+  final List<String> countries;
+
+  /// 原名 / 原始片名（日文、韩文或英文），Hero 标题排版用。
+  final String originalTitle;
   final List<String> directors;
   final List<String> actors;
 

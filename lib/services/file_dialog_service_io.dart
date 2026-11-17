@@ -21,6 +21,10 @@ class FileDialogService {
   );
   static const zipType = XTypeGroup(label: '本地包（ZIP）', extensions: ['zip']);
   static const exeType = XTypeGroup(label: '第三方播放器', extensions: ['exe']);
+  static const fontType = XTypeGroup(
+    label: '字体（TTF / OTF）',
+    extensions: ['ttf', 'otf'],
+  );
 
   /// 选择单个文件，返回绝对路径；取消返回 null。
   static Future<String?> pickFile({

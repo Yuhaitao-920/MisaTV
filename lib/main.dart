@@ -18,6 +18,7 @@ import 'models/site_config.dart';
 import 'models/vod.dart';
 import 'services/boss_key/boss_key_service.dart';
 import 'services/cms_source.dart';
+import 'services/fonts/hero_fonts.dart';
 import 'services/jar_spider_service.dart';
 import 'services/js_spider_service.dart';
 import 'services/live_service.dart';
@@ -106,6 +107,9 @@ Future<void> _bootstrap(List<String> args) async {
     return true;
   };
   AppLog.i('app', '日志目录: ${AppLog.directory}');
+
+  // 沉浸 Hero 的可选字体包：后台恢复已安装字体，不阻塞首屏。
+  unawaited(HeroFontService.instance.init());
 
   final store = await LocalStore.create();
   // 窗口尺寸记忆存在便携目录的偏好里，必须等 LocalStore 就绪后再建窗口。
@@ -217,7 +221,10 @@ Future<void> _bootstrap(List<String> args) async {
         }
       }
 
-      // 先关独立播放器窗口：它有自己的 JVM/中继，必须在进程退出前收尾。
+      // 先撤托盘图标：进程退出后 Windows 不会自动清掉通知区域里的残留图标，
+      // 而且外层关窗收尾只有 3 秒总预算，必须排在最前面。
+      if (bossKey != null) await step('tray', bossKey.shutdown);
+      // 再关独立播放器窗口：它有自己的 JVM/中继，必须在进程退出前收尾。
       await step('close-player-windows', closeAllStandalonePlayerWindows);
       await step('spiders', sourceService.shutdown);
       try {

@@ -28,6 +28,7 @@ import '../../services/danmaku/danmaku_models.dart';
 import '../../services/danmaku/danmaku_settings.dart';
 import '../../services/drive_login_service.dart';
 import '../../services/file_dialog_service.dart';
+import '../../services/fonts/hero_fonts.dart';
 import '../../services/jvm/arm_bridge_runtime.dart';
 import '../../services/kazumi/kazumi_rule.dart';
 import '../../services/local_import_service.dart';
@@ -57,6 +58,7 @@ import 'video_downloads_page.dart';
 
 part 'settings/common_tiles.dart';
 part 'settings/dialogs.dart';
+part 'settings/font_packs_dialog.dart';
 part 'settings/runtime_tiles.dart';
 part 'settings/source_widgets.dart';
 
@@ -191,9 +193,7 @@ class SettingsPageState extends State<SettingsPage> {
     try {
       final text = await FileDialogService.readText(path);
       final count = await app.importSkipSegmentsJson(text);
-      messenger.showSnackBar(
-        SnackBar(content: Text('已导入 $count 条片头片尾记录')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('已导入 $count 条片头片尾记录')));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('导入失败：$e')));
     }
@@ -213,9 +213,7 @@ class SettingsPageState extends State<SettingsPage> {
     );
     if (!mounted) return;
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(path == null ? '已取消导出' : '审计报告已保存：$path'),
-      ),
+      SnackBar(content: Text(path == null ? '已取消导出' : '审计报告已保存：$path')),
     );
   }
 
@@ -447,10 +445,8 @@ class SettingsPageState extends State<SettingsPage> {
                                       label: const Text('本地包 ZIP'),
                                     ),
                                     TextButton.icon(
-                                      onPressed: () => _showProfileHistory(
-                                        context,
-                                        app,
-                                      ),
+                                      onPressed: () =>
+                                          _showProfileHistory(context, app),
                                       icon: const Icon(
                                         Icons.history_rounded,
                                         size: 17,
@@ -631,31 +627,6 @@ class SettingsPageState extends State<SettingsPage> {
                         else
                           _LiveSourceList(lives: app.lives, app: app),
                         const SizedBox(height: 14),
-                        Text('直播页布局', style: theme.textTheme.labelMedium),
-                        const SizedBox(height: 4),
-                        Text(
-                          '网格：一行显示多个频道；平铺：一行一个频道，长标题最多显示两行',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.55,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final item in const [(0, '网格'), (1, '平铺')])
-                              ChoiceChip(
-                                label: Text(item.$2),
-                                selected: app.liveLayoutMode == item.$1,
-                                onSelected: (_) =>
-                                    app.setLiveLayoutMode(item.$1),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
                         Divider(
                           height: 1,
                           thickness: 1,
@@ -834,13 +805,12 @@ class SettingsPageState extends State<SettingsPage> {
                                         ),
                                       );
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('审计报告已复制到剪贴板'),
-                                        ),
-                                      );
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            const SnackBar(
+                                              content: Text('审计报告已复制到剪贴板'),
+                                            ),
+                                          );
                                     },
                               icon: const Icon(Icons.copy_rounded, size: 18),
                               label: const Text('复制报告'),
@@ -874,9 +844,10 @@ class SettingsPageState extends State<SettingsPage> {
                         ],
                         if (app.auditResults.isNotEmpty) ...[
                           const SizedBox(height: 14),
-                          for (final health in app.auditResults
-                              .where((e) => !_auditOnlyFailed || !e.ok)
-                              .take(80))
+                          for (final health
+                              in app.auditResults
+                                  .where((e) => !_auditOnlyFailed || !e.ok)
+                                  .take(80))
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
                               child: Row(
@@ -1135,9 +1106,7 @@ class SettingsPageState extends State<SettingsPage> {
                                 ChoiceChip(
                                   label: Text(item.$2),
                                   selected:
-                                      (app
-                                                  .playerSettings
-                                                  .immersiveFontScale -
+                                      (app.playerSettings.immersiveFontScale -
                                               item.$1)
                                           .abs() <
                                       0.01,
@@ -1284,6 +1253,31 @@ class SettingsPageState extends State<SettingsPage> {
                                 label: Text(item.$2),
                                 selected: app.homeColumns == item.$1,
                                 onSelected: (_) => app.setHomeColumns(item.$1),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        Text('直播页布局', style: theme.textTheme.labelMedium),
+                        const SizedBox(height: 4),
+                        Text(
+                          '网格：一行显示多个频道；平铺：一行一个频道，长标题最多显示两行',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.55,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final item in const [(0, '网格'), (1, '平铺')])
+                              ChoiceChip(
+                                label: Text(item.$2),
+                                selected: app.liveLayoutMode == item.$1,
+                                onSelected: (_) =>
+                                    app.setLiveLayoutMode(item.$1),
                               ),
                           ],
                         ),
@@ -1847,11 +1841,11 @@ class SettingsPageState extends State<SettingsPage> {
                       collapsible: true,
                       initiallyExpanded: false,
                       trailing: Text(
-                        'MPV / Python / JVM / 加固壳',
+                        'MPV / Python / JVM / 加固壳 / 字体',
                         style: theme.textTheme.labelSmall,
                       ),
                       summary: Text(
-                        '第三方播放器、蜘蛛运行时与加固壳解包组件按需下载',
+                        '第三方播放器、蜘蛛运行时、加固壳与标题字体按需下载',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.45,
@@ -1867,6 +1861,23 @@ class SettingsPageState extends State<SettingsPage> {
                           _JvmRuntimeTile(key: _jvmTileKey),
                           const Divider(height: 24),
                           _ArmBridgeTile(key: _guardTileKey),
+                          const Divider(height: 24),
+                          AnimatedBuilder(
+                            animation: HeroFontService.instance,
+                            builder: (context, _) => _ActionRow(
+                              icon: Icons.font_download_outlined,
+                              title: '沉浸标题字体',
+                              subtitle: HeroFontService.instance.supported
+                                  ? '已安装 '
+                                        '${HeroFontService.instance.installedCount}/'
+                                        '${heroFontPacks.length} 个字体包'
+                                        ' · 按地区与类型自动匹配'
+                                  : '当前平台不支持运行时字体扩展',
+                              onTap: HeroFontService.instance.supported
+                                  ? () => _openHeroFonts(context)
+                                  : null,
+                            ),
+                          ),
                           const Divider(height: 24),
                           _ActionRow(
                             icon: Icons.extension_outlined,
@@ -2021,9 +2032,7 @@ class SettingsPageState extends State<SettingsPage> {
                         _ActionRow(
                           icon: Icons.keyboard_outlined,
                           title: '老板键',
-                          subtitle: isBossKeySet(
-                            app.playerSettings.bossKey,
-                          )
+                          subtitle: isBossKeySet(app.playerSettings.bossKey)
                               ? '${bossKeyLabel(app.playerSettings.bossKey)}'
                                     ' · 暂停视频并收进托盘；沉浸观影模式下不生效'
                               : '未设置 · 默认不占用任何全局热键，点此选择组合',
@@ -2060,7 +2069,8 @@ class SettingsPageState extends State<SettingsPage> {
                           _ActionRow(
                             icon: Icons.content_cut_rounded,
                             title: '导出片头片尾',
-                            subtitle: '${app.skipSegments.length} 条记录（JSON，可分享给其他设备）',
+                            subtitle:
+                                '${app.skipSegments.length} 条记录（JSON，可分享给其他设备）',
                             onTap: app.skipSegments.isEmpty
                                 ? null
                                 : () => _exportSkipSegments(app),
@@ -2445,4 +2455,3 @@ class _SectionState extends State<_Section> {
     );
   }
 }
-

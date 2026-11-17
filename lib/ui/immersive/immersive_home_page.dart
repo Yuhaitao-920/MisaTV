@@ -6,9 +6,12 @@ import '../../app.dart';
 import '../../models/site_config.dart';
 import '../../models/user_data.dart';
 import '../../models/vod.dart';
+import '../../services/artwork/artwork_service.dart';
+import '../../services/discover/discover_models.dart';
 import '../../state/app_state.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import 'focus_memory.dart';
+import 'hero_title_style.dart';
 import 'immersive_category_page.dart';
 import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
@@ -149,6 +152,13 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         await _loadContinueWatching(app);
         return;
       }
+      // Hero 标题字体要按类型 / 国家选择：豆瓣元数据异步补全，
+      // 到了再替换对应条目，不阻塞首屏。
+      unawaited(
+        _loadHeroInfo([
+          for (final item in items.take(6)) (title: item.name, year: item.year),
+        ]),
+      );
       unawaited(_loadCategoryShelves(app, site, data.classes, key));
     } catch (e) {
       if (!mounted) return;
@@ -171,7 +181,9 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         _HomeEntry(
           title: item.name,
           year: '',
-          subtitle: item.episodeName.isEmpty ? item.sourceName : item.episodeName,
+          subtitle: item.episodeName.isEmpty
+              ? item.sourceName
+              : item.episodeName,
           fallback: item.pic,
           badge: item.episodeName.isEmpty ? '' : item.episodeName,
           progress: item.progress,
@@ -187,10 +199,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         ),
     ];
     setState(() {
-      _shelves = [
-        (title: '继续观看', items: entries),
-        ..._shelves,
-      ];
+      _shelves = [(title: '继续观看', items: entries), ..._shelves];
     });
     _syncFocusKeys();
   }
@@ -219,7 +228,10 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         setState(() {
           _shelves = [
             ..._shelves,
-            (title: cls.name, items: [for (final item in items) _entryOf(item, site)]),
+            (
+              title: cls.name,
+              items: [for (final item in items) _entryOf(item, site)],
+            ),
           ];
         });
         _syncFocusKeys();
@@ -234,7 +246,10 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
       final sections = await app.discoverService.loadSections();
       if (!mounted) return;
       _classes = const [];
-      final filled = [for (final s in sections) if (s.items.isNotEmpty) s];
+      final filled = [
+        for (final s in sections)
+          if (s.items.isNotEmpty) s,
+      ];
       if (filled.isEmpty) return;
       final heroSource = filled.first.items.take(6).toList();
       setState(() {
@@ -266,6 +281,12 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         ];
         _loading = false;
       });
+      unawaited(
+        _loadHeroInfo([
+          for (final item in heroSource)
+            (title: item.title, year: item.year?.toString() ?? ''),
+        ]),
+      );
       // 列表内容变了：同步焦点 key（释放已消失卡片的节点），
       // 数据到位后再恢复上次位置，否则此时节点还不存在。
       if (mounted) {
@@ -303,7 +324,12 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     });
   }
 
-  ImmersiveHeroItem _heroItemOf(VodItem item, SourceBean site, AppState app) {
+  ImmersiveHeroItem _heroItemOf(
+    VodItem item,
+    SourceBean site,
+    AppState app, {
+    DoubanInfo? info,
+  }) {
     final history = app.historyFor(item.sourceKey, item.id);
     final canResume = history != null && history.positionMs > 0;
     return ImmersiveHeroItem(
@@ -312,13 +338,66 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
       subtitle: _heroSubtitle(item, site),
       description: _heroDescription(item),
       fallback: item.cleanPic,
+      originalTitle: info?.originalTitle ?? '',
+      // 豆瓣没命中时用资源站的 type / area 兜底，避免所有中文标题都落到同一种字体。
+      genres: (info?.genres.isNotEmpty ?? false)
+          ? info!.genres
+          : splitMetaHints(item.type),
+      countries: (info?.countries.isNotEmpty ?? false)
+          ? info!.countries
+          : splitMetaHints(item.area),
       actionLabel: canResume ? '继续播放' : '查看详情',
-      onTap: () => openImmersiveItem(
-        context,
-        item,
-        autoPlay: canResume,
-      ),
+      onTap: () => openImmersiveItem(context, item, autoPlay: canResume),
     );
+  }
+
+  /// 按片名补全 Hero 的豆瓣元数据（原名 / 类型 / 国家）。
+  Future<void> _loadHeroInfo(
+    List<({String title, String year})> entries,
+  ) async {
+    final app = AppScope.of(context);
+    for (final entry in entries) {
+      final name = entry.title.trim();
+      if (name.isEmpty) continue;
+      // 资源站片名常带「第二季」「中配版」「2024」等后缀，豆瓣搜不到时
+      // 换清洗后的候选再试，尽量让 Hero 拿到类型 / 国家。
+      DoubanInfo? info;
+      for (final candidate in ArtworkService.titleCandidates(name).take(3)) {
+        try {
+          info = await app.discoverService.loadInfo(
+            candidate,
+            year: entry.year,
+          );
+        } catch (_) {
+          info = null;
+        }
+        if (info != null) break;
+      }
+      if (!mounted || info == null) continue;
+      final meta = info;
+      if (meta.originalTitle.isEmpty &&
+          meta.genres.isEmpty &&
+          meta.countries.isEmpty) {
+        continue;
+      }
+      setState(() {
+        _hero = [
+          for (final hero in _hero)
+            if (hero.title == name)
+              hero.copyWith(
+                originalTitle: meta.originalTitle.isNotEmpty
+                    ? meta.originalTitle
+                    : hero.originalTitle,
+                genres: meta.genres.isNotEmpty ? meta.genres : hero.genres,
+                countries: meta.countries.isNotEmpty
+                    ? meta.countries
+                    : hero.countries,
+              )
+            else
+              hero,
+        ];
+      });
+    }
   }
 
   String _heroSubtitle(VodItem item, SourceBean site) {
@@ -405,6 +484,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     // Hero 直接铺满整屏：大屏模式下第一眼就是完整横图，向下滚动才是分类与货架。
+    // 窄屏（手机）按响应式指标收窄，避免按钮被挤出屏幕。
     final m = ImmersiveMetrics.of(context);
     final heroHeight = m.heroHeight;
 
@@ -416,10 +496,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         child: ImmersiveEmpty(
           title: '首页加载失败',
           message: _error!,
-          action: FilledButton.tonal(
-            onPressed: _load,
-            child: const Text('重试'),
-          ),
+          action: FilledButton.tonal(onPressed: _load, child: const Text('重试')),
         ),
       );
     }
@@ -427,9 +504,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
       return Center(
         child: ImmersiveEmpty(
           title: '当前源没有内容',
-          message: app.activeSite == null
-              ? '先在设置里导入订阅'
-              : '在右上角切换其它源，或到搜索页检索',
+          message: app.activeSite == null ? '先在设置里导入订阅' : '在右上角切换其它源，或到搜索页检索',
         ),
       );
     }
@@ -449,178 +524,182 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-          ImmersiveHero(items: _hero, height: heroHeight),
-          Padding(
-            padding: EdgeInsets.fromLTRB(m.gutter, 4, m.gutter, 0),
-            child: Row(
-              children: [
-                Text(
-                  '当前源',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.44),
-                    letterSpacing: 1.4,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                PopupMenuButton<String>(
-                  tooltip: '切换源',
-                  initialValue: app.activeSiteKey,
-                  onSelected: (key) => app.setActiveSite(key),
-                  itemBuilder: (_) => [
-                    for (final site in app.usableSites)
-                      PopupMenuItem(
-                        value: site.key,
+              ImmersiveHero(items: _hero, height: heroHeight),
+              Padding(
+                padding: EdgeInsets.fromLTRB(m.gutter, 4, m.gutter, 0),
+                child: Row(
+                  children: [
+                    Text(
+                      '当前源',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.44),
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    PopupMenuButton<String>(
+                      tooltip: '切换源',
+                      initialValue: app.activeSiteKey,
+                      onSelected: (key) => app.setActiveSite(key),
+                      itemBuilder: (_) => [
+                        for (final site in app.usableSites)
+                          PopupMenuItem(
+                            value: site.key,
+                            child: Row(
+                              children: [
+                                Expanded(child: Text(site.displayName)),
+                                if (site.key == app.activeSiteKey)
+                                  Icon(
+                                    Icons.check_rounded,
+                                    size: 16,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Expanded(child: Text(site.displayName)),
-                            if (site.key == app.activeSiteKey)
-                              Icon(
-                                Icons.check_rounded,
-                                size: 16,
-                                color: theme.colorScheme.primary,
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: m.compact ? 140 : 320,
                               ),
+                              child: Text(
+                                app.activeSite?.displayName ?? '选择源',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.expand_more_rounded,
+                              size: 18,
+                              color: Colors.white.withValues(alpha: 0.56),
+                            ),
                           ],
                         ),
                       ),
+                    ),
+                    const Spacer(),
+                    if (!m.compact && _total > 0)
+                      Text(
+                        '共 $_total 部',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.42),
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: _load,
+                      icon: Icon(
+                        Icons.refresh_rounded,
+                        color: Colors.white.withValues(alpha: 0.52),
+                      ),
+                    ),
                   ],
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: m.compact ? 140 : 320,
-                          ),
-                          child: Text(
-                            app.activeSite?.displayName ?? '选择源',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              if (_classes.isNotEmpty) ...[
+                Padding(
+                  padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '分类浏览',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
                         ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.expand_more_rounded,
-                          size: 18,
-                          color: Colors.white.withValues(alpha: 0.56),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '点击进入分类选片',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.42),
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 48,
+                  child: ScrollConfiguration(
+                    behavior: const MouseDragScrollBehavior(),
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.symmetric(horizontal: m.gutter),
+                      itemCount: _classes.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
+                      itemBuilder: (context, index) {
+                        final key = 'cls:$index';
+                        return _CategoryChip(
+                          label: _classes[index].name,
+                          focusNode: _focusNodeFor(key),
+                          onFocus: () => _focusMemory.remember(key),
+                          onTap: () => _openCategory(_classes[index]),
+                        );
+                      },
                     ),
                   ),
                 ),
-                const Spacer(),
-                if (!m.compact && _total > 0)
-                  Text(
-                    '共 $_total 部',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.42),
-                    ),
-                  ),
-                IconButton(
-                  tooltip: '刷新',
-                  onPressed: _load,
-                  icon: Icon(
-                    Icons.refresh_rounded,
-                    color: Colors.white.withValues(alpha: 0.52),
-                  ),
-                ),
+                const SizedBox(height: 26),
               ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          if (_classes.isNotEmpty) ...[
-            Padding(
-              padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '分类浏览',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    '点击进入分类选片',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.42),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 48,
-              child: ScrollConfiguration(
-                behavior: const MouseDragScrollBehavior(),
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: EdgeInsets.symmetric(horizontal: m.gutter),
-                  itemCount: _classes.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    final key = 'cls:$index';
-                    return _CategoryChip(
-                      label: _classes[index].name,
-                      focusNode: _focusNodeFor(key),
-                      onFocus: () => _focusMemory.remember(key),
-                      onTap: () => _openCategory(_classes[index]),
-                    );
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 26),
-          ],
-          for (var shelfIndex = 0; shelfIndex < _shelves.length; shelfIndex++) ...[
-            Padding(
-              padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
-              child: ImmersiveShelf(
-                title: _shelves[shelfIndex].title,
-                itemCount: _shelves[shelfIndex].items.length,
-                height: m.shelfHeight,
-                itemBuilder: (context, index) {
-                  final entry = _shelves[shelfIndex].items[index];
-                  final key = _shelfKey(shelfIndex, index);
-                  return ImmersiveCard(
-                    title: entry.title,
-                    year: entry.year,
-                    subtitle: entry.subtitle,
-                    fallback: entry.fallback,
-                    badge: entry.badge,
-                    progress: entry.progress,
-                    showText: false,
-                    width: m.shelfCardWidth,
-                    focusNode: _focusNodeFor(key),
-                    onFocus: () => _focusMemory.remember(key),
-                    onTap: () {
-                      // 记住位置：从详情页返回时恢复到这里。
-                      _focusMemory.remember(key);
-                      _open(entry);
+              for (
+                var shelfIndex = 0;
+                shelfIndex < _shelves.length;
+                shelfIndex++
+              ) ...[
+                Padding(
+                  padding: EdgeInsets.fromLTRB(m.gutter, 0, m.gutter, 0),
+                  child: ImmersiveShelf(
+                    title: _shelves[shelfIndex].title,
+                    itemCount: _shelves[shelfIndex].items.length,
+                    height: m.shelfHeight,
+                    itemBuilder: (context, index) {
+                      final entry = _shelves[shelfIndex].items[index];
+                      final key = _shelfKey(shelfIndex, index);
+                      return ImmersiveCard(
+                        title: entry.title,
+                        year: entry.year,
+                        subtitle: entry.subtitle,
+                        fallback: entry.fallback,
+                        badge: entry.badge,
+                        progress: entry.progress,
+                        showText: false,
+                        width: m.shelfCardWidth,
+                        focusNode: _focusNodeFor(key),
+                        onFocus: () => _focusMemory.remember(key),
+                        onTap: () {
+                          // 记住位置：从详情页返回时恢复到这里。
+                          _focusMemory.remember(key);
+                          _open(entry);
+                        },
+                        onLongPress: entry.resume
+                            ? () => _showEntryMenu(entry)
+                            : null,
+                        onSecondaryTap: entry.resume
+                            ? () => _showEntryMenu(entry)
+                            : null,
+                      );
                     },
-                    onLongPress: entry.resume
-                        ? () => _showEntryMenu(entry)
-                        : null,
-                    onSecondaryTap: entry.resume
-                        ? () => _showEntryMenu(entry)
-                        : null,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 30),
-          ],
-        ],
-      ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+              ],
+            ],
+          ),
         ),
       ),
     );
