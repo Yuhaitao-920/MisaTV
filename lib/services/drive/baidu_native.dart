@@ -176,6 +176,8 @@ bool looksLikeBaiduShare(String text) {
   final desc = parseDriveDescriptor(text);
   if (desc != null && desc.provider == 'baidu') return true;
   if (extractBaiduSharedFile(text) != null) return true;
+  // CAT 系壳的 `++` 描述串（shareId ++ uk ++ fs_id ++ name ++ seKey）
+  if (_extractBaiduPlus(text) != null) return true;
   // 播放描述 JSON 的提取码 / BDCLND 在 jar 详情阶段的内存状态里，这里拿不到：
   // 只有 `"surl"` 而没有完整凭据时，原生解链必定失败并白等数秒，交回蜘蛛自己解。
   final trimmed = text.trimLeft();
@@ -187,6 +189,9 @@ bool looksLikeBaiduShare(String text) {
 
 /// 解析 `baidu@<base64(JSON)>` 描述符或播放描述 JSON 里的分享凭据。
 BaiduSharedFile? extractBaiduSharedFile(String text) {
+  // CAT 系壳的 `++` 描述串先试（直接给全 uk/shareId/fs_id/seKey，无需列目录）
+  final plus = _extractBaiduPlus(text);
+  if (plus != null) return plus;
   final desc = parseDriveDescriptor(text);
   if (desc != null) {
     if (desc.provider != 'baidu') return null;
@@ -270,6 +275,59 @@ BaiduShareRef? extractBaiduShare(String text) {
     return BaiduShareRef(short: short, pwd: pwd);
   }
   return null;
+}
+
+/// 解析 CAT 系壳（`csp_MoggCAT` 的 `d盘` 线路）的 `++` 描述串。
+///
+/// 实测样本（P123 / 木偶4K / 傻样 的 `d盘#1`）：
+///   `67698425202++1100830236519++773303697958675++A.Record.of....mp4++ZCBLkVQK8qM2eKG…`
+///
+/// ★★ 段序是 `shareId ++ uk ++ fs_id ++ name ++ seKey` —— **不是** `uk ++ shareId`。
+///   实测对照（同一 cookie、同一签名）：
+///     shareId=67698425202  uk=1100830236519  → errno=-9（提取码验证失败 → 分享存在）
+///     shareId=1100830236519 uk=67698425202   → errno=-7（链接出错了 → 分享不存在）
+///   段序搞反就恒回 -7，永远拿不到文件。
+BaiduSharedFile? _extractBaiduPlus(String text) {
+  final trimmed = text.trim();
+  if (!trimmed.contains('++')) return null;
+  if (trimmed.length < 20) return null;
+  if (RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
+    return null;
+  }
+  // ★ 不能用 `split('++')` 取第 5 段：seKey 是 base64，可能含 `+`；
+  //   当它正好以 `+` 开头时会与前一个分隔符粘成 `+++`，split 后段序错位。
+  //   文件名里也可能出现 `++`。所以只切前 4 个分隔符，余下整段作为 seKey。
+  final cut = <String>[];
+  var from = 0;
+  for (var i = 0; i < 4; i++) {
+    final at = trimmed.indexOf('++', from);
+    if (at < 0) return null;
+    cut.add(trimmed.substring(from, at));
+    from = at + 2;
+  }
+  final sekeyRaw = trimmed.substring(from).trim();
+  final shareId = cut[0].trim();
+  final uk = cut[1].trim();
+  final fsid = cut[2].trim();
+  final name = cut[3].trim();
+  // 去掉可能被日志截断的尾部省略号（真实运行时不会有）
+  var sekey = sekeyRaw;
+  if (sekey.endsWith('…') || sekey.endsWith('...')) {
+    sekey = sekey.substring(0, sekey.length - 1).trim();
+  }
+  if (!_digitsRe.hasMatch(uk) ||
+      !_digitsRe.hasMatch(shareId) ||
+      !_digitsRe.hasMatch(fsid) ||
+      sekey.isEmpty) {
+    return null;
+  }
+  return BaiduSharedFile(
+    shareId: shareId,
+    uk: uk,
+    fsid: fsid,
+    sekey: sekey,
+    name: name,
+  );
 }
 
 /// 从播放描述 JSON 里取内层文件线索（`path` 末段优先，其次 `name`）。

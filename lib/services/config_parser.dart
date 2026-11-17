@@ -257,6 +257,7 @@ class ConfigParser {
       doh: safeStringList(root, 'doh'),
       ads: safeStringList(root, 'ads'),
       proxy: root['proxy'] is List ? root['proxy'] as List : const [],
+      headers: parseHeaderRules(root['headers']),
     );
     return ParsedConfig(
       config: config,
@@ -309,6 +310,29 @@ class ConfigParser {
     final key = hasKey ? o['key'].toString().trim() : '';
     final api = hasApi ? o['api'].toString().trim() : '';
     final type = hasType ? safeInt(o, 'type', 0) : 0;
+
+    // 分组标题（`{"key":"1","name":"--- 1 ---"}`）：没有 type/api，
+    // TVBox 用它分隔源列表，这里没有对应 UI，按要求忽略而不是报成坏源。
+    if (hasKey && !hasType && !hasApi) {
+      final name = safeString(o, 'name', key);
+      if (RegExp(r'^\s*-{2,}').hasMatch(name) &&
+          !o.containsKey('ext') &&
+          !o.containsKey('jar')) {
+        return SiteParseResult(
+          bean: null,
+          report: SiteReportItem(
+            index: index,
+            key: key,
+            name: name,
+            type: type,
+            api: api,
+            status: 'SKIP',
+            reason: 'SEPARATOR',
+            message: '分组标题，已忽略',
+          ),
+        );
+      }
+    }
 
     if (!hasKey || !hasType || !hasApi) {
       final reason = !hasKey
@@ -415,6 +439,29 @@ class ConfigParser {
     );
   }
 
+  /// 根部 `headers`：兼容 `[{host, header}]` 与单个 `{host, header}` 两种写法。
+  static List<HeaderRule> parseHeaderRules(dynamic raw) {
+    final out = <HeaderRule>[];
+    void add(dynamic item) {
+      if (item is! Map) return;
+      final rule = HeaderRule.fromJson(Map<String, dynamic>.from(item));
+      if (rule.host.trim().isEmpty || rule.header.isEmpty) return;
+      if (out.any((e) => e.host.toLowerCase() == rule.host.toLowerCase())) {
+        return;
+      }
+      out.add(rule);
+    }
+
+    if (raw is List) {
+      for (final item in raw) {
+        add(item);
+      }
+    } else {
+      add(raw);
+    }
+    return out;
+  }
+
   static List<LiveBean> parseLives(dynamic raw) {
     if (raw is! List) return const [];
     final out = <LiveBean>[];
@@ -425,6 +472,8 @@ class ConfigParser {
             : <String, dynamic>{};
         final name = safeString(o, 'name', '线路${i + 1}');
         final api = safeString(o, 'api');
+        // 分组标题 / 空行：没有地址的条目导入后也打不开，直接忽略。
+        if (api.trim().isEmpty && safeString(o, 'url').trim().isEmpty) continue;
         var type = o['type'] != null ? o['type'].toString().trim() : '';
         if (type.isEmpty) {
           final a = api.toLowerCase();
@@ -565,6 +614,7 @@ class ConfigParser {
     final doh = <String>{};
     final ads = <String>{};
     final proxy = <dynamic>[];
+    final headers = <String, HeaderRule>{};
     var spider = '';
 
     for (final c in configs) {
@@ -612,6 +662,9 @@ class ConfigParser {
       doh.addAll(c.doh);
       ads.addAll(c.ads);
       proxy.addAll(c.proxy);
+      for (final rule in c.headers) {
+        headers.putIfAbsent(rule.host.toLowerCase(), () => rule);
+      }
       if (spider.isEmpty) spider = c.spider;
     }
     return SiteConfig(
@@ -625,6 +678,7 @@ class ConfigParser {
       doh: doh.toList(),
       ads: ads.toList(),
       proxy: proxy,
+      headers: headers.values.toList(),
     );
   }
 
@@ -645,6 +699,7 @@ class ConfigParser {
     final doh = <String>{};
     final ads = <String>{};
     final proxy = <dynamic>[];
+    final headers = <String, HeaderRule>{};
 
     for (final c in configs) {
       for (final site in c.sites) {
@@ -694,6 +749,9 @@ class ConfigParser {
       doh.addAll(c.doh);
       ads.addAll(c.ads);
       proxy.addAll(c.proxy);
+      for (final rule in c.headers) {
+        headers.putIfAbsent(rule.host.toLowerCase(), () => rule);
+      }
     }
 
     return SiteConfig(
@@ -707,6 +765,7 @@ class ConfigParser {
       doh: doh.toList(),
       ads: ads.toList(),
       proxy: proxy,
+      headers: headers.values.toList(),
     );
   }
 }

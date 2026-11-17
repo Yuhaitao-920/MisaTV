@@ -255,5 +255,55 @@ void main() {
       expect(() => ConfigParser.parse('not json'), throwsFormatException);
       expect(() => ConfigParser.parse('{"sites":1}'), throwsFormatException);
     });
+
+    test('根部 headers：数组与单个对象两种写法都能解析', () {
+      const listForm = '''
+      {
+        "headers": [
+          {"host": "live.ottiptv.cc", "header": {"User-Agent": "okHttp/1.5", "Referer": "https://live.ottiptv.cc/"}},
+          {"host": "mgtv.ottiptv.cc", "header": {"User-Agent": "okHttp/1.5"}}
+        ],
+        "lives": [{"name": "L1", "url": "http://l1.m3u"}]
+      }
+      ''';
+      final listParsed = ConfigParser.parse(listForm);
+      expect(listParsed.config.headers.length, 2);
+      expect(listParsed.config.headers.first.host, 'live.ottiptv.cc');
+      expect(
+        listParsed.config.headers.first.header['Referer'],
+        'https://live.ottiptv.cc/',
+      );
+
+      const objectForm = '''
+      {
+        "headers": {"host": "mgtv.ottiptv.cc", "header": {"user-agent": "okHttp/1.5"}},
+        "lives": [{"name": "L1", "url": "http://l1.m3u"}]
+      }
+      ''';
+      final objectParsed = ConfigParser.parse(objectForm);
+      expect(objectParsed.config.headers.length, 1);
+      expect(objectParsed.config.headers.single.header['user-agent'], 'okHttp/1.5');
+    });
+
+    test('分组标题不算坏源，空直播线路被忽略', () {
+      const json = '''
+      {
+        "sites": [
+          {"key": "1", "name": "--- 1 ---"},
+          {"key": "a", "type": 1, "api": "http://a"}
+        ],
+        "lives": [
+          {"name": "空线路"},
+          {"name": "L1", "url": "http://l1.m3u"}
+        ]
+      }
+      ''';
+      final parsed = ConfigParser.parse(json);
+      expect(parsed.config.sites.length, 1);
+      expect(parsed.config.lives.length, 1);
+      final separator = parsed.report.items.first;
+      expect(separator.status, 'SKIP');
+      expect(separator.reason, 'SEPARATOR');
+    });
   });
 }

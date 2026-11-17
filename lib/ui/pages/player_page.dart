@@ -26,6 +26,7 @@ import '../widgets/hover_marquee_text.dart';
 import '../widgets/hyms_captcha_dialog.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import '../widgets/player_overlay_settings.dart';
+import '../widgets/player_key_help.dart';
 import '../widgets/sleep_timer_sheet.dart';
 import '../widgets/volume_hud.dart';
 import '../widgets/volume_sheet.dart';
@@ -1737,6 +1738,10 @@ class _PlayerPageState extends State<PlayerPage>
       } else {
         _requestExit();
       }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyH || key == LogicalKeyboardKey.f1) {
+      unawaited(showPlayerKeyHelp(context, live: false));
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;

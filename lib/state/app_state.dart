@@ -12,6 +12,7 @@ import '../core/net/url_utils.dart';
 import '../core/utils/json_utils.dart';
 import '../models/dav.dart';
 import '../models/drive_account.dart';
+import '../models/live.dart';
 import '../models/media_server.dart';
 import '../models/site_config.dart';
 import '../models/source_health.dart';
@@ -271,6 +272,7 @@ class AppState extends ChangeNotifier {
       doh: base.doh,
       ads: base.ads,
       proxy: base.proxy,
+      headers: base.headers,
     );
     _kazumiMerged = merged;
     _kazumiMergedBase = base;
@@ -304,6 +306,12 @@ class AppState extends ChangeNotifier {
 
   /// 首页分类浏览方式：0 = 换页（上一页 / 下一页），1 = 瀑布（滑到底自动加载）。
   int homeBrowseMode = 0;
+
+  /// 直播页频道布局：0 = 网格（一行多个），1 = 平铺（一行一个，完整显示标题）。
+  int liveLayoutMode = 0;
+
+  /// 收藏的直播频道（`直播源|分组|频道名`），跨启动保留。
+  Set<String> liveFavorites = <String>{};
 
   /// 首页顶部是否显示影视台词轮换。
   bool showMovieQuotes = true;
@@ -418,6 +426,22 @@ class AppState extends ChangeNotifier {
 
   List<SourceBean> get usableSites =>
       config?.sites.where(isSiteUsable).toList() ?? const [];
+
+  /// 直播播放要用的 host → 请求头规则。
+  ///
+  /// 直播订阅和点播订阅可能是两份档案：先取直播订阅自己的，再补充点播
+  /// 订阅里的规则（同一 host 以直播订阅为准）。
+  List<HeaderRule> get liveHeaderRules {
+    final out = <HeaderRule>[];
+    final seen = <String>{};
+    for (final rule in <HeaderRule>[
+      ...?liveConfig?.headers,
+      ...?config?.headers,
+    ]) {
+      if (seen.add(rule.host.toLowerCase())) out.add(rule);
+    }
+    return out;
+  }
   List<LiveBean> get lives {
     final subscription = liveConfig?.lives ?? const <LiveBean>[];
     if (localLives.isEmpty) return subscription;
@@ -567,7 +591,11 @@ class AppState extends ChangeNotifier {
 
     mutate(rawLives);
     final rawJson = const JsonEncoder.withIndent('  ').convert(root);
-    final parsed = ConfigParser.parse(rawJson, jarReady: jarReady);
+    final parsed = ConfigParser.parse(
+      rawJson,
+      baseUrl: profile.resolveBaseUrl,
+      jarReady: jarReady,
+    );
     profiles = [
       for (final p in profiles)
         if (p.id == profile.id)
@@ -575,6 +603,7 @@ class AppState extends ChangeNotifier {
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: profile.baseUrl,
             rawJson: rawJson,
             importedAt: p.importedAt,
             report: parsed.report,
@@ -759,12 +788,17 @@ class AppState extends ChangeNotifier {
         continue;
       }
       try {
-        final parsed = ConfigParser.parse(p.rawJson, jarReady: jarReady);
+        final parsed = ConfigParser.parse(
+          p.rawJson,
+          baseUrl: p.resolveBaseUrl,
+          jarReady: jarReady,
+        );
         updated.add(
           ConfigProfile(
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: p.baseUrl,
             rawJson: p.rawJson,
             importedAt: p.importedAt,
             report: parsed.report,
@@ -796,7 +830,11 @@ class AppState extends ChangeNotifier {
     for (final p in profiles) {
       if (p.rawJson.trim().isEmpty) continue;
       try {
-        final parsed = ConfigParser.parse(p.rawJson, jarReady: jarReady);
+        final parsed = ConfigParser.parse(
+          p.rawJson,
+          baseUrl: p.resolveBaseUrl,
+          jarReady: jarReady,
+        );
         keep.addAll(sourceService.jar.jarKeysOf(parsed.config));
       } catch (_) {
         return;
@@ -827,6 +865,8 @@ class AppState extends ChangeNotifier {
     navBarAutoHide = store.navBarAutoHide;
     homeColumns = store.homeColumns <= 0 ? 0 : store.homeColumns.clamp(4, 8);
     homeBrowseMode = store.homeBrowseMode == 1 ? 1 : 0;
+    liveLayoutMode = store.liveLayoutMode == 1 ? 1 : 0;
+    liveFavorites = store.loadLiveFavorites().toSet();
     showMovieQuotes = store.showMovieQuotes;
     rememberedWindowSize = store.loadWindowSize();
     eulaAccepted = store.eulaAccepted;
@@ -969,7 +1009,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     try {
-      final parsed = ConfigParser.parse(profile.rawJson, jarReady: jarReady);
+      final parsed = ConfigParser.parse(
+        profile.rawJson,
+        baseUrl: profile.resolveBaseUrl,
+        jarReady: jarReady,
+      );
       final effective = _withoutDeletedSites(
         parsed.config,
         profile.deletedSiteKeys,
@@ -1054,6 +1098,7 @@ class AppState extends ChangeNotifier {
       doh: config.doh,
       ads: config.ads,
       proxy: config.proxy,
+      headers: config.headers,
     );
   }
 
@@ -1065,6 +1110,7 @@ class AppState extends ChangeNotifier {
       try {
         liveConfig = ConfigParser.parse(
           profile.rawJson,
+          baseUrl: profile.resolveBaseUrl,
           jarReady: jarReady,
         ).config;
       } catch (_) {
@@ -1218,7 +1264,7 @@ class AppState extends ChangeNotifier {
         ? const SiteConfig()
         : ConfigParser.parse(
             current.rawJson,
-            baseUrl: current.url,
+            baseUrl: current.resolveBaseUrl,
             jarReady: jarReady,
           ).config;
     final newSites = {for (final site in parsed.config.sites) site.key: site};
@@ -1503,6 +1549,7 @@ class AppState extends ChangeNotifier {
         return await _importText(
           liveJson,
           url: url,
+          baseUrl: res.url,
           name: profile.name,
           replaceProfileId: id,
           activate: activate,
@@ -1515,6 +1562,7 @@ class AppState extends ChangeNotifier {
       final outcome = await _importText(
         body,
         url: url,
+        baseUrl: res.url,
         name: profile.name,
         replaceProfileId: id,
         activate: activate,
@@ -1635,6 +1683,7 @@ class AppState extends ChangeNotifier {
     return _importText(
       snapshot.rawJson,
       url: profile.url,
+      baseUrl: profile.resolveBaseUrl,
       name: profile.name,
       replaceProfileId: profile.id,
     );
@@ -1766,6 +1815,7 @@ class AppState extends ChangeNotifier {
       id: existing?.id ?? 'p${now.millisecondsSinceEpoch}',
       name: profileName,
       url: url,
+      baseUrl: (baseUrl ?? url).trim(),
       rawJson: rawJson,
       importedAt: existing?.importedAt ?? now,
       report: parsed.report,
@@ -2002,6 +2052,7 @@ class AppState extends ChangeNotifier {
                   id: p.id,
                   name: name.trim().isEmpty ? p.name : name.trim(),
                   url: p.url,
+                  baseUrl: p.baseUrl,
                   rawJson: p.rawJson,
                   importedAt: p.importedAt,
                   report: p.report,
@@ -2142,7 +2193,11 @@ class AppState extends ChangeNotifier {
     root['sites'] = sites;
 
     final rawJson = const JsonEncoder.withIndent('  ').convert(root);
-    final parsed = ConfigParser.parse(rawJson, jarReady: jarReady);
+    final parsed = ConfigParser.parse(
+      rawJson,
+      baseUrl: profile.resolveBaseUrl,
+      jarReady: jarReady,
+    );
     final tombstones = [
       for (final key in profile.deletedSiteKeys)
         if (!keys.contains(key)) key,
@@ -2156,6 +2211,7 @@ class AppState extends ChangeNotifier {
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: profile.baseUrl,
             rawJson: rawJson,
             importedAt: p.importedAt,
             report: parsed.report,
@@ -2263,7 +2319,11 @@ class AppState extends ChangeNotifier {
     root['sites'] = keep;
 
     final rawJson = const JsonEncoder.withIndent('  ').convert(root);
-    final parsed = ConfigParser.parse(rawJson, jarReady: jarReady);
+    final parsed = ConfigParser.parse(
+      rawJson,
+      baseUrl: profile.resolveBaseUrl,
+      jarReady: jarReady,
+    );
     final tombstones = <String>{
       ...profile.deletedSiteKeys,
       ...targets,
@@ -2279,6 +2339,7 @@ class AppState extends ChangeNotifier {
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: profile.baseUrl,
             rawJson: rawJson,
             importedAt: p.importedAt,
             report: parsed.report,
@@ -2309,7 +2370,11 @@ class AppState extends ChangeNotifier {
   ) async {
     final SiteConfig parsed;
     try {
-      parsed = ConfigParser.parse(profile.rawJson, jarReady: jarReady).config;
+      parsed = ConfigParser.parse(
+        profile.rawJson,
+        baseUrl: profile.resolveBaseUrl,
+        jarReady: jarReady,
+      ).config;
     } catch (_) {
       return 0;
     }
@@ -2331,6 +2396,7 @@ class AppState extends ChangeNotifier {
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: p.baseUrl,
             rawJson: p.rawJson,
             importedAt: p.importedAt,
             report: p.report,
@@ -2387,7 +2453,11 @@ class AppState extends ChangeNotifier {
 
     mutate(rawSites);
     final rawJson = const JsonEncoder.withIndent('  ').convert(root);
-    final parsed = ConfigParser.parse(rawJson, jarReady: jarReady);
+    final parsed = ConfigParser.parse(
+      rawJson,
+      baseUrl: profile.resolveBaseUrl,
+      jarReady: jarReady,
+    );
     final addedKeys = <String>{
       ...profile.addedSiteKeys,
       for (final key in markAdded)
@@ -2400,6 +2470,7 @@ class AppState extends ChangeNotifier {
             id: p.id,
             name: p.name,
             url: p.url,
+            baseUrl: profile.baseUrl,
             rawJson: rawJson,
             importedAt: p.importedAt,
             report: parsed.report,
@@ -2623,7 +2694,11 @@ class AppState extends ChangeNotifier {
       if (profile.rawJson.trim().isEmpty) continue;
       try {
         configs.add(
-          ConfigParser.parse(profile.rawJson, jarReady: jarReady).config,
+          ConfigParser.parse(
+            profile.rawJson,
+            baseUrl: profile.resolveBaseUrl,
+            jarReady: jarReady,
+          ).config,
         );
       } catch (_) {
         // 单份坏档案不影响其余档案导出
@@ -2671,6 +2746,7 @@ class AppState extends ChangeNotifier {
     'navBarAutoHide': navBarAutoHide,
     'homeColumns': homeColumns,
     'homeBrowseMode': homeBrowseMode,
+    'liveLayoutMode': liveLayoutMode,
     'showMovieQuotes': showMovieQuotes,
   };
 
@@ -2833,6 +2909,10 @@ class AppState extends ChangeNotifier {
         ((data['homeBrowseMode'] as num?)?.toInt() ?? homeBrowseMode) == 1
         ? 1
         : 0;
+    liveLayoutMode =
+        ((data['liveLayoutMode'] as num?)?.toInt() ?? liveLayoutMode) == 1
+        ? 1
+        : 0;
     showMovieQuotes = data['showMovieQuotes'] as bool? ?? showMovieQuotes;
 
     if (data['kazumiRules'] is List) {
@@ -2885,6 +2965,7 @@ class AppState extends ChangeNotifier {
     await store.setNavBarAutoHide(navBarAutoHide);
     await store.setHomeColumns(homeColumns);
     await store.setHomeBrowseMode(homeBrowseMode);
+    await store.setLiveLayoutMode(liveLayoutMode);
     await store.setShowMovieQuotes(showMovieQuotes);
     await _purgeUnusedJars();
     notifyListeners();
@@ -2947,6 +3028,27 @@ class AppState extends ChangeNotifier {
     if (next == homeBrowseMode) return;
     homeBrowseMode = next;
     await store.setHomeBrowseMode(next);
+    notifyListeners();
+  }
+
+  /// 切换直播页频道布局：0 = 网格，1 = 平铺（一行一个频道）。
+  Future<void> setLiveLayoutMode(int value) async {
+    final next = value == 1 ? 1 : 0;
+    if (next == liveLayoutMode) return;
+    liveLayoutMode = next;
+    await store.setLiveLayoutMode(next);
+    notifyListeners();
+  }
+
+  /// 直播频道的收藏键：源名 + 分组 + 频道名，订阅地址变动后仍能命中。
+  String liveChannelKey(LiveBean bean, String group, LiveChannel channel) =>
+      '${bean.name}|$group|${channel.name}';
+
+  bool isLiveFavorite(String key) => liveFavorites.contains(key);
+
+  Future<void> toggleLiveFavorite(String key) async {
+    if (!liveFavorites.remove(key)) liveFavorites.add(key);
+    await store.saveLiveFavorites(liveFavorites.toList()..sort());
     notifyListeners();
   }
 

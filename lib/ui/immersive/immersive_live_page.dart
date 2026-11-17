@@ -28,6 +28,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
   Map<String, EpgEntry> _epg = const {};
   Map<String, List<EpgProgram>> _programs = const {};
   int _groupIndex = 0;
+  bool _favoritesOnly = false;
 
   @override
   void didChangeDependencies() {
@@ -65,6 +66,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
       final groups = await app.liveService.load(
         bean,
         sites: app.config?.sites ?? const [],
+        headerRules: app.liveHeaderRules,
       );
       if (!mounted) return;
       setState(() {
@@ -94,10 +96,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
         _programs = programs;
         _epg = programs.isEmpty
             ? const {}
-            : buildEpgEntries(
-                programs,
-                DateTime.now().millisecondsSinceEpoch,
-              );
+            : buildEpgEntries(programs, DateTime.now().millisecondsSinceEpoch);
       });
     } catch (_) {
       // EPG 是增强项
@@ -121,6 +120,38 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
     );
   }
 
+  Widget _channelTile(
+    LiveBean bean,
+    LiveChannel channel, {
+    bool wide = false,
+    String groupLabel = '',
+    String subtitleGroup = '',
+    int number = 0,
+  }) {
+    final app = AppScope.of(context);
+    final favoriteKey = app.liveChannelKey(bean, groupLabel, channel);
+    return _LiveChannelTile(
+      channel: channel,
+      wide: wide,
+      number: number,
+      subtitleGroup: subtitleGroup,
+      favorite: app.isLiveFavorite(favoriteKey),
+      onFavorite: () => app.toggleLiveFavorite(favoriteKey),
+      epg: entryOf(_epg, epgRefOf(channel)),
+      onSchedule: () {
+        final programs =
+            lookupEpg(_programs, epgRefOf(channel)) ?? const <EpgProgram>[];
+        if (programs.isEmpty) return;
+        showLiveCatchupSheet(context, channel: channel, programs: programs);
+      },
+      onTap: () {
+        final lines = channelLines(channel);
+        if (lines.isEmpty) return;
+        _play(bean, channel, lines.first);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -131,6 +162,19 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
     final group = _groups.isEmpty
         ? null
         : _groups[_groupIndex.clamp(0, _groups.length - 1)];
+    final favoriteEntries = <({String group, LiveChannel channel})>[
+      if (bean != null)
+        for (final g in _groups)
+          for (final channel in g.channels)
+            if (app.isLiveFavorite(app.liveChannelKey(bean, g.group, channel)))
+              (group: g.group, channel: channel),
+    ];
+    final entries = _favoritesOnly
+        ? favoriteEntries
+        : <({String group, LiveChannel channel})>[
+            for (final channel in group?.channels ?? const <LiveChannel>[])
+              (group: group?.group ?? '', channel: channel),
+          ];
 
     return Padding(
       padding: EdgeInsets.fromLTRB(m.gutter, m.contentTop, m.gutter, 20),
@@ -149,7 +193,9 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
               const SizedBox(width: 14),
               if (!m.compact && group != null)
                 Text(
-                  '${group.channels.length} 个频道',
+                  _favoritesOnly
+                      ? '${entries.length} 个收藏'
+                      : '${group!.channels.length} 个频道',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.42),
                   ),
@@ -228,56 +274,105 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
           else ...[
             SizedBox(
               height: 42,
-              // 分组多时会超出宽度：桌面端默认不让鼠标拖动横向列表，
-              // 必须显式换成可拖拽的 ScrollBehavior，否则后面的分组永远够不着。
-              child: ScrollConfiguration(
-                behavior: const MouseDragScrollBehavior(),
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _groups.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final selected = index == _groupIndex;
-                    return ChoiceChip(
-                      label: Text(_groups[index].group),
-                      selected: selected,
-                      onSelected: (_) => setState(() => _groupIndex = index),
-                    );
-                  },
-                ),
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: Text(
+                      favoriteEntries.isEmpty
+                          ? '我的收藏'
+                          : '我的收藏 ${favoriteEntries.length}',
+                    ),
+                    selected: _favoritesOnly,
+                    onSelected: (value) =>
+                        setState(() => _favoritesOnly = value),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    // 分组多时会超出宽度：桌面端默认不让鼠标拖动横向列表，
+                    // 必须显式换成可拖拽的 ScrollBehavior，否则后面的分组永远够不着。
+                    child: ScrollConfiguration(
+                      behavior: const MouseDragScrollBehavior(),
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _groups.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final selected =
+                              !_favoritesOnly && index == _groupIndex;
+                          return ChoiceChip(
+                            label: Text(_groups[index].group),
+                            selected: selected,
+                            onSelected: (_) => setState(() {
+                              _favoritesOnly = false;
+                              _groupIndex = index;
+                            }),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: SingleChildScrollView(
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (final channel in group!.channels)
-                      _LiveChannelTile(
-                        channel: channel,
-                        epg: entryOf(_epg, epgRefOf(channel)),
-                        onSchedule: () {
-                          final programs =
-                              lookupEpg(_programs, epgRefOf(channel)) ??
-                              const <EpgProgram>[];
-                          if (programs.isEmpty) return;
-                          showLiveCatchupSheet(
-                            context,
-                            channel: channel,
-                            programs: programs,
-                          );
-                        },
-                        onTap: () {
-                          final lines = channelLines(channel);
-                          if (lines.isEmpty) return;
-                          _play(bean!, channel, lines.first);
-                        },
+              child: entries.isEmpty
+                  ? Center(
+                      child: ImmersiveEmpty(
+                        title: _favoritesOnly ? '还没有收藏频道' : '这个分组没有频道',
+                        message: _favoritesOnly
+                            ? '在频道卡片上点星标收藏常看的台，之后会出现在这里'
+                            : '换一个分组或直播源试试',
                       ),
-                  ],
-                ),
-              ),
+                    )
+                  : ScrollConfiguration(
+                      behavior: const MouseDragScrollBehavior(),
+                      // 频道可能上千条：始终用懒构建，不再一次性 Wrap 出全部卡片。
+                      child: app.liveLayoutMode == 1
+                          ? ListView.builder(
+                              padding: const EdgeInsets.only(bottom: 20),
+                              itemCount: entries.length,
+                              itemBuilder: (context, index) {
+                                final entry = entries[index];
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _channelTile(
+                                    bean!,
+                                    entry.channel,
+                                    wide: true,
+                                    groupLabel: entry.group,
+                                    subtitleGroup: _favoritesOnly
+                                        ? entry.group
+                                        : '',
+                                    number: _favoritesOnly ? 0 : index + 1,
+                                  ),
+                                );
+                              },
+                            )
+                          : GridView.builder(
+                              padding: const EdgeInsets.only(bottom: 20),
+                              gridDelegate:
+                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent: 300,
+                                    mainAxisExtent: 112,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
+                                  ),
+                              itemCount: entries.length,
+                              itemBuilder: (context, index) {
+                                final entry = entries[index];
+                                return _channelTile(
+                                  bean!,
+                                  entry.channel,
+                                  groupLabel: entry.group,
+                                  subtitleGroup: _favoritesOnly
+                                      ? entry.group
+                                      : '',
+                                  number: _favoritesOnly ? 0 : index + 1,
+                                );
+                              },
+                            ),
+                    ),
             ),
           ],
         ],
@@ -286,25 +381,34 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
   }
 }
 
-class _LiveChannelTile extends StatefulWidget {
+class _LiveChannelTile extends StatelessWidget {
   const _LiveChannelTile({
     required this.channel,
     required this.epg,
     required this.onTap,
     this.onSchedule,
+    this.onFavorite,
+    this.favorite = false,
+    this.number = 0,
+    this.subtitleGroup = '',
+    this.wide = false,
   });
 
   final LiveChannel channel;
   final EpgEntry? epg;
   final VoidCallback onTap;
   final VoidCallback? onSchedule;
+  final VoidCallback? onFavorite;
+  final bool favorite;
 
-  @override
-  State<_LiveChannelTile> createState() => _LiveChannelTileState();
-}
+  /// 频道号（按当前分组顺序，从 1 开始）；0 = 不显示。
+  final int number;
 
-class _LiveChannelTileState extends State<_LiveChannelTile> {
-  bool _hover = false;
+  /// 「我的收藏」视图里补充显示频道所属分组。
+  final String subtitleGroup;
+
+  /// 平铺模式：整行宽度、标题两行；网格模式固定高度、标题一行。
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
@@ -334,65 +438,105 @@ class _LiveChannelTileState extends State<_LiveChannelTile> {
                   : Colors.white.withValues(alpha: 0.06),
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.channel.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: _hover
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.86),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                current == null ? '点击播放' : '${current.range} ${current.title}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.52),
-                  height: 1.4,
-                ),
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  Icon(
-                    Icons.play_circle_outline_rounded,
-                    size: 15,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    '${channelLines(widget.channel).length} 条线路',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.38),
-                    ),
-                  ),
-                  if (widget.onSchedule != null) ...[
-                    const Spacer(),
-                    Tooltip(
-                      message: '节目单 / 回看',
-                      child: GestureDetector(
-                        onTap: widget.onSchedule,
-                        child: Icon(
-                          Icons.schedule_rounded,
-                          size: 15,
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: 0.75,
-                          ),
-                        ),
+        ),
+        child: Column(
+          mainAxisSize: wide ? MainAxisSize.min : MainAxisSize.max,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (number > 0) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '$number',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ],
+                  ),
+                  const SizedBox(width: 8),
                 ],
+                Expanded(
+                  child: Text(
+                    channel.name,
+                    maxLines: wide ? 2 : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: active
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.86),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              current == null
+                  ? (subtitleGroup.isEmpty ? '点击播放' : subtitleGroup)
+                  : '${subtitleGroup.isEmpty ? '' : '$subtitleGroup · '}'
+                        '${current.range} ${current.title}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.52),
+                height: 1.4,
               ),
-            ],
-          ),
+            ),
+            if (wide) const SizedBox(height: 8) else const Spacer(),
+            Row(
+              children: [
+                Icon(
+                  Icons.play_circle_outline_rounded,
+                  size: 15,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  '${channelLines(channel).length} 条线路',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.38),
+                  ),
+                ),
+                const Spacer(),
+                if (onFavorite != null)
+                  IconButton(
+                    tooltip: favorite ? '取消收藏' : '收藏频道',
+                    onPressed: onFavorite,
+                    icon: Icon(
+                      favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                      size: 16,
+                    ),
+                    color: favorite
+                        ? theme.colorScheme.primary
+                        : Colors.white.withValues(alpha: 0.42),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 24,
+                      minHeight: 22,
+                    ),
+                  ),
+                if (onSchedule != null)
+                  IconButton(
+                    tooltip: '节目单 / 回看',
+                    onPressed: onSchedule,
+                    icon: const Icon(Icons.schedule_rounded, size: 15),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.75),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 24,
+                      minHeight: 22,
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );

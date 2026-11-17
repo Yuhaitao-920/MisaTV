@@ -218,6 +218,9 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final item = _items[index];
                     return ImmersiveCard(
+                      key: ValueKey(
+                        '${_folders.map((folder) => folder.name).join('/')}:$index',
+                      ),
                       title: item.name,
                       year: item.year,
                       subtitle: item.remarks.isEmpty
@@ -227,6 +230,7 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                       badge: item.isFolder ? '分类' : '',
                       showText: false,
                       width: double.infinity,
+                      autofocus: index == 0,
                       onTap: () => item.isFolder
                           ? _enterFolder(item)
                           : openImmersiveItem(context, item),

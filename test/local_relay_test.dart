@@ -53,6 +53,7 @@ void main() {
   late _FakeBtSource bt;
   final hash = List<String>.filled(40, 'b').join();
   final cookieSeen = <String>[];
+  final baiduContextHits = <String>[];
   var deadHits = 0;
 
   setUpAll(() async {
@@ -223,6 +224,31 @@ void main() {
     // 假「常驻 JVM 宿主代理」：壳自己的 do=… 路由交给它，中继只负责原样转发。
     jvmProxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     jvmProxy.listen((req) async {
+      if (req.uri.queryParameters['do'] == 'winbox-baidu-context') {
+        final fileId = req.uri.queryParameters['fileId'] ?? '';
+        baiduContextHits.add(fileId);
+        if (fileId == '852327516701174') {
+          req.response.headers.set(
+            'content-type',
+            'application/json; charset=utf-8',
+          );
+          req.response.write(
+            '{"share_id":"67698425202","uk":"1100830236519",'
+            '"fs_id":"852327516701174","seKey":"ZCBLkVQK8qM2eKG"}',
+          );
+        } else {
+          req.response.statusCode = 404;
+        }
+        await req.response.close();
+        return;
+      }
+      // 模拟没有 ProxyOrigin 处理器的壳：JVM 明确回 500。
+      if (req.uri.queryParameters['site'] == 'jvmfail') {
+        req.response.statusCode = 500;
+        req.response.write('proxy handler failed: no handler');
+        await req.response.close();
+        return;
+      }
       req.response.headers.set('content-type', 'application/vnd.apple.mpegurl');
       req.response.write(
         'jvm:${req.uri.query}|range=${req.headers.value(HttpHeaders.rangeHeader) ?? ''}',
@@ -478,6 +504,60 @@ void main() {
     );
     expect(result.status, 200);
     expect(utf8.decode(result.bytes), 'jvm:$query|range=bytes=0-10');
+  });
+
+  test('do=pan 只有 fileId：交回 JVM，不按本人盘 filemetas 解链', () async {
+    // 分享者的 fs_id 不在本账号网盘里：本地按 filemetas 查只会 errno=0。
+    final query = Uri(
+      queryParameters: {
+        'do': 'pan',
+        'site': 'baidu',
+        'shareId': '',
+        'fileId': '773303697958675',
+        'fileToken': '',
+      },
+    ).query;
+    final body = await get('${relay.baseUrl}/proxy?$query');
+    expect(body, startsWith('jvm:'));
+    expect(body, contains('fileId=773303697958675'));
+  });
+
+  test('do=pan 只有 fileId：先向 JVM 取百度分享上下文', () async {
+    baiduContextHits.clear();
+    final body = await get(
+      '${relay.baseUrl}/proxy?do=pan&site=baidu&fileId=852327516701174',
+    );
+    expect(baiduContextHits, contains('852327516701174'));
+    // 测试环境没有百度 cookie：上下文解链失败后仍回退 JVM
+    expect(body, startsWith('jvm:'));
+  });
+
+  test('do=pan 夸克分享：本地无 cookie 时回退 JVM，不再误走 UC', () async {
+    final query = Uri(
+      queryParameters: {
+        'do': 'pan',
+        'site': 'quark',
+        'shareId': '803858da27e1',
+        'fileId': 'f0fa80322caa4b579c0f89cb46004ffc',
+        'fileToken': '13db5508613442d0fc3c3062d78986a4',
+      },
+    ).query;
+    final body = await get('${relay.baseUrl}/proxy?$query');
+    expect(body, startsWith('jvm:'));
+    expect(body, contains('site=quark'));
+  });
+
+  test('JVM 明确处理不了 do=pan 时回落到本地解链的错误', () async {
+    // jvmfail → 500；本地无百度 cookie 也解不了 → 502，而不是把 JVM 的 500 透传。
+    final query = Uri(
+      queryParameters: {
+        'do': 'pan',
+        'site': 'jvmfail',
+        'fileId': '773303697958675',
+      },
+    ).query;
+    final result = await fetch('${relay.baseUrl}/proxy?$query');
+    expect(result.status, 502);
   });
 
   test('/proxy?do=live 解 base64url 并原样回传', () async {

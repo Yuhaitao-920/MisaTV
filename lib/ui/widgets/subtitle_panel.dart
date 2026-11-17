@@ -77,7 +77,11 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
     if (_busyId.isNotEmpty) return;
     setState(() => _busyId = candidate.id);
     try {
-      final file = await widget.service.download(candidate);
+      final file = await widget.service.download(
+        candidate,
+        videoName: widget.query.rawName,
+        ep: widget.query.episode?.toString() ?? '',
+      );
       if (!mounted) return;
       Navigator.of(context).pop(file);
     } catch (e) {
@@ -180,6 +184,9 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                       subtitle: Text(
                         '${item.providerName} · ${item.language.isEmpty ? '未知语言' : item.language}'
                         '${item.format.isEmpty ? '' : ' · ${item.format.toUpperCase()}'}'
+                        // 集号：有则显示「第N集」，无则明示「整片/不分集」——
+                        // 用户常把「整片字幕」误当成「字幕没匹配上集数」。
+                        '${item.episodeHint.isEmpty ? ' · 整片' : ' · 第${item.episodeHint}集'}'
                         '${item.detail.isEmpty ? '' : ' · ${item.detail}'}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

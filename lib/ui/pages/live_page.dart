@@ -81,6 +81,7 @@ class _LivePageState extends State<LivePage> {
       final groups = await app.liveService.load(
         bean,
         sites: app.config?.sites ?? const [],
+        headerRules: app.liveHeaderRules,
       );
       if (!mounted) return;
       setState(() {
@@ -374,6 +375,7 @@ class _LivePageState extends State<LivePage> {
                           groupIndex: _groupIndex,
                           epg: _epg,
                           programs: _programs,
+                          list: app.liveLayoutMode == 1,
                           onGroup: (i) => setState(() => _groupIndex = i),
                           onPlay: (channel, line) => _play(
                             context,
@@ -388,6 +390,7 @@ class _LivePageState extends State<LivePage> {
                           groupIndex: _groupIndex,
                           epg: _epg,
                           programs: _programs,
+                          list: app.liveLayoutMode == 1,
                           onGroup: (i) => setState(() => _groupIndex = i),
                           group: group!,
                           onPlay: (channel, line) => _play(
@@ -445,6 +448,7 @@ class _DesktopBody extends StatelessWidget {
     required this.groupIndex,
     required this.epg,
     required this.programs,
+    required this.list,
     required this.onGroup,
     required this.group,
     required this.onPlay,
@@ -455,6 +459,7 @@ class _DesktopBody extends StatelessWidget {
   final int groupIndex;
   final Map<String, EpgEntry> epg;
   final Map<String, List<EpgProgram>> programs;
+  final bool list;
   final ValueChanged<int> onGroup;
   final LiveGroup group;
   final void Function(LiveChannel, LiveLine) onPlay;
@@ -524,6 +529,7 @@ class _DesktopBody extends StatelessWidget {
             channels: group.channels,
             epg: epg,
             programs: programs,
+            list: list,
             onPlay: onPlay,
             onCatchup: onCatchup,
           ),
@@ -539,6 +545,7 @@ class _MobileBody extends StatelessWidget {
     required this.groupIndex,
     required this.epg,
     required this.programs,
+    required this.list,
     required this.onGroup,
     required this.onPlay,
     required this.onCatchup,
@@ -548,6 +555,7 @@ class _MobileBody extends StatelessWidget {
   final int groupIndex;
   final Map<String, EpgEntry> epg;
   final Map<String, List<EpgProgram>> programs;
+  final bool list;
   final ValueChanged<int> onGroup;
   final void Function(LiveChannel, LiveLine) onPlay;
   final void Function(LiveChannel, List<EpgProgram>) onCatchup;
@@ -586,6 +594,7 @@ class _MobileBody extends StatelessWidget {
             channels: group.channels,
             epg: epg,
             programs: programs,
+            list: list,
             onPlay: onPlay,
             onCatchup: onCatchup,
             padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
@@ -603,6 +612,7 @@ class _ChannelGrid extends StatelessWidget {
     required this.programs,
     required this.onPlay,
     required this.onCatchup,
+    this.list = false,
     this.padding = const EdgeInsets.fromLTRB(10, 4, 28, 28),
   });
   final List<LiveChannel> channels;
@@ -610,10 +620,23 @@ class _ChannelGrid extends StatelessWidget {
   final Map<String, List<EpgProgram>> programs;
   final void Function(LiveChannel, LiveLine) onPlay;
   final void Function(LiveChannel, List<EpgProgram>) onCatchup;
+
+  /// true = 平铺：一行一个频道，标题最多两行，尽量完整显示。
+  final bool list;
   final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
+    if (list) {
+      return ListView.builder(
+        padding: padding,
+        itemCount: channels.length,
+        itemBuilder: (context, index) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _tile(index, wide: true),
+        ),
+      );
+    }
     return GridView.builder(
       padding: padding,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -623,24 +646,27 @@ class _ChannelGrid extends StatelessWidget {
         mainAxisSpacing: 10,
       ),
       itemCount: channels.length,
-      itemBuilder: (context, index) {
-        final channel = channels[index];
-        final lines = channelLines(channel);
-        final programsOf =
-            lookupEpg(programs, epgRefOf(channel)) ?? const <EpgProgram>[];
-        return _ChannelTile(
-          channel: channel,
-          lineCount: lines.length,
-          epg: entryOf(epg, epgRefOf(channel)),
-          onSchedule: programsOf.isEmpty
-              ? null
-              : () => onCatchup(channel, programsOf),
-          onTap: () {
-            if (lines.isEmpty) return;
-            // 多条线路时默认起播源 1；其余线路在播放器顶栏的「N 条线路」里切换。
-            onPlay(channel, lines.first);
-          },
-        );
+      itemBuilder: (context, index) => _tile(index),
+    );
+  }
+
+  Widget _tile(int index, {bool wide = false}) {
+    final channel = channels[index];
+    final lines = channelLines(channel);
+    final programsOf =
+        lookupEpg(programs, epgRefOf(channel)) ?? const <EpgProgram>[];
+    return _ChannelTile(
+      channel: channel,
+      lineCount: lines.length,
+      epg: entryOf(epg, epgRefOf(channel)),
+      wide: wide,
+      onSchedule: programsOf.isEmpty
+          ? null
+          : () => onCatchup(channel, programsOf),
+      onTap: () {
+        if (lines.isEmpty) return;
+        // 多条线路时默认起播源 1；其余线路在播放器顶栏的「N 条线路」里切换。
+        onPlay(channel, lines.first);
       },
     );
   }
@@ -653,12 +679,16 @@ class _ChannelTile extends StatefulWidget {
     required this.epg,
     required this.onTap,
     this.onSchedule,
+    this.wide = false,
   });
   final LiveChannel channel;
   final int lineCount;
   final EpgEntry? epg;
   final VoidCallback onTap;
   final VoidCallback? onSchedule;
+
+  /// 平铺模式：整行宽度，标题允许两行。
+  final bool wide;
 
   @override
   State<_ChannelTile> createState() => _ChannelTileState();
@@ -681,7 +711,9 @@ class _ChannelTileState extends State<_ChannelTile> {
       if (next != null) '下一档 ${next.start} ${next.title}',
     ].join('\n');
     final tile = GlassPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: widget.wide
+          ? const EdgeInsets.fromLTRB(14, 12, 10, 12)
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       borderRadius: 16,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -732,6 +764,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                   HoverMarqueeText(
                     channel.name,
                     externalHover: _hover,
+                    maxLines: widget.wide ? 2 : 1,
                     style: theme.textTheme.titleSmall,
                   ),
                   const SizedBox(height: 3),
@@ -740,6 +773,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                         ? '${current.start} ${current.title}'
                         : '$lineCount 条线路',
                     externalHover: _hover,
+                    maxLines: widget.wide ? 2 : 1,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: current != null
                           ? theme.colorScheme.primary.withValues(alpha: 0.8)

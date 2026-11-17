@@ -74,6 +74,45 @@ class ImmersiveHistoryPage extends StatelessWidget {
                     itemCount: items.length,
                     itemBuilder: (context, index) {
                       final item = items[index];
+                      final vod = VodItem(
+                        id: item.vodId,
+                        name: item.name,
+                        pic: item.pic,
+                        sourceKey: item.sourceKey,
+                        sourceName: item.sourceName,
+                        remarks: item.remarks,
+                      );
+                      void open({bool autoPlay = true, bool fromStart = false}) {
+                        openImmersiveItem(
+                          context,
+                          vod,
+                          autoPlay: autoPlay,
+                          fromStart: fromStart,
+                        );
+                      }
+
+                      void menu() => showImmersiveActionMenu(
+                        context,
+                        title: item.name,
+                        actions: [
+                          (
+                            icon: Icons.play_arrow_rounded,
+                            label: '继续播放',
+                            onTap: () => open(),
+                          ),
+                          (
+                            icon: Icons.replay_rounded,
+                            label: '从头播放',
+                            onTap: () => open(fromStart: true),
+                          ),
+                          (
+                            icon: Icons.info_outline_rounded,
+                            label: '查看详情',
+                            onTap: () => open(autoPlay: false),
+                          ),
+                        ],
+                      );
+
                       return ImmersiveCard(
                         title: item.name,
                         subtitle: item.episodeName.isEmpty
@@ -84,19 +123,9 @@ class ImmersiveHistoryPage extends StatelessWidget {
                         progress: item.progress,
                         showText: false,
                         width: double.infinity,
-                        onTap: () {
-                          openImmersiveItem(
-                            context,
-                            VodItem(
-                              id: item.vodId,
-                              name: item.name,
-                              pic: item.pic,
-                              sourceKey: item.sourceKey,
-                              sourceName: item.sourceName,
-                              remarks: item.remarks,
-                            ),
-                          );
-                        },
+                        onTap: () => open(),
+                        onLongPress: menu,
+                        onSecondaryTap: menu,
                       );
                     },
                   ),

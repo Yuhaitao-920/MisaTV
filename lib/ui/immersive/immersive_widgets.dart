@@ -32,6 +32,125 @@ ThemeData immersiveTheme(BuildContext context) {
   );
 }
 
+/// 大屏可聚焦点击区域：鼠标悬停 / 键盘焦点共用同一套高亮。
+///
+/// 沉浸模式里的卡片大多是自绘的，不能依赖 InkWell 的焦点能力；
+/// 这里统一补上焦点节点、方向键遍历与 Enter / 遥控器 OK 激活。
+class ImmersiveFocusable extends StatefulWidget {
+  const ImmersiveFocusable({
+    super.key,
+    required this.onTap,
+    required this.builder,
+    this.focusNode,
+    this.autofocus = false,
+    this.onLongPress,
+    this.onSecondaryTap,
+    this.onFocusChange,
+    this.mouseCursor = SystemMouseCursors.click,
+  });
+
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  /// 鼠标右键 / 触控板双指点按：通常绑定到和长按相同的上下文菜单。
+  final VoidCallback? onSecondaryTap;
+
+  /// [active] = 鼠标悬停或键盘焦点，调用方据此画高亮。
+  final Widget Function(BuildContext context, bool active) builder;
+
+  /// 外部焦点节点（焦点记忆 / 初始焦点）；不传时内部自建。
+  final FocusNode? focusNode;
+  final bool autofocus;
+  final ValueChanged<bool>? onFocusChange;
+  final MouseCursor mouseCursor;
+
+  @override
+  State<ImmersiveFocusable> createState() => _ImmersiveFocusableState();
+}
+
+class _ImmersiveFocusableState extends State<ImmersiveFocusable> {
+  FocusNode? _internalNode;
+  bool _hover = false;
+  bool _focused = false;
+
+  FocusNode get _node =>
+      widget.focusNode ??
+      (_internalNode ??= FocusNode(debugLabel: 'immersive-focusable'));
+
+  @override
+  void dispose() {
+    _internalNode?.dispose();
+    super.dispose();
+  }
+
+  void _activate() {
+    // 鼠标点击也把焦点带过来，避免焦点留在已隐藏的页面上。
+    _node.requestFocus();
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _node,
+      autofocus: widget.autofocus,
+      onFocusChange: (value) {
+        if (mounted) setState(() => _focused = value);
+        widget.onFocusChange?.call(value);
+      },
+      onKeyEvent: (node, event) {
+        // 只处理卡片自己获得焦点的情况：卡片里可能嵌着节目单按钮，
+        // 子按钮聚焦时回车应该触发子按钮，而不是整张卡。
+        if (!node.hasPrimaryFocus) return KeyEventResult.ignored;
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.gameButtonA ||
+            key == LogicalKeyboardKey.space) {
+          _activate();
+          return KeyEventResult.handled;
+        }
+        // 遥控器菜单键 / 键盘 C 键：和长按、右键一样打开上下文菜单。
+        if (widget.onLongPress != null &&
+            (key == LogicalKeyboardKey.contextMenu ||
+                key == LogicalKeyboardKey.keyC)) {
+          widget.onLongPress!();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: MouseRegion(
+        cursor: widget.mouseCursor,
+        onEnter: (_) {
+          if (!_hover) setState(() => _hover = true);
+        },
+        onExit: (_) {
+          if (_hover) setState(() => _hover = false);
+        },
+        child: Semantics(
+          button: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _activate,
+            onSecondaryTap: widget.onSecondaryTap,
+            onLongPress: widget.onLongPress == null
+                ? null
+                : () {
+                    _node.requestFocus();
+                    widget.onLongPress!();
+                  },
+            child: Builder(
+              builder: (context) =>
+                  widget.builder(context, _hover || _focused),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 横图封面：先显示源里的竖版图，随后用豆瓣 / TMDB / IMDb 的横图替换。
 class ImmersiveBackdrop extends StatefulWidget {
   const ImmersiveBackdrop({
@@ -182,6 +301,9 @@ class ImmersiveCard extends StatefulWidget {
     this.artworkTitle = '',
     this.focusNode,
     this.onFocus,
+    this.autofocus = false,
+    this.onLongPress,
+    this.onSecondaryTap,
   });
 
   final String title;
@@ -199,241 +321,186 @@ class ImmersiveCard extends StatefulWidget {
   /// 0~1 的观看进度；0 不绘制。
   final double progress;
 
-  /// 遥控器 / 键盘焦点节点：不传时卡片不可键盘聚焦（纯鼠标场景）。
+  /// 遥控器 / 键盘焦点节点：不传时卡片内部自建，仍可键盘聚焦。
   final FocusNode? focusNode;
 
   /// 获得焦点时回调，供外层记录「上次聚焦的是哪个条目」。
   final VoidCallback? onFocus;
+
+  /// 首次进入页面时是否自动抢焦点（列表首项 / 详情页主按钮用）。
+  final bool autofocus;
+
+  /// 长按 / 遥控器菜单键 / C 键。
+  final VoidCallback? onLongPress;
+
+  /// 鼠标右键。
+  final VoidCallback? onSecondaryTap;
 
   @override
   State<ImmersiveCard> createState() => _ImmersiveCardState();
 }
 
 class _ImmersiveCardState extends State<ImmersiveCard> {
-  bool _hover = false;
-  bool _focused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.focusNode?.addListener(_onFocusChange);
-  }
-
-  @override
-  void didUpdateWidget(covariant ImmersiveCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusNode != widget.focusNode) {
-      oldWidget.focusNode?.removeListener(_onFocusChange);
-      widget.focusNode?.addListener(_onFocusChange);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.focusNode?.removeListener(_onFocusChange);
-    super.dispose();
-  }
-
-  void _onFocusChange() {
-    final hasFocus = widget.focusNode?.hasFocus ?? false;
-    if (hasFocus) widget.onFocus?.call();
-    if (hasFocus != _focused && mounted) {
-      setState(() => _focused = hasFocus);
-    }
-  }
-
-  /// 鼠标悬停与键盘焦点共用同一套高亮，TV / 桌面手感一致。
-  bool get _active => _hover || _focused;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final card = MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _active ? 1.035 : 1,
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          child: SizedBox(
-            width: widget.width,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: _active
-                          ? theme.colorScheme.primary.withValues(alpha: 0.75)
-                          : Colors.white.withValues(alpha: 0.08),
-                    ),
-                    boxShadow: _active
-                        ? [
-                            BoxShadow(
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: 0.24,
-                              ),
-                              blurRadius: 22,
-                              offset: const Offset(0, 8),
-                            ),
-                          ]
-                        : const [],
+    return ImmersiveFocusable(
+      focusNode: widget.focusNode,
+      autofocus: widget.autofocus,
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      onSecondaryTap: widget.onSecondaryTap,
+      onFocusChange: (hasFocus) {
+        if (hasFocus) widget.onFocus?.call();
+      },
+      builder: (context, active) => AnimatedScale(
+        scale: active ? 1.035 : 1,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: SizedBox(
+          width: widget.width,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: active
+                        ? theme.colorScheme.primary.withValues(alpha: 0.75)
+                        : Colors.white.withValues(alpha: 0.08),
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ImmersiveBackdrop(
-                            title: widget.title,
-                            year: widget.year,
-                            fallback: widget.fallback,
-                            scrim: widget.showText,
-                            placeholderTitle: widget.showText
-                                ? ''
-                                : widget.title,
-                            artworkTitle: widget.artworkTitle,
+                  boxShadow: active
+                      ? [
+                          BoxShadow(
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.24,
+                            ),
+                            blurRadius: 22,
+                            offset: const Offset(0, 8),
                           ),
-                          if (widget.badge.isNotEmpty)
-                            Positioned(
-                              left: 10,
-                              top: 10,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.62),
-                                  borderRadius: BorderRadius.circular(6),
+                        ]
+                      : const [],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ImmersiveBackdrop(
+                          title: widget.title,
+                          year: widget.year,
+                          fallback: widget.fallback,
+                          scrim: widget.showText,
+                          placeholderTitle: widget.showText
+                              ? ''
+                              : widget.title,
+                          artworkTitle: widget.artworkTitle,
+                        ),
+                        if (widget.badge.isNotEmpty)
+                          Positioned(
+                            left: 10,
+                            top: 10,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.62),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3,
-                                  ),
-                                  child: Text(
-                                    widget.badge,
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                child: Text(
+                                  widget.badge,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
                             ),
-                          if (widget.progress > 0)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(
-                                  bottom: Radius.circular(12),
-                                ),
-                                child: LinearProgressIndicator(
-                                  value: widget.progress.clamp(0.0, 1.0),
-                                  minHeight: 4,
-                                  backgroundColor: Colors.black.withValues(
-                                    alpha: 0.34,
-                                  ),
+                          ),
+                        if (widget.progress > 0)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: ClipRRect(
+                              borderRadius: const BorderRadius.vertical(
+                                bottom: Radius.circular(12),
+                              ),
+                              child: LinearProgressIndicator(
+                                value: widget.progress.clamp(0.0, 1.0),
+                                minHeight: 4,
+                                backgroundColor: Colors.black.withValues(
+                                  alpha: 0.34,
                                 ),
                               ),
                             ),
-                          if (widget.showText)
-                            Positioned(
-                              left: 12,
-                              right: 12,
-                              bottom: 10,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
+                          ),
+                        if (widget.showText)
+                          Positioned(
+                            left: 12,
+                            right: 12,
+                            bottom: 10,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    shadows: const [
+                                      Shadow(blurRadius: 8, color: Colors.black),
+                                    ],
+                                  ),
+                                ),
+                                if (widget.subtitle.isNotEmpty)
                                   Text(
-                                    widget.title,
-                                    maxLines: 2,
+                                    widget.subtitle,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                      shadows: const [
-                                        Shadow(blurRadius: 8, color: Colors.black),
-                                      ],
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.66),
                                     ),
                                   ),
-                                  if (widget.subtitle.isNotEmpty)
-                                    Text(
-                                      widget.subtitle,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.labelSmall?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.66),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                              ],
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-                if (!widget.showText) ...[
-                  const SizedBox(height: 8),
+              ),
+              if (!widget.showText) ...[
+                const SizedBox(height: 8),
+                Text(
+                  widget.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (widget.subtitle.isNotEmpty)
                   Text(
-                    widget.title,
-                    maxLines: 2,
+                    widget.subtitle,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.58),
                     ),
                   ),
-                  if (widget.subtitle.isNotEmpty)
-                    Text(
-                      widget.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.58),
-                      ),
-                    ),
-                ],
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-    // 没有焦点节点时保持纯鼠标卡片：沉浸模式里的大部分卡片仍由鼠标操作，
-    // 只有需要遥控器导航的列表才传入 focusNode。
-    final node = widget.focusNode;
-    if (node == null) return card;
-    return Focus(
-      focusNode: node,
-      // 键盘焦点不应该画 Flutter 默认的焦点框：我们用 _active 自己画高亮。
-      child: Builder(
-        builder: (context) => Shortcuts(
-          shortcuts: const <ShortcutActivator, Intent>{
-            // 回车与遥控器 OK 键都归到 ActivateIntent。
-            // 注意不要同时写 numpadEnter：它与 enter 是同一个 logical key，
-            // 放进 const map 会被判重复键。
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
-          },
-          child: Actions(
-            actions: <Type, Action<Intent>>{
-              ActivateIntent: CallbackAction<ActivateIntent>(
-                onInvoke: (_) {
-                  widget.onTap();
-                  return null;
-                },
-              ),
-            },
-            child: card,
+            ],
           ),
         ),
       ),
@@ -895,7 +962,15 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
 }
 
 /// 卡片点击：豆瓣推荐源没有可播线路，改为全源搜索。
-void openImmersiveItem(BuildContext context, VodItem item) {
+///
+/// [autoPlay] 为 true 时详情加载完直接起播（继续观看 / 历史卡）；
+/// [fromStart] 配合它使用，忽略历史进度从头播放。
+void openImmersiveItem(
+  BuildContext context,
+  VodItem item, {
+  bool autoPlay = false,
+  bool fromStart = false,
+}) {
   final app = AppScope.of(context);
   final titleOnly = item.id.trim().isNotEmpty && item.id.trim() == item.name.trim();
   if (app.isDoubanSourceKey(item.sourceKey) || titleOnly) {
@@ -903,7 +978,62 @@ void openImmersiveItem(BuildContext context, VodItem item) {
     return;
   }
   Navigator.of(context).push(
-    MaterialPageRoute(builder: (_) => DetailPage(item: item)),
+    MaterialPageRoute(
+      builder: (_) => DetailPage(
+        item: item,
+        autoPlay: autoPlay,
+        fromStart: fromStart,
+      ),
+    ),
+  );
+}
+
+/// 沉浸模式统一的上下文菜单：长按、遥控器菜单键、右键都会打开它。
+Future<void> showImmersiveActionMenu(
+  BuildContext context, {
+  required String title,
+  required List<({IconData icon, String label, VoidCallback onTap})> actions,
+}) async {
+  if (actions.isEmpty) return;
+  final theme = immersiveTheme(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: const Color(0xFF141A15),
+    showDragHandle: true,
+    builder: (sheetContext) => Theme(
+      data: theme,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 2, 24, 10),
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            for (var i = 0; i < actions.length; i++)
+              ListTile(
+                autofocus: i == 0,
+                leading: Icon(actions[i].icon),
+                title: Text(actions[i].label),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  actions[i].onTap();
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
   );
 }
 

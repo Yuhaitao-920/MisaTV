@@ -630,6 +630,31 @@ class SettingsPageState extends State<SettingsPage> {
                           )
                         else
                           _LiveSourceList(lives: app.lives, app: app),
+                        const SizedBox(height: 14),
+                        Text('直播页布局', style: theme.textTheme.labelMedium),
+                        const SizedBox(height: 4),
+                        Text(
+                          '网格：一行显示多个频道；平铺：一行一个频道，长标题最多显示两行',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.55,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final item in const [(0, '网格'), (1, '平铺')])
+                              ChoiceChip(
+                                label: Text(item.$2),
+                                selected: app.liveLayoutMode == item.$1,
+                                onSelected: (_) =>
+                                    app.setLiveLayoutMode(item.$1),
+                              ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
                         Divider(
                           height: 1,
@@ -1085,6 +1110,54 @@ class SettingsPageState extends State<SettingsPage> {
                             }
                           },
                         ),
+                        if (app.playerSettings.immersiveMode) ...[
+                          const SizedBox(height: 2),
+                          Text('沉浸模式字号', style: theme.textTheme.labelMedium),
+                          const SizedBox(height: 4),
+                          Text(
+                            '只影响沉浸观影的首页、搜索、直播、历史、收藏与详情页，播放器保持不变',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.55,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final item in const [
+                                (1.0, '标准'),
+                                (1.1, '大'),
+                                (1.2, '特大'),
+                              ])
+                                ChoiceChip(
+                                  label: Text(item.$2),
+                                  selected:
+                                      (app
+                                                  .playerSettings
+                                                  .immersiveFontScale -
+                                              item.$1)
+                                          .abs() <
+                                      0.01,
+                                  onSelected: (_) async {
+                                    await app.setPlayerSettings(
+                                      app.playerSettings.copyWith(
+                                        immersiveFontScale: item.$1,
+                                      ),
+                                    );
+                                    if (context.mounted) {
+                                      _settingsSnack(
+                                        context,
+                                        '沉浸模式字号：${item.$2}',
+                                      );
+                                    }
+                                  },
+                                ),
+                            ],
+                          ),
+                        ],
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('首页台词轮换'),

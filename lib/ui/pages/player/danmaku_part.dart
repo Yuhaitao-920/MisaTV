@@ -410,7 +410,17 @@ extension _PlayerDanmakuExt on _PlayerPageState {
       }
       if (!mounted) return;
       _setState(() => _subtitleStatus = file.name.isEmpty ? '外挂字幕' : file.name);
-      _toast('字幕已载入：$_subtitleStatus');
+      // 疑似 AI 摘要字幕：时间轴能走，但内容只是换场梗概，用户会以为「对不上集数」。
+      // 直接说清楚，省得反复重选。
+      final health = file.health;
+      if (health.isLikelySummary) {
+        _toast(
+          '字幕已载入，但这是摘要字幕（${health.averageGapSeconds.round()}s/条，'
+          '共 ${health.entries} 条），不是逐句对白，画面与文字可能不同步',
+        );
+      } else {
+        _toast('字幕已载入：$_subtitleStatus');
+      }
     } catch (e) {
       _toast('字幕挂载失败（当前内核可能不支持外挂字幕）：$e');
     }

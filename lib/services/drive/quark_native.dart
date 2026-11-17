@@ -176,7 +176,59 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
       passcode: pwd?.group(1) ?? '',
     );
   }
+
+  // CAT 系壳（`csp_MoggCAT` 等）的 `~~` 串：只有线路名明确是夸克时才解释。
+  // 实测样本：`<fid>~~<share_fid_token>~~<pwd_id>~~<name>`
+  //   f0fa80322caa4b579c0f89cb46004ffc (32 hex) → fid
+  //   13db5508613442d0fc3c3062d78986a4 (32 hex) → share_fid_token
+  //   803858da27e1                       (12 hex) → pwd_id
+  //   NmW+8Wgx3gA9eJotbpYaKEKf1oK9Bdakc…  → 文件名
+  if (_quarkFlagRe.hasMatch(flag)) {
+    final ref = _extractQuarkTilde(text);
+    if (ref != null) return ref;
+  }
   return null;
+}
+
+/// 解析 CAT 系壳的 `fid~~share_fid_token~~pwd_id~~name` 串。
+///
+/// 段数不足 3 或第 3 段不像分享 ID 时返回 null —— 宁可回退 jar，
+/// 也不要把一段任意文本当分享去请求（会白等一次网络）。
+QuarkShareRef? _extractQuarkTilde(String text) {
+  final trimmed = text.trim();
+  if (!trimmed.contains('~~')) return null;
+  // 过短的一定不是；也排除 URL（`~~` 只会出现在壳生成的描述串里）
+  if (trimmed.length < 20) return null;
+  if (RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
+    return null;
+  }
+  // ★ 只切前 3 个分隔符，余下整段作为文件名 —— 与百度 `++` 串同一套做法。
+  //   文件名里可能出现 `~~`（壳直接用原文件名拼接），全量 split 会把名字截断。
+  final cut = <String>[];
+  var from = 0;
+  for (var i = 0; i < 3; i++) {
+    final at = trimmed.indexOf('~~', from);
+    if (at < 0) return null;
+    cut.add(trimmed.substring(from, at));
+    from = at + 2;
+  }
+  final name = trimmed.substring(from).trim();
+  final fid = cut[0].trim();
+  final token = cut[1].trim();
+  final pwdId = cut[2].trim();
+  // 前两段是 32 位十六进制；分享 ID 是 12 位左右。宽松一点：都必须是
+  // 「非空且不含分隔残留」的十六进制/字母数字。
+  final hexRe = RegExp(r'^[0-9a-fA-F]{8,64}$');
+  final idRe = RegExp(r'^[0-9a-zA-Z]{8,64}$');
+  if (!hexRe.hasMatch(fid)) return null;
+  if (!hexRe.hasMatch(token)) return null;
+  if (!idRe.hasMatch(pwdId)) return null;
+  return QuarkShareRef(
+    pwdId: pwdId,
+    fileId: fid,
+    fileToken: token,
+    name: name,
+  );
 }
 
 /// 全局串行锁：分享会话与 download 下发 Cookie 属共享状态机，并发会互相污染。

@@ -1,3 +1,5 @@
+import 'subtitle_health.dart';
+
 /// 外挂字幕的数据模型（供播放器 / 设置页直接调用）。
 ///
 /// 与旧版 `src/shared/subtitle.ts` 对齐，但只保留 Flutter 侧需要的字段。
@@ -109,6 +111,12 @@ class SubtitleFile {
   final String format;
 
   final String text;
+
+  /// 质量体检：条数 / 跨度 / 平均间隔。
+  ///
+  /// assrt 上存在「AI 摘要」字幕（实测 36 秒一条），时间轴能走但内容只是
+  /// 换场梗概。这里算出来供 UI 提示，避免用户误以为「字幕对不上集数」。
+  SubtitleHealth get health => inspectSubtitleHealth(text);
 }
 
 /// 字幕服务可读异常（消息直接面向用户）。

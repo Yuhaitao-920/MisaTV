@@ -19,54 +19,125 @@ class ImmersiveSearchPage extends StatefulWidget {
 class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
+  final FocusNode _firstResultFocus = FocusNode(
+    debugLabel: 'immersive-search-first-result',
+  );
   StreamSubscription<SearchProgress>? _sub;
   String _keyword = '';
   bool _searching = false;
+  bool _focusResults = false;
+  bool _hasText = false;
+
+  /// 输入即搜：停止输入 450ms 后自动搜索，避免每敲一个字就全源检索。
+  Timer? _debounce;
+  static const _debounceDuration = Duration(milliseconds: 450);
+
+  /// [_submit] 回填输入框时抑制监听，防止自己触发一次多余搜索。
+  bool _syncingText = false;
   List<VodItem> _items = const [];
   SearchProgress? _progress;
   int _handledSeq = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTextChanged);
+  }
+
+  @override
   void dispose() {
+    _debounce?.cancel();
+    _controller.removeListener(_onTextChanged);
     _sub?.cancel();
     _controller.dispose();
     _focus.dispose();
+    _firstResultFocus.dispose();
     super.dispose();
   }
 
-  Future<void> _submit(String raw) async {
-    final keyword = raw.trim();
-    if (keyword.isEmpty) return;
-    _controller.text = keyword;
-    final app = AppScope.of(context);
-    await app.addSearchKeyword(keyword);
-    await _sub?.cancel();
+  void _onTextChanged() {
+    if (_syncingText) return;
+    final hasText = _controller.text.isNotEmpty;
+    if (hasText != _hasText) setState(() => _hasText = hasText);
+    _debounce?.cancel();
+    final keyword = _controller.text.trim();
+    if (keyword.isEmpty) {
+      _resetResults();
+      return;
+    }
+    if (keyword == _keyword) return;
+    _debounce = Timer(_debounceDuration, () => _submit(keyword, auto: true));
+  }
+
+  /// 清空输入 / 退格到空：取消正在进行的搜索并回到最近搜索。
+  void _resetResults() {
+    if (_keyword.isEmpty && _items.isEmpty && !_searching) return;
+    unawaited(_sub?.cancel());
+    _sub = null;
+    if (!mounted) return;
     setState(() {
-      _keyword = keyword;
-      _searching = true;
+      _keyword = '';
+      _searching = false;
+      _focusResults = false;
       _items = const [];
       _progress = null;
     });
-    _sub = app.searchService.search(keyword, app.usableSites).listen(
-      (progress) {
-        if (!mounted) return;
-        setState(() {
-          _progress = progress;
-          _items = progress.items;
-          _searching = !progress.finished;
-        });
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        setState(() {
-          _searching = false;
-          _keyword = keyword;
-        });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('搜索失败：$error')));
-      },
-    );
+  }
+
+  /// [auto] 为输入即搜的自动检索：不记历史、不把焦点从输入框抢走。
+  Future<void> _submit(String raw, {bool auto = false}) async {
+    _debounce?.cancel();
+    final keyword = raw.trim();
+    if (keyword.isEmpty) return;
+    // 同一个词正在搜：输入框回填 / 连按回车不再重复发起。
+    if (keyword == _keyword && _searching) return;
+    if (_controller.text != keyword) {
+      _syncingText = true;
+      _controller.text = keyword;
+      _syncingText = false;
+    }
+    final app = AppScope.of(context);
+    await _sub?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _keyword = keyword;
+      _searching = true;
+      _focusResults = !auto;
+      _hasText = true;
+      _items = const [];
+      _progress = null;
+    });
+    if (!auto) unawaited(app.addSearchKeyword(keyword));
+    _sub = app.searchService
+        .search(keyword, app.usableSites)
+        .listen(
+          (progress) {
+            if (!mounted) return;
+            setState(() {
+              _progress = progress;
+              _items = progress.items;
+              _searching = !progress.finished;
+            });
+            if (_focusResults && progress.items.isNotEmpty) {
+              _focusResults = false;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _firstResultFocus.requestFocus();
+              });
+            } else if (progress.finished) {
+              _focusResults = false;
+            }
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _searching = false;
+              _focusResults = false;
+              _keyword = keyword;
+            });
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text('搜索失败：$error')));
+          },
+        );
   }
 
   @override
@@ -117,19 +188,13 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
                     decoration: InputDecoration(
                       hintText: '搜索电影 / 剧集 / 综艺',
                       prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: _keyword.isEmpty
+                      suffixIcon: !_hasText
                           ? null
                           : IconButton(
                               tooltip: '清空',
                               icon: const Icon(Icons.close_rounded, size: 18),
-                              onPressed: () {
-                                _controller.clear();
-                                setState(() {
-                                  _keyword = '';
-                                  _items = const [];
-                                  _progress = null;
-                                });
-                              },
+                              // 监听器会取消防抖、取消在途搜索并清空结果。
+                              onPressed: _controller.clear,
                             ),
                     ),
                   ),
@@ -204,6 +269,7 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
       itemBuilder: (context, index) {
         final item = _items[index];
         return ImmersiveCard(
+          focusNode: index == 0 ? _firstResultFocus : null,
           title: item.name,
           year: item.year,
           // 搜索结果很多是长标题的视频/切片；封面按用户搜索的剧名匹配，

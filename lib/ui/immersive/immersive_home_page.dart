@@ -64,16 +64,30 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     () => FocusNode(debugLabel: 'immersive-card-$key'),
   );
 
+  /// 卡片 key 用「货架标题 + 条目 + 序号」而不是纯下标：
+  /// 「继续观看」插到最前面时，其它货架的下标会整体后移，
+  /// 纯下标会让焦点记忆指向另一张卡。
+  String _shelfKey(int shelfIndex, int itemIndex) {
+    final shelf = _shelves[shelfIndex];
+    final entry = shelf.items[itemIndex];
+    final id = entry.item?.id ?? entry.fallback;
+    return '${shelf.title}|${entry.title}|$id|$itemIndex';
+  }
+
   /// 货架内容变化后：同步有效 key，释放已消失卡片的节点。
   void _syncFocusKeys() {
     final keys = <String>[
       for (var s = 0; s < _shelves.length; s++)
-        for (var i = 0; i < _shelves[s].items.length; i++) '$s:$i',
+        for (var i = 0; i < _shelves[s].items.length; i++) _shelfKey(s, i),
       for (var i = 0; i < _classes.length; i++) 'cls:$i',
     ];
     final removed = _focusMemory.syncKeys(keys);
     for (final key in removed) {
-      _focusNodes.remove(key)?.dispose();
+      final node = _focusNodes.remove(key);
+      // 等旧卡片先卸载再释放节点，避免 Focus 还在树上时节点已 dispose。
+      if (node != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => node.dispose());
+      }
     }
   }
 
@@ -100,6 +114,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
       _site = null;
       _total = 0;
     });
+    _syncFocusKeys();
     if (site == null) {
       setState(() => _loading = false);
       return;
@@ -117,16 +132,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
             if (cls.id.trim().isNotEmpty && cls.name.trim().isNotEmpty) cls,
         ];
         _hero = [
-          for (final item in items.take(6))
-            ImmersiveHeroItem(
-              title: item.name,
-              year: _validYear(item.year) ? item.year : '',
-              subtitle: _heroSubtitle(item, site),
-              description: _heroDescription(item),
-              fallback: item.cleanPic,
-              actionLabel: '查看详情',
-              onTap: () => openImmersiveItem(context, item),
-            ),
+          for (final item in items.take(6)) _heroItemOf(item, site, app),
         ];
         _shelves = [
           if (items.isNotEmpty)
@@ -136,6 +142,8 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
             ),
         ];
       });
+      _syncFocusKeys();
+      if (items.isNotEmpty) _restoreFocusSoon();
       if (items.isEmpty) {
         await _loadDoubanFallback(app);
         await _loadContinueWatching(app);
@@ -167,6 +175,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
           fallback: item.pic,
           badge: item.episodeName.isEmpty ? '' : item.episodeName,
           progress: item.progress,
+          resume: true,
           item: VodItem(
             id: item.vodId,
             name: item.name,
@@ -183,6 +192,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
         ..._shelves,
       ];
     });
+    _syncFocusKeys();
   }
 
   Future<void> _loadCategoryShelves(
@@ -212,6 +222,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
             (title: cls.name, items: [for (final item in items) _entryOf(item, site)]),
           ];
         });
+        _syncFocusKeys();
       } catch (_) {
         // 单个分类失败不影响其它货架
       }
@@ -267,15 +278,47 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
   }
 
   /// 等一帧再恢复焦点：卡片要先进树，FocusNode 才能被 requestFocus。
+  ///
+  /// 不用「第一张卡」兜底：首页首屏是整屏 Hero，强行聚焦屏幕外的卡片
+  /// 会让用户按回车打开一个看不见的条目。没有记忆时把焦点留给顶部 Tab。
   void _restoreFocusSoon() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final target = _focusMemory.restoreTarget(fallback: '0:0');
+      final target = _focusMemory.restoreTarget();
       if (target == null) return;
       final node = _focusNodes[target];
       if (node == null || !node.canRequestFocus) return;
+      final context = node.context;
+      if (context != null) {
+        unawaited(
+          Scrollable.ensureVisible(
+            context,
+            alignment: 0.5,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
       node.requestFocus();
     });
+  }
+
+  ImmersiveHeroItem _heroItemOf(VodItem item, SourceBean site, AppState app) {
+    final history = app.historyFor(item.sourceKey, item.id);
+    final canResume = history != null && history.positionMs > 0;
+    return ImmersiveHeroItem(
+      title: item.name,
+      year: _validYear(item.year) ? item.year : '',
+      subtitle: _heroSubtitle(item, site),
+      description: _heroDescription(item),
+      fallback: item.cleanPic,
+      actionLabel: canResume ? '继续播放' : '查看详情',
+      onTap: () => openImmersiveItem(
+        context,
+        item,
+        autoPlay: canResume,
+      ),
+    );
   }
 
   String _heroSubtitle(VodItem item, SourceBean site) {
@@ -307,13 +350,44 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     item: item,
   );
 
-  void _open(_HomeEntry entry) {
+  void _open(_HomeEntry entry, {bool? autoPlay, bool fromStart = false}) {
     final item = entry.item;
     if (item != null) {
-      openImmersiveItem(context, item);
+      openImmersiveItem(
+        context,
+        item,
+        autoPlay: autoPlay ?? entry.resume,
+        fromStart: fromStart,
+      );
       return;
     }
     AppScope.of(context).requestSearch(entry.title);
+  }
+
+  /// 继续观看卡的上下文菜单：继续 / 从头 / 详情。
+  void _showEntryMenu(_HomeEntry entry) {
+    if (entry.item == null) return;
+    showImmersiveActionMenu(
+      context,
+      title: entry.title,
+      actions: [
+        (
+          icon: Icons.play_arrow_rounded,
+          label: '继续播放',
+          onTap: () => _open(entry, autoPlay: true),
+        ),
+        (
+          icon: Icons.replay_rounded,
+          label: '从头播放',
+          onTap: () => _open(entry, autoPlay: true, fromStart: true),
+        ),
+        (
+          icon: Icons.info_outline_rounded,
+          label: '查看详情',
+          onTap: () => _open(entry, autoPlay: false),
+        ),
+      ],
+    );
   }
 
   void _openCategory(SortClass cls) {
@@ -365,6 +439,9 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     // 这比自己算网格更稳（货架是横向滚动 + 多个分架的混合布局）。
     return Focus(
       focusNode: _rootFocus,
+      // 只作为货架卡片的焦点容器，本身不参与遍历，避免方向键停在空白节点。
+      canRequestFocus: false,
+      skipTraversal: true,
       child: ScrollConfiguration(
         behavior: const MouseDragScrollBehavior(),
         child: SingleChildScrollView(
@@ -490,10 +567,15 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                   padding: EdgeInsets.symmetric(horizontal: m.gutter),
                   itemCount: _classes.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) => _CategoryChip(
-                    label: _classes[index].name,
-                    onTap: () => _openCategory(_classes[index]),
-                  ),
+                  itemBuilder: (context, index) {
+                    final key = 'cls:$index';
+                    return _CategoryChip(
+                      label: _classes[index].name,
+                      focusNode: _focusNodeFor(key),
+                      onFocus: () => _focusMemory.remember(key),
+                      onTap: () => _openCategory(_classes[index]),
+                    );
+                  },
                 ),
               ),
             ),
@@ -508,7 +590,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                 height: m.shelfHeight,
                 itemBuilder: (context, index) {
                   final entry = _shelves[shelfIndex].items[index];
-                  final key = '$shelfIndex:$index';
+                  final key = _shelfKey(shelfIndex, index);
                   return ImmersiveCard(
                     title: entry.title,
                     year: entry.year,
@@ -525,6 +607,12 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                       _focusMemory.remember(key);
                       _open(entry);
                     },
+                    onLongPress: entry.resume
+                        ? () => _showEntryMenu(entry)
+                        : null,
+                    onSecondaryTap: entry.resume
+                        ? () => _showEntryMenu(entry)
+                        : null,
                   );
                 },
               ),
@@ -539,46 +627,45 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
   }
 }
 
-class _CategoryChip extends StatefulWidget {
-  const _CategoryChip({required this.label, required this.onTap});
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.onTap,
+    this.focusNode,
+    this.onFocus,
+  });
 
   final String label;
   final VoidCallback onTap;
-
-  @override
-  State<_CategoryChip> createState() => _CategoryChipState();
-}
-
-class _CategoryChipState extends State<_CategoryChip> {
-  bool _hover = false;
+  final FocusNode? focusNode;
+  final VoidCallback? onFocus;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: _hover ? 0.13 : 0.07),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: _hover
-                  ? theme.colorScheme.primary.withValues(alpha: 0.55)
-                  : Colors.white.withValues(alpha: 0.08),
-            ),
+    return ImmersiveFocusable(
+      focusNode: focusNode,
+      onTap: onTap,
+      onFocusChange: (focused) {
+        if (focused) onFocus?.call();
+      },
+      builder: (context, active) => AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: active ? 0.13 : 0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: active
+                ? theme.colorScheme.primary.withValues(alpha: 0.55)
+                : Colors.white.withValues(alpha: 0.08),
           ),
-          child: Text(
-            widget.label,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withValues(alpha: _hover ? 0.96 : 0.78),
-            ),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: active ? 0.96 : 0.78),
           ),
         ),
       ),
@@ -594,6 +681,7 @@ class _HomeEntry {
     this.fallback = '',
     this.badge = '',
     this.progress = 0,
+    this.resume = false,
     this.item,
   });
 
@@ -603,5 +691,8 @@ class _HomeEntry {
   final String fallback;
   final String badge;
   final double progress;
+
+  /// 继续观看 / 历史条目：点击直接续播，并带上下文菜单。
+  final bool resume;
   final VodItem? item;
 }

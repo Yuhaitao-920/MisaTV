@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../../core/platform/window_service.dart';
@@ -29,6 +30,23 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
       GlobalKey<SettingsPageState>();
   Timer? _clock;
   String _time = '';
+  DateTime? _lastRootBackAt;
+
+  /// 顶部导航自动隐藏：鼠标/按键出现，静止 4 秒后淡出。
+  Timer? _chromeTimer;
+  bool _chromeVisible = true;
+  bool _pointerOverChrome = false;
+  DateTime _lastActivity = DateTime.now();
+  static const _chromeIdle = Duration(seconds: 4);
+  final FocusNode _chromeFocus = FocusNode(debugLabel: 'immersive-chrome');
+
+  /// 已经访问过的 Tab：没打开过的页面不构建，
+  /// 避免启动时同时拉首页、直播频道 + EPG、设置页整棵树。
+  final Set<int> _builtTabs = {0};
+  late final List<FocusNode> _tabNodes = List<FocusNode>.generate(
+    _items.length,
+    (i) => FocusNode(debugLabel: 'immersive-tab-$i'),
+  );
 
   static const _items = <({IconData icon, String label})>[
     (icon: Icons.home_rounded, label: '首页'),
@@ -43,19 +61,67 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
   void initState() {
     super.initState();
     RuntimeInstallPrompt.instance.onReveal = _revealRuntimeInstall;
+    immersiveBackRequests.addListener(_onBackRequest);
     // 沉浸观影 = 独占全屏；退出该模式时还原原来的窗口大小与位置。
     unawaited(enterImmersiveFullscreen());
+    // 沉浸模式的初始焦点放在当前 Tab 上：可见、可立刻用方向键进入内容。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tabNodes[0].requestFocus();
+    });
+    _showChrome();
+    HardwareKeyboard.instance.addHandler(_onAnyKey);
     _tick();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
   }
 
   @override
   void dispose() {
+    immersiveBackRequests.removeListener(_onBackRequest);
+    HardwareKeyboard.instance.removeHandler(_onAnyKey);
+    _chromeTimer?.cancel();
+    _chromeFocus.dispose();
+    for (final node in _tabNodes) {
+      node.dispose();
+    }
     RuntimeInstallPrompt.instance.onReveal = null;
     RuntimeInstallPrompt.instance.hostContext = null;
     _clock?.cancel();
     unawaited(exitImmersiveFullscreen());
     super.dispose();
+  }
+
+  /// 返回键在根页面：有二级页面时已经由全局 Navigator pop，
+  /// 这里负责从其它 Tab 退回首页；在首页再按一次退出沉浸模式。
+  void _onBackRequest() {
+    if (!mounted) return;
+    if (_index != 0) {
+      _lastRootBackAt = null;
+      setState(() => _index = 0);
+      _tabNodes[0].requestFocus();
+      _showChrome();
+      return;
+    }
+    final now = DateTime.now();
+    final last = _lastRootBackAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      _lastRootBackAt = null;
+      final app = AppScope.of(context);
+      unawaited(
+        app.setPlayerSettings(
+          app.playerSettings.copyWith(immersiveMode: false),
+        ),
+      );
+      return;
+    }
+    _lastRootBackAt = now;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('再按一次返回键退出沉浸观影'),
+          duration: Duration(seconds: 2),
+        ),
+      );
   }
 
   void _tick() {
@@ -66,10 +132,49 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     if (text != _time && mounted) setState(() => _time = text);
   }
 
+  /// 任意输入（按键 / 鼠标移动）都算活动：顶栏出现并重新开始倒计时。
+  void _showChrome() {
+    if (!mounted) return;
+    _lastActivity = DateTime.now();
+    if (!_chromeVisible) setState(() => _chromeVisible = true);
+    _chromeTimer ??= Timer(_chromeIdle, _hideChrome);
+  }
+
+  bool _onAnyKey(KeyEvent event) {
+    // 播放器 / 详情页压在上面时不打扰底层页面。
+    if (event is KeyDownEvent &&
+        mounted &&
+        (ModalRoute.of(context)?.isCurrent ?? true)) {
+      _showChrome();
+    }
+    return false;
+  }
+
+  void _hideChrome() {
+    _chromeTimer = null;
+    if (!mounted || !_chromeVisible) return;
+    // 鼠标停在顶栏上、或焦点还在顶栏里时不要收起来，避免刚要点就消失。
+    if (_pointerOverChrome || _chromeFocus.hasFocus) {
+      _showChrome();
+      return;
+    }
+    // 刚有输入就还没到空闲时间：补上剩余时间，而不是立刻收起。
+    final idle = DateTime.now().difference(_lastActivity);
+    if (idle < _chromeIdle) {
+      _chromeTimer = Timer(_chromeIdle - idle, _hideChrome);
+      return;
+    }
+    setState(() => _chromeVisible = false);
+  }
+
   Future<void> _revealRuntimeInstall(RuntimeExtension kind) async {
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
-    setState(() => _index = 5);
+    setState(() {
+      _builtTabs.add(5);
+      _index = 5;
+    });
+    _tabNodes[5].requestFocus();
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
     await _settingsKey.currentState?.revealRuntime(kind);
@@ -77,8 +182,28 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
 
   void _select(int index) {
     if (index == _index) return;
-    setState(() => _index = index);
+    setState(() {
+      _builtTabs.add(index);
+      _index = index;
+    });
+    _tabNodes[index].requestFocus();
+    _showChrome();
     if (index == 4) unawaited(AppScope.of(context).checkFavoriteUpdates());
+  }
+
+  Widget _pageAt(int index) {
+    if (!_builtTabs.contains(index)) return const SizedBox.shrink();
+    return switch (index) {
+      0 => const ImmersiveHomePage(),
+      1 => const ImmersiveSearchPage(),
+      2 => const ImmersiveLivePage(),
+      3 => const ImmersiveHistoryPage(),
+      4 => const ImmersiveFavoritesPage(),
+      _ => Padding(
+        padding: const EdgeInsets.only(top: 72),
+        child: SettingsPage(key: _settingsKey),
+      ),
+    };
   }
 
   @override
@@ -130,7 +255,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -326,7 +451,7 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _NavTab extends StatefulWidget {
+class _NavTab extends StatelessWidget {
   const _NavTab({
     required this.item,
     required this.selected,
@@ -338,13 +463,7 @@ class _NavTab extends StatefulWidget {
   final bool selected;
   final bool compact;
   final VoidCallback onTap;
-
-  @override
-  State<_NavTab> createState() => _NavTabState();
-}
-
-class _NavTabState extends State<_NavTab> {
-  bool _hover = false;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -401,10 +520,10 @@ class _NavTabState extends State<_NavTab> {
           decoration: decoration,
           child: Row(
             children: [
-              Icon(widget.item.icon, size: 17, color: color),
+              Icon(item.icon, size: 17, color: color),
               const SizedBox(width: 7),
               Text(
-                widget.item.label,
+                item.label,
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: color,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
@@ -412,8 +531,8 @@ class _NavTabState extends State<_NavTab> {
               ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

@@ -11,6 +11,7 @@ import '../../core/logging/log_redact.dart';
 import '../drive/baidu_native.dart';
 import '../live/live_ua_policy.dart';
 import '../drive/drive_descriptor.dart';
+import '../drive/quark_native.dart';
 import '../drive/uc_native.dart';
 import '../spider_debug/spider_debug_service.dart';
 import '../torrent/bt_stream.dart';
@@ -1155,6 +1156,21 @@ class LocalRelay {
   /// 加固壳的播放清单（如 `do=hmys`）会在分片地址里继续带同一套 query，
   /// 只有该 JVM 内存里的 Cookie / 密钥 / 签名能解；App 侧不能也不该重放。
   Future<void> _forwardJvmProxy(HttpRequest request, int port) async {
+    if (await _tryForwardJvmProxy(request, port, acceptErrorStatus: true)) {
+      return;
+    }
+    await _text(request.response, 502, '取流 JVM 代理不可用');
+  }
+
+  /// 把 `/proxy` 转发到 JVM；返回 true 表示响应已交给客户端。
+  ///
+  /// [acceptErrorStatus] 为 false 时，上游 4xx/5xx 视为「这只 JVM 处理不了」：
+  /// 排空响应并返回 false，调用方还能改走本地解链（`do=pan` 的兜底链要用）。
+  Future<bool> _tryForwardJvmProxy(
+    HttpRequest request,
+    int port, {
+    bool acceptErrorStatus = false,
+  }) async {
     final res = request.response;
     final rawQuery = request.uri.query;
     final target =
@@ -1171,12 +1187,23 @@ class LocalRelay {
       final value = request.headers.value(name);
       if (value != null && value.isNotEmpty) headers[name] = value;
     }
-    final upstream = (await _open(
-      target,
-      headers: headers,
-      method: request.method,
-      range: request.headers.value(HttpHeaders.rangeHeader),
-    )).response;
+    HttpClientResponse upstream;
+    try {
+      upstream = (await _open(
+        target,
+        headers: headers,
+        method: request.method,
+        range: request.headers.value(HttpHeaders.rangeHeader),
+      )).response;
+    } catch (e) {
+      AppLog.w('relay', '转发取流 JVM 失败：$e');
+      return false;
+    }
+    if (!acceptErrorStatus && upstream.statusCode >= 400) {
+      await upstream.drain<void>().catchError((Object _) {});
+      AppLog.w('relay', '取流 JVM 未能处理该路由（HTTP ${upstream.statusCode}）');
+      return false;
+    }
     res.statusCode = upstream.statusCode;
     _copyHeader(upstream, res, HttpHeaders.contentTypeHeader);
     _copyHeader(upstream, res, HttpHeaders.contentLengthHeader);
@@ -1185,9 +1212,10 @@ class LocalRelay {
     _copyHeader(upstream, res, HttpHeaders.contentEncodingHeader);
     if (request.method == 'HEAD') {
       await res.close();
-      return;
+      return true;
     }
     await upstream.pipe(res);
+    return true;
   }
 
   /// 宿主网盘路由 `do=pan`：把壳/爪返回的网盘分享（百度 / UC / 夸克）解成直链并中继。
@@ -1204,40 +1232,105 @@ class LocalRelay {
         .trim()
         .toLowerCase();
     final text = _panShareText(q, provider);
-    if (text.isEmpty) {
-      return _text(res, 400, 'do=pan 缺少分享地址/描述符');
-    }
+    final jvmPort = _jvmProxyPort();
+    final shareId = (q['shareId'] ?? q['share_id'] ?? q['surl'] ?? '').trim();
+    final fileToken = (q['fileToken'] ?? q['token'] ?? '').trim();
+    final fileId = (q['fileId'] ?? q['fsid'] ?? '').trim();
+    final name = (q['name'] ?? '').trim();
+    final onlyFileId = shareId.isEmpty && fileToken.isEmpty && fileId.isNotEmpty;
     final tokens = _driveTokens();
-    NativeDriveLink? link;
     final baiduLike =
         provider.startsWith('baidu') ||
         text.startsWith('baidu@') ||
         text.contains('pan.baidu.com') ||
         text.contains('baidupcs.com');
+    final quarkLike =
+        provider.startsWith('quark') ||
+        provider.contains('夸克') ||
+        provider.contains('夸父') ||
+        text.startsWith('quark@') ||
+        text.contains('pan.quark.cn');
     final ucLike =
         provider.startsWith('uc') ||
-        provider.startsWith('quark') ||
+        provider.contains('优汐') ||
         text.startsWith('uc@') ||
-        text.startsWith('quark@') ||
-        text.contains('drive.uc.cn') ||
-        text.contains('pan.quark.cn');
-    if (baiduLike) {
-      link = await resolveBaiduDirect(
-        text,
-        cookie: (tokens['baidu'] ?? '').trim(),
-        episodeName: (q['name'] ?? '').trim(),
-      );
-    } else if (ucLike) {
-      final key = provider.startsWith('quark') ? 'quark' : 'uc';
-      link = await resolveUcDirect(
-        text,
-        cookie: (tokens[key] ?? tokens['uc'] ?? '').trim(),
-        flag: (q['flag'] ?? provider).trim(),
-        episodeName: (q['name'] ?? '').trim(),
-      );
+        text.contains('drive.uc.cn');
+    if (text.isEmpty) {
+      return _text(res, 400, 'do=pan 缺少分享地址/描述符');
     }
+
+    NativeDriveLink? link;
+    // ★ 只有 fileId 的百度请求：fs_id 往往是**分享者**的，不在本账号网盘里，
+    //   `api/filemetas?dlink=1` 只会回 errno=0 + 空 info。
+    //   宿主代理提供 `do=winbox-baidu-context&fileId=`：从壳内存里的
+    //   shareFsIdMap / bdclndMap / ukMap 还原 share_id / uk / seKey。
+    //   拿到后拼成百度描述符，走只读分享取链（不查本人盘、不转存）。
+    if (onlyFileId && baiduLike && jvmPort > 0 && jvmPort != _port) {
+      final ctx = await _baiduShareContext(jvmPort, fileId);
+      if (ctx != null) {
+        final descriptor = _baiduContextDescriptor(ctx, name: name);
+        if (descriptor.isNotEmpty) {
+          link = await resolveBaiduDirect(
+            descriptor,
+            cookie: (tokens['baidu'] ?? '').trim(),
+            episodeName: name,
+          );
+          if (link.ok) {
+            AppLog.i(
+              'relay',
+              'do=pan 百度分享上下文命中 shareId=${ctx['share_id']}',
+            );
+          } else {
+            AppLog.w('relay', 'do=pan 百度上下文解链失败：${link.reason}');
+            link = null;
+          }
+        }
+      }
+    }
+
+    // 常规解链：文本 / 描述符 / 分享链接 / 本人盘 fileId。
+    // 只有 fileId 的百度请求已在上面专门处理，不再按本人盘查 filemetas。
+    if (link == null && !(onlyFileId && baiduLike)) {
+      if (baiduLike) {
+        link = await resolveBaiduDirect(
+          text,
+          cookie: (tokens['baidu'] ?? '').trim(),
+          episodeName: name,
+        );
+      } else if (quarkLike) {
+        link = await resolveQuarkDirect(
+          text,
+          cookie: (tokens['quark'] ?? '').trim(),
+          flag: (q['flag'] ?? provider).trim(),
+          episodeName: name,
+        );
+      } else if (ucLike) {
+        link = await resolveUcDirect(
+          text,
+          cookie: (tokens['uc'] ?? '').trim(),
+          flag: (q['flag'] ?? provider).trim(),
+          episodeName: name,
+        );
+      }
+    }
+
     if (link == null || !link.ok || link.url.isEmpty) {
       AppLog.w('relay', 'do=pan 解链失败 provider=$provider ${link?.reason ?? ''}');
+      // 本地解不了（典型：分享会话只在壳进程内存里）→ 交回 JVM 宿主代理。
+      if (jvmPort > 0 && jvmPort != _port) {
+        AppLog.i('relay', 'do=pan 改交 JVM 宿主代理 provider=$provider');
+        if (await _tryForwardJvmProxy(request, jvmPort)) return;
+      }
+      // 最后兜底：fileId 确实可能是本人盘文件（不是分享者的 fs_id）。
+      if (onlyFileId && baiduLike) {
+        link = await resolveBaiduDirect(
+          text,
+          cookie: (tokens['baidu'] ?? '').trim(),
+          episodeName: name,
+        );
+      }
+    }
+    if (link == null || !link.ok || link.url.isEmpty) {
       return _text(res, 502, '网盘解链失败：${link?.reason ?? '未识别的网盘'}');
     }
     AppLog.i('relay', 'do=pan 解链成功 ${redactUrl(link.url)}');
@@ -1358,6 +1451,23 @@ class LocalRelay {
       }
       final fileId = (q['fileId'] ?? q['file_id'] ?? '').trim();
       final token = (q['fileToken'] ?? q['token'] ?? '').trim();
+      // 夸克 / UC 的原生解链只认描述符，不认 `do=pan&site=…` 文本；
+      // 直接透传会让它们退化成「未识别分享链接」。
+      final quarkLike =
+          provider.startsWith('quark') ||
+          provider.contains('夸克') ||
+          provider.contains('夸父');
+      final ucLike = provider.startsWith('uc') || provider.contains('优汐');
+      if (quarkLike || ucLike) {
+        return _panDescriptorText(
+          quarkLike ? 'quark' : 'uc',
+          shareId: shareId,
+          fileId: fileId,
+          fileToken: token,
+          passcode: pwd,
+          name: (q['name'] ?? '').trim(),
+        );
+      }
       return 'do=pan&site=$provider&shareId=$shareId'
           '&fileId=$fileId&fileToken=$token';
     }
@@ -1370,6 +1480,95 @@ class LocalRelay {
     final desc = (q['desc'] ?? q['name'] ?? '').trim();
     if (desc.contains('__')) return desc;
     return '';
+  }
+
+  /// 把 `do=pan` 的 shareId / fileId / fileToken 拼成网盘描述符。
+  String _panDescriptorText(
+    String provider, {
+    required String shareId,
+    required String fileId,
+    required String fileToken,
+    required String passcode,
+    required String name,
+  }) {
+    final data = <String, String>{
+      'shareId': shareId,
+      if (fileId.isNotEmpty) 'fileId': fileId,
+      if (fileToken.isNotEmpty) 'share_fid_token': fileToken,
+      if (passcode.isNotEmpty) 'passcode': passcode,
+      if (name.isNotEmpty) 'name': name,
+    };
+    final encoded = base64Url
+        .encode(utf8.encode(jsonEncode(data)))
+        .replaceAll('=', '');
+    return '$provider@$encoded';
+  }
+
+  /// 向常驻 JVM 的宿主代理要「百度分享上下文」。
+  ///
+  /// 壳解析分享后会把 `shareId → fsId 列表`、`BDCLND`、`uk` 留在内存里；
+  /// 宿主代理的 `do=winbox-baidu-context` 会把它们还原成
+  /// `{share_id, uk, fs_id, seKey}`（只读，不转存）。拿不到时返回 null。
+  Future<Map<String, dynamic>?> _baiduShareContext(
+    int port,
+    String fileId,
+  ) async {
+    if (!RegExp(r'^\d+$').hasMatch(fileId)) return null;
+    final target =
+        'http://127.0.0.1:$port/proxy?do=winbox-baidu-context'
+        '&fileId=${Uri.encodeQueryComponent(fileId)}';
+    try {
+      final opened = await _open(
+        target,
+        headers: const <String, String>{},
+        method: 'GET',
+      ).timeout(const Duration(seconds: 3));
+      final upstream = opened.response;
+      final bytes = <int>[];
+      if (upstream.statusCode == 200) {
+        await for (final chunk in upstream) {
+          bytes.addAll(chunk);
+          if (bytes.length > 64 * 1024) break;
+        }
+      } else {
+        await upstream.drain<void>().catchError((Object _) {});
+      }
+      if (upstream.statusCode != 200 || bytes.isEmpty) return null;
+      final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (e) {
+      AppLog.w('relay', '读取百度分享上下文失败：$e');
+      return null;
+    }
+  }
+
+  /// 把 `winbox-baidu-context` 的结果拼成 `baidu@base64` 描述符。
+  String _baiduContextDescriptor(
+    Map<String, dynamic> ctx, {
+    required String name,
+  }) {
+    String field(String key) => (ctx[key] ?? '').toString().trim();
+    final shareId = field('share_id');
+    final uk = field('uk');
+    final fsid = field('fs_id');
+    final sekey = field('seKey');
+    if (!RegExp(r'^\d+$').hasMatch(shareId) ||
+        !RegExp(r'^\d+$').hasMatch(uk) ||
+        !RegExp(r'^\d+$').hasMatch(fsid) ||
+        sekey.isEmpty) {
+      return '';
+    }
+    final data = <String, String>{
+      'shareId': shareId,
+      'uk': uk,
+      'fs_id': fsid,
+      'seKey': sekey,
+      if (name.isNotEmpty) 'name': name,
+    };
+    final encoded = base64Url
+        .encode(utf8.encode(jsonEncode(data)))
+        .replaceAll('=', '');
+    return 'baidu@$encoded';
   }
 
   /// 大小写不敏感地取请求头值。

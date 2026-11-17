@@ -2843,7 +2843,7 @@ class JarSpiderService {
     }
   }
 
-  /// 加固壳类名 → payload 里可能出现的真实类（壳类去掉 Guard / DexNative 后缀）。
+  /// 加固壳类名 → payload 里可能出现的真实类（壳类去掉 Guard / Amns / CAT / DexNative 后缀）。
   List<String> _payloadClassEntries(String? className) {
     if (className == null || className.isEmpty) return const [];
     final full = className.replaceAll('/', '.');
@@ -2853,6 +2853,14 @@ class JarSpiderService {
         // 嗷呜系壳（AowuShinidie）：壳类 `WoggAmns` → 真实实现 `Wogg`。
         : simple.endsWith('Amns')
         ? simple.substring(0, simple.length - 'Amns'.length)
+        // ★ CAT 系壳（`hban.fuck` 那套）：壳类 `MoggCAT` → 真实实现 `Mogg`。
+        //   壳的 `BaseSpiderCAT.<init>` 把 `XxxCAT` 去掉 CAT 得到 `com.github.catvod.spider.Xxx`，
+        //   再 `Init.getSpider(target)`；载荷里只有 `Xxx.class`，没有 `XxxCAT.class`。
+        //   这里漏掉 CAT 后缀时 `wanted` 只有 `MoggCAT.class`，与载荷永远匹配不上
+        //   → `_payloadCandidates` 返回空 → 退回原生解包 → `getSpider` 拿不到实现
+        //   → `BaseSpiderCAT.real()` 恒 null → 所有 CAT 站点 homeContent 全 NPE。
+        : simple.endsWith('CAT') && simple.length > 'CAT'.length
+        ? simple.substring(0, simple.length - 'CAT'.length)
         : simple.endsWith('DexNative')
         ? simple.substring(0, simple.length - 'DexNative'.length)
         : '';

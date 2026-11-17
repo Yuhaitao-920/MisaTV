@@ -1,8 +1,37 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kniephos/models/site_config.dart';
 import 'package:kniephos/services/live_parser.dart';
 import 'package:kniephos/services/live_service.dart';
 
 void main() {
+  group('根部 headers 按 host 补频道请求头', () {
+    test('命中的频道补 UA / Referer，未命中的不动', () {
+      const txt = '''
+央视频道,#genre#
+CCTV1,http://mgtv.ottiptv.cc/1.m3u8
+CCTV2,http://other.example.com/2.m3u8
+''';
+      final groups = LiveParser.applyHostHeaders(
+        LiveParser.parseToGroups(txt),
+        const [
+          HeaderRule(
+            host: 'mgtv.ottiptv.cc',
+            header: {
+              'User-Agent': 'okHttp/1.5',
+              'Referer': 'https://mgtv.ottiptv.cc/',
+            },
+          ),
+        ],
+      );
+      final hit = groups.single.channels.first;
+      expect(hit.ua, 'okHttp/1.5');
+      expect(hit.referer, 'https://mgtv.ottiptv.cc/');
+      expect(hit.header?['User-Agent'], 'okHttp/1.5');
+      final miss = groups.single.channels.last;
+      expect(miss.header, isNull);
+      expect(miss.ua, isEmpty);
+    });
+  });
   group('LiveParser txt', () {
     test('分组、多 URL、合并与去重', () {
       const txt = '''

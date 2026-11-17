@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class SourceBean {
   const SourceBean({
     required this.key,
@@ -109,7 +111,7 @@ class SourceBean {
       changeable: _int(json['changeable'], 1),
       filterable: _int(json['filterable'], 1),
       playUrl: (json['playUrl'] ?? '').toString(),
-      ext: json['ext']?.toString() ?? '',
+      ext: _extOf(json['ext']),
       jar: (json['jar'] ?? '').toString(),
       playerType: _int(json['playerType'], -1),
       categories: (json['categories'] as List?)
@@ -152,7 +154,7 @@ class ParseBean {
   factory ParseBean.fromJson(Map<String, dynamic> json) => ParseBean(
     name: (json['name'] ?? '').toString(),
     url: (json['url'] ?? '').toString(),
-    ext: json['ext']?.toString() ?? '',
+    ext: _extOf(json['ext']),
     type: int.tryParse(json['type']?.toString() ?? '') ?? 0,
   );
 }
@@ -262,7 +264,7 @@ class LiveBean {
     type: (json['type'] ?? '0').toString(),
     url: (json['url'] ?? '').toString(),
     jar: (json['jar'] ?? '').toString(),
-    ext: json['ext']?.toString() ?? '',
+    ext: _extOf(json['ext']),
     epg: (json['epg'] ?? '').toString(),
     playerType: (json['playerType'] ?? '').toString(),
     timeZone: (json['timeZone'] ?? '').toString(),
@@ -272,6 +274,52 @@ class LiveBean {
     ),
     ua: (json['ua'] ?? '').toString(),
   );
+}
+
+/// 订阅根部的 `headers`：按 host 给播放请求补固定请求头。
+///
+/// 部分 IPTV 服务要求列表和频道流都带同一个 UA / Referer（`self.json`：
+/// `mgtv.ottiptv.cc`、`live.ottiptv.cc`、migu CDN），否则会下发广告流或
+/// 直接拒绝。两种写法都要认：数组（每条 `{host, header}`）和单个对象。
+class HeaderRule {
+  const HeaderRule({required this.host, required this.header});
+
+  final String host;
+  final Map<String, String> header;
+
+  bool matches(String urlHost) {
+    final target = urlHost.trim().toLowerCase();
+    final rule = host.trim().toLowerCase();
+    if (target.isEmpty || rule.isEmpty) return false;
+    return target == rule || target.endsWith('.$rule');
+  }
+
+  Map<String, dynamic> toJson() => {'host': host, 'header': header};
+
+  factory HeaderRule.fromJson(Map<String, dynamic> j) {
+    final raw = j['header'] is Map ? j['header'] : j['headers'];
+    return HeaderRule(
+      host: (j['host'] ?? '').toString(),
+      header: raw is Map
+          ? {
+              for (final e in raw.entries)
+                if (e.value != null && e.value.toString().trim().isNotEmpty)
+                  e.key.toString(): e.value.toString(),
+            }
+          : const {},
+    );
+  }
+}
+
+/// 找出 [url] 命中的根部请求头规则；没有命中返回 null。
+HeaderRule? headerRuleForUrl(String url, List<HeaderRule> rules) {
+  if (rules.isEmpty) return null;
+  final host = Uri.tryParse(url.trim())?.host ?? '';
+  if (host.isEmpty) return null;
+  for (final rule in rules) {
+    if (rule.matches(host)) return rule;
+  }
+  return null;
 }
 
 class SiteConfig {
@@ -289,6 +337,7 @@ class SiteConfig {
     this.doh = const [],
     this.ads = const [],
     this.proxy = const [],
+    this.headers = const [],
   });
 
   final List<SourceBean> sites;
@@ -304,6 +353,9 @@ class SiteConfig {
   final List<String> doh;
   final List<String> ads;
   final List<dynamic> proxy;
+
+  /// 订阅根部的 host → 请求头规则（直播列表与频道流共用）。
+  final List<HeaderRule> headers;
 
   List<SourceBean> get usableSites => sites.where((s) => s.supported).toList();
 
@@ -321,6 +373,7 @@ class SiteConfig {
     'doh': doh,
     'ads': ads,
     'proxy': proxy,
+    if (headers.isNotEmpty) 'headers': headers.map((e) => e.toJson()).toList(),
   };
 }
 
@@ -457,6 +510,7 @@ class ConfigProfile {
     required this.url,
     required this.rawJson,
     required this.importedAt,
+    this.baseUrl = '',
     this.report = ImportReport.empty,
     this.siteCount = 0,
     this.liveCount = 0,
@@ -468,11 +522,21 @@ class ConfigProfile {
   final String id;
   final String name;
   final String url;
+
+  /// 实际取到订阅正文的地址（重定向 / 镜像之后）。
+  ///
+  /// 订阅里的 `./jar/x.jar`、`./py/x.py` 等相对路径要按这个地址解析，
+  /// 而 [url] 只是用户填的原始地址，可能和被镜像改写的实际地址不同。
+  final String baseUrl;
+
   final String rawJson;
   final DateTime importedAt;
   final ImportReport report;
   final int siteCount;
   final int liveCount;
+
+  /// 解析相对路径的基准：优先实际地址，旧档案回落到用户填的订阅地址。
+  String get resolveBaseUrl => baseUrl.trim().isNotEmpty ? baseUrl.trim() : url.trim();
 
   /// 最近一次成功刷新订阅的时间（本地导入为空）。
   final DateTime? lastRefreshAt;
@@ -490,6 +554,7 @@ class ConfigProfile {
     'id': id,
     'name': name,
     'url': url,
+    'baseUrl': baseUrl,
     'rawJson': rawJson,
     'importedAt': importedAt.toIso8601String(),
     'report': report.toJson(),
@@ -505,6 +570,7 @@ class ConfigProfile {
     id: (j['id'] ?? '').toString(),
     name: (j['name'] ?? '').toString(),
     url: (j['url'] ?? '').toString(),
+    baseUrl: (j['baseUrl'] ?? '').toString(),
     rawJson: (j['rawJson'] ?? '').toString(),
     importedAt:
         DateTime.tryParse((j['importedAt'] ?? '').toString()) ?? DateTime.now(),
@@ -521,4 +587,28 @@ class ConfigProfile {
         (j['addedSiteKeys'] as List?)?.map((e) => e.toString()).toList() ??
         const [],
   );
+}
+
+/// 订阅里的 `ext` 可能是字符串，也可能是 JSON 对象 / 数组。
+///
+/// `?.toString()` 对 Map 得到的是 Dart 的 `Map.toString()`：
+///   `{site: http://666.666291.xyz/, token: }`
+/// 这不是合法 JSON。加固壳（如 `csp_MoggCAT` 的 `Mogg.init`）会
+/// `JsonParser.parseString(ext)` → 解析失败 → 空 JsonObject →
+/// `getAsJsonPrimitive("site")` 返回 null → `.getAsString()` NPE，
+/// 表现为「配置能导入、所有站点 homeContent 全失败」。
+///
+/// 所以对象 / 数组一律用 `jsonEncode` 还原成合法 JSON；字符串原样返回，
+/// 保证既有那批「ext 就是一段字符串」的源行为完全不变。
+String _extOf(Object? raw) {
+  if (raw == null) return '';
+  if (raw is String) return raw;
+  if (raw is Map || raw is List) {
+    try {
+      return jsonEncode(raw);
+    } catch (_) {
+      return raw.toString();
+    }
+  }
+  return raw.toString();
 }

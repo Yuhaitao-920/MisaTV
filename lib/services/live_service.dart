@@ -43,9 +43,11 @@ class LiveService {
   Future<List<LiveGroup>> load(
     LiveBean bean, {
     List<SourceBean> sites = const [],
+    List<HeaderRule> headerRules = const [],
   }) async {
     if (bean.isSpider) {
-      return _loadSpider(bean, sites);
+      final groups = await _loadSpider(bean, sites);
+      return LiveParser.applyHostHeaders(groups, headerRules);
     }
     // type 1 和 0 都是普通 txt/m3u 直播源；只有未知类型才拒绝。
     if (bean.type != '0' && bean.type != '1') {
@@ -69,6 +71,10 @@ class LiveService {
       throw SourceException('直播订阅地址无效：${bean.url}');
     }
     final host = Uri.tryParse(url)?.host ?? '';
+    // 订阅根 `headers` 的 host 规则：列表和频道流都要带同一套头。
+    final hostRule = headerRuleForUrl(url, headerRules);
+    final hostRuleHeaders = hostRule?.header ?? const <String, String>{};
+    final hostRuleUa = liveHeaderValue(hostRuleHeaders, 'user-agent');
     // 订阅 header 里的 UA 要按大小写不敏感取：订阅常写小写 \`user-agent\`。
     final headerUaValue = liveHeaderValue(bean.header ?? const {}, 'user-agent');
     final headerUa = headerUaValue.isNotEmpty;
@@ -80,7 +86,11 @@ class LiveService {
     // 不能因为这个功能把已知服务搞坏）。
     final policy = LiveUaPolicy.current;
     final ruleUa = policy.matchRule(url);
-    final explicitUa = ruleUa != null || bean.ua.isNotEmpty || headerUa;
+    final explicitUa =
+        ruleUa != null ||
+        hostRuleUa.isNotEmpty ||
+        bean.ua.isNotEmpty ||
+        headerUa;
     var baseHeaders = <String, String>{
       if (bean.ua.isNotEmpty) 'User-Agent': bean.ua,
       ...?bean.header,
@@ -90,6 +100,16 @@ class LiveService {
     if (ruleUa != null) {
       baseHeaders = withLiveHeader(baseHeaders, ruleUa);
     }
+    // 根部 host 规则最后合并：它是这份订阅对某个 host 的明确要求。
+    for (final entry in hostRuleHeaders.entries) {
+      if (entry.value.trim().isEmpty) continue;
+      final lower = entry.key.toLowerCase();
+      baseHeaders = {
+        for (final h in baseHeaders.entries)
+          if (h.key.toLowerCase() != lower) h.key: h.value,
+        entry.key: entry.value,
+      };
+    }
     // 列表阶段**实际发出去**的 UA，频道流必须继承同一个值，
     // 否则「列表能刷出来、一点开就 invalid media」——服务端对频道流同样校验。
     //
@@ -98,7 +118,9 @@ class LiveService {
     // 写了 `user-agent` 时会**盖掉** `bean.ua`，所以这里也以 header 为先。
     // 早先写成 «`bean.ua` > header»，两者同时存在时请求带的是 header-ua、
     // 频道却继承 bean-ua，表现为列表正常但一点开就黑屏。
-    final listUa = headerUaValue.isNotEmpty ? headerUaValue : bean.ua;
+    final listUa = hostRuleUa.isNotEmpty
+        ? hostRuleUa
+        : (headerUaValue.isNotEmpty ? headerUaValue : bean.ua);
     final timeout = Duration(seconds: bean.timeout);
     Future<List<LiveGroup>> fetch(String? ua) async {
       final res = await http.getText(
@@ -122,7 +144,7 @@ class LiveService {
           '加载直播源 ${bean.displayName} 直链播放列表 host=$host ua=$streamUa '
               'url=${redactUrl(url)}',
         );
-        return groups;
+        return LiveParser.applyHostHeaders(groups, headerRules);
       }
       final groups = LiveParser.applyDefaults(
         LiveParser.parseToGroups(res.body),
@@ -140,7 +162,7 @@ class LiveService {
             'channels=${groups.fold<int>(0, (n, g) => n + g.channels.length)} '
             'host=$host ua=$streamUa url=${redactUrl(url)}',
       );
-      return groups;
+      return LiveParser.applyHostHeaders(groups, headerRules);
     }
 
     Object? firstError;

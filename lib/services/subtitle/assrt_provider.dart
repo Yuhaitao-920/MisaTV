@@ -94,6 +94,9 @@ List<SubtitleCandidate> parseAssrtSearch(
       downloadUrl: '',
       subname: videoName.isNotEmpty ? videoName : nativeName,
       detail: _str(raw['release_site']),
+      // 从发布名里取集号：`...S01E03...` → '3'。
+      // 为空说明这是整片/合集包，UI 据此提示「不分集」。
+      episodeHint: epOf(videoName.isNotEmpty ? videoName : nativeName),
     ));
   }
   return out;
@@ -180,61 +183,22 @@ Future<List<SubtitleCandidate>> assrtSearch(
   final url = Uri.parse('$assrtApiBase/sub/search')
       .replace(queryParameters: params)
       .toString();
-  final res = await http.getResponse(url, maxBytes: 4 * 1024 * 1024);
-  if (res == null) {
-    throw const SubtitleException('assrt 服务不可达或网络异常');
+  // ★ 509 = 触发频率限制（assrt 对同一 token 的连续检索限流）。
+  //   实测：0.3s 内连发 3 次就会中招；等 1.5s 重试一次即可。
+  //   旧实现把它当普通错误抛出去，导致「偶发 0 条」，看起来像搜不到。
+  SubtitleHttpResponse? res;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    res = await http.getResponse(url, maxBytes: 4 * 1024 * 1024);
+    if (res == null) {
+      throw const SubtitleException('assrt 服务不可达或网络异常');
+    }
+    if (res.statusCode != 509) break;
+    await Future<void>.delayed(Duration(milliseconds: 800 * (attempt + 1)));
   }
   return parseAssrtSearch(
-    utf8.decode(res.bytes, allowMalformed: true),
+    utf8.decode(res!.bytes, allowMalformed: true),
     statusCode: res.statusCode,
   );
-}
-
-/// 多关键词检索 + 按字幕 ID 去重合并。
-Future<List<SubtitleCandidate>> assrtSearchMulti(
-  SubtitleHttp http,
-  String token,
-  List<String> keywords, {
-  int concurrency = 3,
-  String originalTitle = '',
-}) async {
-  final uniqueKws = keywords
-      .where((k) => k.trim().isNotEmpty)
-      .toSet()
-      .take(6)
-      .toList();
-  final seen = <String, SubtitleCandidate>{};
-  final queue = [...uniqueKws];
-
-  Future<void> worker() async {
-    while (queue.isNotEmpty) {
-      final kw = queue.removeAt(0);
-      try {
-        final list = await assrtSearch(http, token, kw);
-        for (final c in list) {
-          if (c.id.isNotEmpty && !seen.containsKey(c.id)) seen[c.id] = c;
-        }
-      } catch (_) {
-        // 单次关键词失败忽略。
-      }
-    }
-  }
-
-  final workerCount = concurrency < uniqueKws.length ? concurrency : uniqueKws.length;
-  await Future.wait(
-    List<Future<void>>.generate(workerCount < 1 ? 1 : workerCount, (_) => worker()),
-  );
-
-  final out = seen.values.toList();
-  final main = originalTitle.trim().toLowerCase();
-  if (main.isNotEmpty) {
-    out.sort((a, b) {
-      final sa = a.title.toLowerCase() == main ? 0 : 1;
-      final sb = b.title.toLowerCase() == main ? 0 : 1;
-      return sa - sb;
-    });
-  }
-  return out;
 }
 
 /// 取得 detail（下载地址 + 包内清单）。
@@ -267,32 +231,26 @@ Future<List<SubtitleCandidate>> searchAssrt({
   final sourceName = query.title.trim().isNotEmpty ? query.title : query.rawName;
   final normalized = normalizeSubtitleQuery(sourceName);
   final mainKw = keywords.isEmpty ? '' : keywords.first;
-  if (mainKw.trim().isEmpty) {
+  if (mainKw.trim().isEmpty && normalized.title.trim().isEmpty) {
     throw const SubtitleException('无法从该资源名提取剧名');
   }
-  final ep = query.episode == null ? normalized.ep : query.episode.toString();
   try {
-    final first = await assrtSearch(http, token, mainKw);
-    final aliases = <String>{};
-    for (final c in first) {
-      final t = c.title;
-      if (t.isNotEmpty && t.toLowerCase() != normalized.title.toLowerCase()) {
-        final alias = normalizeTitle(t);
-        if (alias.length >= 2 && !RegExp(r'^[-\d\s]+$').hasMatch(alias)) {
-          aliases.add(alias);
-        }
-      }
+    // ★ 按「干净剧名优先」顺序试：`keywords` 里第一个可能是带站点标签的
+    //   `枕边杀局（臻彩）`，assrt 精确匹配搜不到；`normalized.title` 已被
+    //   normalizeTitle 剥掉括号段与画质标签，是真正的剧名。
+    //   实测：`枕边杀局（臻彩）` → 0 条；`枕边杀局` → 1 条。
+    final tried = <String>{};
+    final ordered = <String>[
+      if (normalized.title.isNotEmpty) normalized.title,
+      ...keywords,
+    ];
+    for (final kw in ordered) {
+      final k = kw.trim();
+      if (k.isEmpty || !tried.add(k.toLowerCase())) continue;
+      final hit = await assrtSearch(http, token, k);
+      if (hit.isNotEmpty) return hit;
     }
-    final kws = [...keywords];
-    for (final a in aliases.toList().take(4)) {
-      kws.add(ep.isEmpty ? a : '$a $ep');
-    }
-    return await assrtSearchMulti(
-      http,
-      token,
-      kws,
-      originalTitle: normalized.title,
-    );
+    return const <SubtitleCandidate>[];
   } catch (e) {
     final msg = e is SubtitleException ? e.message : e.toString();
     if (RegExp(r'token', caseSensitive: false).hasMatch(msg)) {

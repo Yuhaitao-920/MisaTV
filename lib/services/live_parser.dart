@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../core/utils/text_utils.dart';
 import '../models/live.dart';
+import '../models/site_config.dart';
 
 class LiveParser {
   /// 直播订阅地址本身就是一个 HLS 播放列表（而不是频道列表）：
@@ -81,6 +82,78 @@ class LiveParser {
           ),
         )
         .toList();
+  }
+
+  /// 把订阅根 `headers` 里按 host 配置的请求头补到频道上。
+  ///
+  /// 播放器 / 回看只认频道自己的 `header` / `ua` / `referer`，所以规则命中
+  /// 频道任一线路的 host 时，按该规则浅拷贝一份频道并补齐这三个字段；
+  /// 频道自己已经带了同名头时以频道为准（直播单里的逐条声明更具体）。
+  static List<LiveGroup> applyHostHeaders(
+    List<LiveGroup> groups,
+    List<HeaderRule> rules,
+  ) {
+    if (groups.isEmpty || rules.isEmpty) return groups;
+    return [
+      for (final group in groups)
+        LiveGroup(
+          group: group.group,
+          channels: [
+            for (final channel in group.channels)
+              _withHostHeader(channel, rules),
+          ],
+        ),
+    ];
+  }
+
+  static LiveChannel _withHostHeader(
+    LiveChannel channel,
+    List<HeaderRule> rules,
+  ) {
+    HeaderRule? hit;
+    for (final url in channel.urls) {
+      hit = headerRuleForUrl(url, rules);
+      if (hit != null) break;
+    }
+    if (hit == null || hit.header.isEmpty) return channel;
+    final merged = <String, String>{...?channel.header};
+    for (final entry in hit.header.entries) {
+      final exists = merged.keys.any(
+        (k) => k.toLowerCase() == entry.key.toLowerCase(),
+      );
+      if (!exists) merged[entry.key] = entry.value;
+    }
+    final ua = channel.ua.isNotEmpty
+        ? channel.ua
+        : _headerValue(merged, 'user-agent');
+    final referer = channel.referer.isNotEmpty
+        ? channel.referer
+        : _headerValue(merged, 'referer');
+    return LiveChannel(
+      name: channel.name,
+      urls: channel.urls,
+      logo: channel.logo,
+      epg: channel.epg,
+      ua: ua,
+      click: channel.click,
+      format: channel.format,
+      origin: channel.origin,
+      referer: referer,
+      tvgId: channel.tvgId,
+      tvgName: channel.tvgName,
+      tvgChno: channel.tvgChno,
+      header: merged,
+      catchupType: channel.catchupType,
+      catchupSource: channel.catchupSource,
+      catchupReplace: channel.catchupReplace,
+    );
+  }
+
+  static String _headerValue(Map<String, String> headers, String name) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == name) return entry.value;
+    }
+    return '';
   }
 
   static List<LiveGroup> parseToGroups(String raw) {

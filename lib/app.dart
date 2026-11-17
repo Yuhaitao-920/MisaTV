@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/platform/window_service.dart';
@@ -25,6 +26,24 @@ class AppScope extends InheritedNotifier<AppState> {
 /// 进入详情、播放器、直播播放等**带返回按钮**的二级页面时隐藏，让内容铺满整个
 /// 窗口；返回上一层后自动恢复。只统计 [PageRoute]，对话框 / 底部弹层不影响。
 final ValueNotifier<bool> appTitleBarVisible = ValueNotifier<bool>(true);
+
+/// 全局 Navigator：沉浸模式的 Esc / 遥控器返回需要从任意二级页面执行返回。
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'app-navigator',
+);
+
+/// 返回键分发：没有可 pop 的页面时，由 [ImmersiveShell] 退回首页 Tab。
+final ValueNotifier<int> immersiveBackRequests = ValueNotifier<int>(0);
+
+void _handleImmersiveBack() {
+  final navigator = appNavigatorKey.currentState;
+  if (navigator == null) return;
+  if (navigator.canPop()) {
+    navigator.maybePop();
+    return;
+  }
+  immersiveBackRequests.value++;
+}
 
 class _AppTitleBarObserver extends NavigatorObserver {
   final Set<Route<dynamic>> _pages = <Route<dynamic>>{};
@@ -95,27 +114,41 @@ class KniephosApp extends StatelessWidget {
             // 自绘标题栏放在 Navigator 之上：页面与弹窗都不会盖住窗口按钮。
             // 背景用 CustomPaint 直接画在内容之下（同一绘制层），见 AppBackdropPainter 注释。
             navigatorObservers: [_titleBarObserver],
+            navigatorKey: appNavigatorKey,
             builder: (context, child) {
               final theme = Theme.of(context);
-              return windowFrame(
-                CustomPaint(
-                  painter: AppBackdropPainter(
-                    dark: theme.brightness == Brightness.dark,
-                  ),
-                  child: Column(
-                    children: [
-                      ValueListenableBuilder<bool>(
-                        valueListenable: appTitleBarVisible,
-                        builder: (context, visible, _) =>
-                            visible && !state.playerSettings.immersiveMode
-                            ? const AppTitleBar()
-                            : const SizedBox.shrink(),
-                      ),
-                      Expanded(child: child ?? const SizedBox.shrink()),
-                    ],
-                  ),
+              Widget frame = CustomPaint(
+                painter: AppBackdropPainter(
+                  dark: theme.brightness == Brightness.dark,
+                ),
+                child: Column(
+                  children: [
+                    ValueListenableBuilder<bool>(
+                      valueListenable: appTitleBarVisible,
+                      builder: (context, visible, _) =>
+                          visible && !state.playerSettings.immersiveMode
+                          ? const AppTitleBar()
+                          : const SizedBox.shrink(),
+                    ),
+                    Expanded(child: child ?? const SizedBox.shrink()),
+                  ],
                 ),
               );
+              if (state.playerSettings.immersiveMode) {
+                // 大屏模式：Esc / 遥控器返回先 pop 二级页面，根页面交给外壳回首页。
+                frame = CallbackShortcuts(
+                  bindings: <ShortcutActivator, VoidCallback>{
+                    const SingleActivator(LogicalKeyboardKey.escape):
+                        _handleImmersiveBack,
+                    const SingleActivator(LogicalKeyboardKey.browserBack):
+                        _handleImmersiveBack,
+                    const SingleActivator(LogicalKeyboardKey.gameButtonB):
+                        _handleImmersiveBack,
+                  },
+                  child: frame,
+                );
+              }
+              return windowFrame(frame);
             },
             // 启动后检查 GitHub release，有新版本就弹窗（见 UpdateGate）。
             home: const UpdateGate(child: AppShell()),
