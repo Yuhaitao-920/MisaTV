@@ -450,7 +450,7 @@ class _NavTab extends StatelessWidget {
             ? theme.colorScheme.primary
             : Colors.white.withValues(alpha: active ? 0.88 : 0.50);
         return Container(
-          margin: const EdgeInsets.symmetric(horizontal: compact ? 1 : 4),
+          margin: EdgeInsets.symmetric(horizontal: compact ? 1 : 4),
           padding: compact
               ? const EdgeInsets.symmetric(horizontal: 2, vertical: 6)
               : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
