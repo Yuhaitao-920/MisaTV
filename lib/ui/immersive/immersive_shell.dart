@@ -11,6 +11,7 @@ import 'immersive_favorites_page.dart';
 import 'immersive_history_page.dart';
 import 'immersive_home_page.dart';
 import 'immersive_live_page.dart';
+import 'immersive_metrics.dart';
 import 'immersive_search_page.dart';
 import 'immersive_widgets.dart';
 
@@ -190,7 +191,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     if (index == 4) unawaited(AppScope.of(context).checkFavoriteUpdates());
   }
 
-  Widget _pageAt(int index) {
+  Widget _pageAt(BuildContext context, int index) {
     if (!_builtTabs.contains(index)) return const SizedBox.shrink();
     return switch (index) {
       0 => const ImmersiveHomePage(),
@@ -199,7 +200,9 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
       3 => const ImmersiveHistoryPage(),
       4 => const ImmersiveFavoritesPage(),
       _ => Padding(
-        padding: const EdgeInsets.only(top: 72),
+        padding: EdgeInsets.only(
+          top: ImmersiveMetrics.of(context).contentTop,
+        ),
         child: SettingsPage(key: _settingsKey),
       ),
     };
@@ -222,7 +225,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
         for (var i = 0; i < _items.length; i++)
           // 非当前 Tab 的页面仍然在 IndexedStack 里保活，
           // 必须排除焦点，否则方向键会走进看不见的页面。
-          ExcludeFocus(excluding: _index != i, child: _pageAt(i)),
+          ExcludeFocus(excluding: _index != i, child: _pageAt(context, i)),
       ],
     );
 
@@ -287,6 +290,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
                                 items: _items,
                                 index: _index,
                                 time: _time,
+                                metrics: ImmersiveMetrics.of(context),
                                 tabNodes: _tabNodes,
                                 onSelect: _select,
                                 onExit: () => app.setPlayerSettings(
@@ -316,6 +320,7 @@ class _TopBar extends StatelessWidget {
     required this.items,
     required this.index,
     required this.time,
+    required this.metrics,
     required this.tabNodes,
     required this.onSelect,
     required this.onExit,
@@ -324,6 +329,7 @@ class _TopBar extends StatelessWidget {
   final List<({IconData icon, String label})> items;
   final int index;
   final String time;
+  final ImmersiveMetrics metrics;
   final List<FocusNode> tabNodes;
   final ValueChanged<int> onSelect;
   final VoidCallback onExit;
@@ -331,11 +337,16 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final compact = metrics.compact;
     return IgnorePointer(
       ignoring: false,
       child: Container(
-        height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 28),
+        height: metrics.topBarHeight,
+        padding: EdgeInsets.only(
+          left: compact ? 14 : 28,
+          right: compact ? 14 : 28,
+          top: compact ? metrics.topPadding : 0,
+        ),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -345,14 +356,16 @@ class _TopBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text(
-              'MisaTV',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.4,
+            if (!compact)
+              Text(
+                'MisaTV',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
+            if (!compact) const SizedBox(width: 10),
+            if (!compact)
             DecoratedBox(
               decoration: BoxDecoration(
                 color: theme.colorScheme.primary.withValues(alpha: 0.18),
@@ -370,15 +383,19 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 46),
+            if (!compact) const SizedBox(width: 46),
             for (var i = 0; i < items.length; i++)
-              _NavTab(
-                item: items[i],
-                selected: i == index,
-                focusNode: tabNodes[i],
-                onTap: () => onSelect(i),
+              Expanded(
+                child: _NavTab(
+                  item: items[i],
+                  selected: i == index,
+                  compact: compact,
+                  focusNode: tabNodes[i],
+                  onTap: () => onSelect(i),
+                ),
               ),
-            const Spacer(),
+            if (!compact) const Spacer(),
+            if (!compact)
             Text(
               time,
               style: theme.textTheme.titleMedium?.copyWith(
@@ -387,7 +404,7 @@ class _TopBar extends StatelessWidget {
                 letterSpacing: 1.4,
               ),
             ),
-            const SizedBox(width: 18),
+            SizedBox(width: compact ? 4 : 18),
             IconButton(
               tooltip: '退出沉浸观影',
               onPressed: onExit,
@@ -412,12 +429,14 @@ class _NavTab extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.onTap,
+    this.compact = false,
     this.focusNode,
   });
 
   final ({IconData icon, String label}) item;
   final bool selected;
   final VoidCallback onTap;
+  final bool compact;
   final FocusNode? focusNode;
 
   @override
@@ -431,27 +450,47 @@ class _NavTab extends StatelessWidget {
             ? theme.colorScheme.primary
             : Colors.white.withValues(alpha: active ? 0.88 : 0.50);
         return Container(
-          margin: const EdgeInsets.only(right: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          margin: const EdgeInsets.symmetric(horizontal: compact ? 1 : 4),
+          padding: compact
+              ? const EdgeInsets.symmetric(horizontal: 2, vertical: 6)
+              : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: selected
                 ? theme.colorScheme.primary.withValues(alpha: 0.12)
                 : (active ? Colors.white.withValues(alpha: 0.06) : null),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Row(
-            children: [
-              Icon(item.icon, size: 17, color: color),
-              const SizedBox(width: 7),
-              Text(
-                item.label,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: color,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          child: compact
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(item.icon, size: 19, color: color),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontSize: 10,
+                        color: color,
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Icon(item.icon, size: 17, color: color),
+                    const SizedBox(width: 7),
+                    Text(
+                      item.label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: color,
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         );
       },
     );

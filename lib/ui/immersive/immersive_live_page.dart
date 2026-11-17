@@ -9,6 +9,7 @@ import '../../services/live/epg.dart';
 import '../open_player.dart';
 import '../widgets/live_catchup_sheet.dart';
 import '../widgets/mouse_drag_scroll.dart';
+import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
 /// 沉浸观影直播页：分组频道墙，直接进现有直播播放器。
@@ -155,6 +156,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final m = ImmersiveMetrics.of(context);
     final lives = app.lives;
     final bean = app.activeLive;
     final group = _groups.isEmpty
@@ -175,7 +177,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
           ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(56, 92, 56, 20),
+      padding: EdgeInsets.fromLTRB(m.gutter, m.contentTop, m.gutter, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -189,7 +191,7 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
                 ),
               ),
               const SizedBox(width: 14),
-              if (_favoritesOnly || group != null)
+              if (!m.compact && (_favoritesOnly || group != null))
                 Text(
                   _favoritesOnly
                       ? '${entries.length} 个收藏'
@@ -244,13 +246,13 @@ class _ImmersiveLivePageState extends State<ImmersiveLivePage> {
           ),
           const SizedBox(height: 16),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(30),
+            Padding(
+              padding: EdgeInsets.all(m.compact ? 16 : 30),
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_error != null)
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(m.compact ? 14 : 20),
               child: ImmersiveEmpty(
                 title: '直播源加载失败',
                 message: _error!,

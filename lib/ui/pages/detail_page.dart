@@ -29,6 +29,7 @@ import '../widgets/hover_marquee_text.dart';
 import '../widgets/hyms_captcha_dialog.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import '../widgets/poster_card.dart';
+import '../immersive/immersive_metrics.dart';
 import '../immersive/immersive_widgets.dart';
 import 'player_page.dart';
 
@@ -1023,6 +1024,7 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 沉浸观影详情页：全屏横图 + 左侧信息 + 底部选集条。
   Widget _buildImmersive(BuildContext context, AppState app) {
+    final m = ImmersiveMetrics.of(context);
     final immersive = immersiveTheme(context);
     final theme = immersive;
     final detail = _detail;
@@ -1218,7 +1220,7 @@ class _DetailPageState extends State<DetailPage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 320,
+                height: m.compact ? 220 : 320,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -1236,7 +1238,7 @@ class _DetailPageState extends State<DetailPage> {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(44, 18, 34, 0),
+                      padding: EdgeInsets.fromLTRB(m.gutter, 18, m.gutter, 0),
                       child: Row(
                         children: [
                           Text(
@@ -1308,12 +1310,15 @@ class _DetailPageState extends State<DetailPage> {
                     ),
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(56, 8, 56, 10),
+                        padding: EdgeInsets.fromLTRB(m.gutter, 8, m.gutter, 10),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             SizedBox(
-                              width: MediaQuery.sizeOf(context).width * 0.46,
+                              width: m.compact
+                                  ? MediaQuery.sizeOf(context).width -
+                                      m.gutter * 2
+                                  : MediaQuery.sizeOf(context).width * 0.46,
                               child: SingleChildScrollView(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1516,8 +1521,8 @@ class _DetailPageState extends State<DetailPage> {
                       ),
                     ),
                     Container(
-                      height: 238,
-                      padding: const EdgeInsets.fromLTRB(44, 14, 44, 10),
+                      height: m.compact ? 190 : 238,
+                      padding: EdgeInsets.fromLTRB(m.gutter, 14, m.gutter, 10),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.42),
                         border: Border(
