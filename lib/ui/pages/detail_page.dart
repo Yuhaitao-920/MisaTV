@@ -29,7 +29,6 @@ import '../widgets/hover_marquee_text.dart';
 import '../widgets/hyms_captcha_dialog.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import '../widgets/poster_card.dart';
-import '../immersive/immersive_metrics.dart';
 import '../immersive/immersive_widgets.dart';
 import 'player_page.dart';
 
@@ -1024,7 +1023,6 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 沉浸观影详情页：全屏横图 + 左侧信息 + 底部选集条。
   Widget _buildImmersive(BuildContext context, AppState app) {
-    final m = ImmersiveMetrics.of(context);
     final immersive = immersiveTheme(context);
     final theme = immersive;
     final detail = _detail;
@@ -1216,131 +1214,110 @@ class _DetailPageState extends State<DetailPage> {
                   ),
                 ),
               ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: m.compact ? 220 : 320,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      const Color(0xFF050705).withValues(alpha: 0.92),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            SafeArea(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(m.gutter, 18, m.gutter, 0),
-                    child: Row(
-                      children: [
-                        Text(
-                          '$typeLabel · ${site?.displayName ?? item.sourceName}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.primary,
-                            letterSpacing: 1.6,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          tooltip: '收藏',
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.black.withValues(
-                              alpha: 0.36,
-                            ),
-                            minimumSize: const Size(40, 40),
-                          ),
-                          onPressed: () async {
-                            final next = await app.toggleFavorite(detail, site);
-                            if (!mounted) return;
-                            _toast(next ? '已加入收藏' : '已取消收藏');
-                          },
-                          icon: Icon(
-                            app.isFavorite(detail.sourceKey, detail.id)
-                                ? Icons.star_rounded
-                                : Icons.star_border_rounded,
-                            color: app.isFavorite(detail.sourceKey, detail.id)
-                                ? theme.colorScheme.primary
-                                : Colors.white.withValues(alpha: 0.86),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          tooltip: '关闭',
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.black.withValues(
-                              alpha: 0.36,
-                            ),
-                            minimumSize: const Size(40, 40),
-                          ),
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: Icon(
-                            Icons.close_rounded,
-                            color: Colors.white.withValues(alpha: 0.86),
-                          ),
-                        ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 320,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        const Color(0xFF050705).withValues(alpha: 0.92),
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(m.gutter, 8, m.gutter, 10),
+                ),
+              ),
+              SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(44, 18, 34, 0),
                       child: Row(
                         children: [
-                          SizedBox(
-                            width: m.compact
-                                ? MediaQuery.sizeOf(context).width - m.gutter * 2
-                                : MediaQuery.sizeOf(context).width * 0.46,
-                            child: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.displayMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w900,
-                                          color: Colors.white,
-                                          fontSize: m.detailTitleSize,
-                                          height: 1.04,
-                                          letterSpacing: -0.8,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                    spacing: 10,
-                                    runSpacing: 8,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      if (rating != null)
-                                        _ImmersiveMetaChip(
-                                          '豆瓣 ${rating.toStringAsFixed(1)}',
-                                          highlight: true,
-                                        ),
-                                      if (year.isNotEmpty)
-                                        _ImmersiveMetaChip(year),
-                                      if (episodes.isNotEmpty)
-                                        _ImmersiveMetaChip(
-                                          '${episodes.length} 集',
-                                        ),
-                                      for (final genre in genres)
-                                        _ImmersiveMetaChip(genre),
-                                    ],
-                                  ),
-                                  if (intro.isNotEmpty) ...[
-                                    const SizedBox(height: 20),
+                          Text(
+                            '$typeLabel · ${site?.displayName ?? item.sourceName}',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              letterSpacing: 1.6,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: '换源',
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.36,
+                              ),
+                              minimumSize: const Size(40, 40),
+                            ),
+                            onPressed: () => _search(name),
+                            icon: Icon(
+                              Icons.swap_horiz_rounded,
+                              color: Colors.white.withValues(alpha: 0.86),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: '收藏',
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.36,
+                              ),
+                              minimumSize: const Size(40, 40),
+                            ),
+                            onPressed: () async {
+                              final next = await app.toggleFavorite(
+                                detail,
+                                site,
+                              );
+                              if (!mounted) return;
+                              _toast(next ? '已加入收藏' : '已取消收藏');
+                            },
+                            icon: Icon(
+                              app.isFavorite(detail.sourceKey, detail.id)
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              color: app.isFavorite(detail.sourceKey, detail.id)
+                                  ? theme.colorScheme.primary
+                                  : Colors.white.withValues(alpha: 0.86),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: '关闭',
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.36,
+                              ),
+                              minimumSize: const Size(40, 40),
+                            ),
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: Colors.white.withValues(alpha: 0.86),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(56, 8, 56, 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: MediaQuery.sizeOf(context).width * 0.46,
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Text(
                                       name,
                                       maxLines: 2,
@@ -1668,125 +1645,8 @@ class _DetailPageState extends State<DetailPage> {
                         ],
                       ),
                     ),
-                  ),
-                  Container(
-                    height: m.compact ? 190 : 238,
-                    padding: EdgeInsets.fromLTRB(m.gutter, 14, m.gutter, 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.42),
-                      border: Border(
-                        top: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.06),
-                        ),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              '选集',
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              '${episodes.length} 集',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.46),
-                              ),
-                            ),
-                            const Spacer(),
-                            if (detail.flags.length > 1)
-                              Expanded(
-                                flex: 3,
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  reverse: true,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      for (final road in detail.flags)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            left: 6,
-                                          ),
-                                          child: _ImmersiveLineChip(
-                                            label: road.isEmpty ? '默认线路' : road,
-                                            selected: road == flag,
-                                            onTap: () => selectFlag(road),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            if (currentIndex >= 0)
-                              TextButton(
-                                onPressed: locateCurrent,
-                                child: const Text('定位当前'),
-                              ),
-                            IconButton(
-                              tooltip: '上一页',
-                              onPressed: () => scrollEpisodes(-660),
-                              icon: const Icon(
-                                Icons.chevron_left_rounded,
-                                color: Colors.white70,
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: '下一页',
-                              onPressed: () => scrollEpisodes(660),
-                              icon: const Icon(
-                                Icons.chevron_right_rounded,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: episodes.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    '该线路没有可播放的剧集',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.52,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : ListView.separated(
-                                  controller: controller,
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: episodes.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(width: 14),
-                                  itemBuilder: (context, index) {
-                                    final episode = episodes[index];
-                                    final selected = index == currentIndex;
-                                    return _ImmersiveEpisodeCard(
-                                      episode: episode,
-                                      index: index,
-                                      title: name,
-                                      year: year,
-                                      fallback: poster,
-                                      still: _episodeStills.length > index
-                                          ? (_episodeStills[index] ?? '')
-                                          : '',
-                                      selected: selected,
-                                      onTap: () => _playEpisode(index),
-                                    );
-                                  },
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
