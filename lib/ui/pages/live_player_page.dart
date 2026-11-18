@@ -16,6 +16,7 @@ import '../../core/platform/sleep_inhibitor.dart';
 import '../../core/platform/window_service.dart';
 import '../../core/utils/text_utils.dart';
 import '../../models/live.dart';
+import '../../models/player_fit.dart';
 import '../../models/site_config.dart';
 import '../../models/user_data.dart';
 import '../../services/live/epg.dart';
@@ -77,6 +78,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _fullscreen = false;
   bool _fsToggling = false;
   bool _mini = false;
+  /// 直播画面填充模式。默认裁剪填满（cover），避免 16:9 源在更宽的手机横屏上出现左右黑边。
+  PlayerFit _fit = PlayerFit.cover;
 
   /// 是否因「自动横屏」改过系统方向/系统栏；离开时据此恢复。
   bool _landscapeUiApplied = false;
@@ -139,6 +142,10 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _opened = true;
     final app = AppScope.of(context);
     _immersiveMode = app.playerSettings.immersiveMode;
+    // 画面填充：设置里默认/保持比例(contain)时，直播改用裁剪填满，消除左右黑边；
+    // 用户显式选了拉伸/16:9/4:3/原始等模式则尊重其选择。
+    final configuredFit = normalizePlayerFit(app.playerSettings.fit);
+    _fit = configuredFit == PlayerFit.contain ? PlayerFit.cover : configuredFit;
     // 移动端播放时自动横屏：进入直播播放器即请求横屏并隐藏系统栏（沉浸模式），
     // 避免白色状态栏/导航条盖住播放器按键；退出时（dispose）恢复。
     if (_isMobile && app.playerSettings.autoLandscape) {
@@ -967,14 +974,41 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.expand();
     }
-    return Center(
-      child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio <= 0
-            ? 16 / 9
-            : controller.value.aspectRatio,
-        child: VideoPlayer(controller),
+    final value = controller.value;
+    final video = VideoPlayer(controller);
+    final aspect = value.aspectRatio <= 0 ? 16 / 9 : value.aspectRatio;
+    final width = value.size.width <= 0 ? 1280.0 : value.size.width;
+    final height = value.size.height <= 0 ? 720.0 : value.size.height;
+    return switch (_fit) {
+      PlayerFit.contain => Center(
+        child: AspectRatio(aspectRatio: aspect, child: video),
       ),
-    );
+      PlayerFit.fill => SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.fill,
+          child: SizedBox(width: width, height: height, child: video),
+        ),
+      ),
+      PlayerFit.cover => ClipRect(
+        child: SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(width: width, height: height, child: video),
+          ),
+        ),
+      ),
+      PlayerFit.ratio169 => Center(
+        child: AspectRatio(aspectRatio: 16 / 9, child: video),
+      ),
+      PlayerFit.ratio43 => Center(
+        child: AspectRatio(aspectRatio: 4 / 3, child: video),
+      ),
+      PlayerFit.original => ClipRect(
+        child: Center(
+          child: SizedBox(width: width, height: height, child: video),
+        ),
+      ),
+    };
   }
 
   @override
