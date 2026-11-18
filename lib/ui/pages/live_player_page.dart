@@ -26,7 +26,6 @@ import '../../services/relay/local_relay.dart';
 import '../widgets/hover_marquee_text.dart';
 import '../widgets/player_overlay_settings.dart';
 import '../widgets/volume_hud.dart';
-import '../widgets/player_key_help.dart';
 import '../widgets/volume_sheet.dart';
 
 class LivePlayerPage extends StatefulWidget {
@@ -110,34 +109,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   /// 快捷键 / 滚轮调音量时短暂显示的音量条。
   bool _volumeHudVisible = false;
   Timer? _volumeHudTimer;
-
-  /// 数字键换台：连续输入的数字会在停手后一次性提交；
-  /// 输入期间在画面中央显示「频道 N」。
-  String _channelInput = '';
-  Timer? _channelInputTimer;
-
-  static final Map<LogicalKeyboardKey, int> _digitKeys = {
-    LogicalKeyboardKey.digit0: 0,
-    LogicalKeyboardKey.digit1: 1,
-    LogicalKeyboardKey.digit2: 2,
-    LogicalKeyboardKey.digit3: 3,
-    LogicalKeyboardKey.digit4: 4,
-    LogicalKeyboardKey.digit5: 5,
-    LogicalKeyboardKey.digit6: 6,
-    LogicalKeyboardKey.digit7: 7,
-    LogicalKeyboardKey.digit8: 8,
-    LogicalKeyboardKey.digit9: 9,
-    LogicalKeyboardKey.numpad0: 0,
-    LogicalKeyboardKey.numpad1: 1,
-    LogicalKeyboardKey.numpad2: 2,
-    LogicalKeyboardKey.numpad3: 3,
-    LogicalKeyboardKey.numpad4: 4,
-    LogicalKeyboardKey.numpad5: 5,
-    LogicalKeyboardKey.numpad6: 6,
-    LogicalKeyboardKey.numpad7: 7,
-    LogicalKeyboardKey.numpad8: 8,
-    LogicalKeyboardKey.numpad9: 9,
-  };
 
   bool get _isMobile =>
       !kIsWeb &&
@@ -825,7 +796,24 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _fsAnim.value = 0;
     });
     try {
-      if (!_isMobile) await setWindowFullscreen(next);
+      if (_isMobile) {
+        // 手机端「全屏」必须真正切系统方向与系统栏，否则按钮只改了图标状态，
+        // 屏幕方向和系统栏都没变化，看起来就像点了没反应。
+        _landscapeUiApplied = next;
+        await SystemChrome.setPreferredOrientations(
+          next
+              ? <DeviceOrientation>[
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight,
+                ]
+              : <DeviceOrientation>[],
+        );
+        await SystemChrome.setEnabledSystemUIMode(
+          next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+        );
+      } else {
+        await setWindowFullscreen(next);
+      }
       if (!mounted) return;
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
@@ -905,11 +893,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    final digit = _digitKeys[key];
-    if (digit != null) {
-      _typeChannelDigit(digit);
-      return KeyEventResult.handled;
-    }
     if (key == LogicalKeyboardKey.arrowUp) {
       unawaited(_setVolume(_volume + 0.05, persist: true));
       _flashVolumeHud();
@@ -941,53 +924,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       }
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.keyH ||
-        key == LogicalKeyboardKey.f1) {
-      unawaited(showPlayerKeyHelp(context, live: true));
-      return KeyEventResult.handled;
-    }
     return KeyEventResult.ignored;
-  }
-
-  /// 数字键换台：连续输入时暂不切换，停手 1.2 秒后按当前分组的频道号定位。
-  void _typeChannelDigit(int digit) {
-    _channelInputTimer?.cancel();
-    final next = '$_channelInput$digit';
-    _channelInput = next.length > 3 ? '$digit' : next;
-    setState(() {});
-    _showControls();
-    _channelInputTimer = Timer(
-      const Duration(milliseconds: 1200),
-      _commitChannelInput,
-    );
-  }
-
-  void _commitChannelInput() {
-    final raw = _channelInput;
-    if (!mounted || raw.isEmpty) return;
-    final number = int.tryParse(raw) ?? 0;
-    final channels = _channelsOfCurrentGroup();
-    setState(() => _channelInput = '');
-    final channel =
-        number >= 1 && number <= channels.length ? channels[number - 1] : null;
-    if (channel == null) {
-      _toast('没有第 $number 个频道');
-      return;
-    }
-    if (channel.name == _channel.name &&
-        channel.urls.join('|') == _channel.urls.join('|')) {
-      return;
-    }
-    _switchChannel(channel);
-  }
-
-  List<LiveChannel> _channelsOfCurrentGroup() {
-    if (widget.groups.isEmpty) return const [];
-    final name = _groupName.isEmpty ? _groupOf(_channel) : _groupName;
-    for (final group in widget.groups) {
-      if (group.group == name) return group.channels;
-    }
-    return widget.groups.first.channels;
   }
 
   @override
@@ -997,7 +934,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _detailsTimer?.cancel();
     _volumeWheelTimer?.cancel();
     _volumeHudTimer?.cancel();
-    _channelInputTimer?.cancel();
     _fsAnim.dispose();
     if (_sleepHeld) {
       _sleepHeld = false;
@@ -1382,43 +1318,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                         ),
                       ),
                     ),
-                    if (_channelInput.isNotEmpty)
-                      Center(
-                        child: IgnorePointer(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 30,
-                              vertical: 18,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.68),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  '切换频道',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _channelInput,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 44,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
                     if (_detailsVisible) _detailsOverlay(context),
                   ],
                 ),
