@@ -402,7 +402,6 @@ class PlayerSettings {
     this.bossKey = kUnsetBossKey,
     this.autoLandscape = true,
     this.useFfmpeg = true,
-    this.useMpvAndroid = false,
     this.useEmbeddedMpv = false,
   });
   final double speed;
@@ -414,12 +413,7 @@ class PlayerSettings {
   /// 桌面端始终使用 fvp，该开关仅影响安卓。
   final bool useFfmpeg;
 
-  /// 安卓端是否把片源交给已安装的 mpv-android（FongMi/mpv-android，
-  /// 包名 is.xyz.mpv）外部播放。通过 Intent 唤起，失败自动回落内置播放器。
-  /// 仅对安卓生效；桌面 / Web 忽略。
-  final bool useMpvAndroid;
-
-  /// 是否使用内嵌 libmpv（media_kit）作为播放内核。与外部的 useMpvAndroid 不同，
+  /// 是否使用内嵌 libmpv（media_kit）作为播放内核。
   /// 内嵌 mpv 在 App 内部渲染，切换播放器不跳出 App、可接续进度。
   /// 安卓 / 桌面可用；Web 忽略（media_kit 无 Web 视频输出）。
   final bool useEmbeddedMpv;
@@ -512,13 +506,11 @@ class PlayerSettings {
     String? bossKey,
     bool? autoLandscape,
     bool? useFfmpeg,
-    bool? useMpvAndroid,
     bool? useEmbeddedMpv,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
     useFfmpeg: useFfmpeg ?? this.useFfmpeg,
-    useMpvAndroid: useMpvAndroid ?? this.useMpvAndroid,
     useEmbeddedMpv: useEmbeddedMpv ?? this.useEmbeddedMpv,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
@@ -602,7 +594,6 @@ class PlayerSettings {
     'speed': speed,
     'autoLandscape': autoLandscape,
     'useFfmpeg': useFfmpeg,
-    'useMpvAndroid': useMpvAndroid,
     'useEmbeddedMpv': useEmbeddedMpv,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
@@ -645,7 +636,6 @@ class PlayerSettings {
     speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
     useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
-    useMpvAndroid: (j['useMpvAndroid'] as bool?) ?? false,
     useEmbeddedMpv: (j['useEmbeddedMpv'] as bool?) ?? false,
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,

@@ -18,7 +18,6 @@ import '../../services/drive/drive_line_hint.dart';
 import '../../services/jar_spider/hyms_native.dart';
 import '../../services/mpv_extension.dart';
 import '../../services/player/external_players.dart';
-import '../../services/player/mpv_android.dart';
 import '../../services/torrent/torrent_play.dart';
 import '../../state/app_state.dart';
 import '../open_player.dart';
@@ -668,37 +667,6 @@ class _DetailPageState extends State<DetailPage> {
     final effectiveStart = startMs > 0 ? startMs : (skip?.intro ?? 0) * 1000;
     final seconds = effectiveStart ~/ 1000;
     final source = app.preparePlay(play, forceRelay: true);
-
-    // 安卓端：交给已安装的 mpv-android（is.xyz.mpv）外部播放。
-    // 这是独立于桌面 defaultPlayer 的开关，必须放在下面的 builtin 提前返回之前，
-    // 否则默认播放器是「内置」时，打开开关也永远走不到这里（表现为按钮失灵）。
-    // 拉起失败则回落内置播放器。
-    if (MpvAndroid.supported && app.playerSettings.useMpvAndroid) {
-      // 外部播放器打开 `/chunk` 会并发多条探针，先预热本机取流服务。
-      if (play.url.contains('/chunk') && play.url.contains('127.0.0.1')) {
-        _toast('正在准备取流地址…');
-      }
-      if (!await app.sourceService.jar.warmUpLocalPlayUrl(play.url)) {
-        _toast('取流地址准备失败，已改用内置播放器');
-        return false;
-      }
-      try {
-        final ok = await MpvAndroid.open(
-          source.url,
-          title: '${detail.name} · $episodeKey',
-          positionMs: effectiveStart,
-        );
-        if (ok) {
-          app.sourceService.jar.holdPlaybackForExternal();
-          if (mounted) _toast('已在 mpv-android 中打开');
-          return true;
-        }
-        _toast('未安装 mpv-android 或启动失败，已改用内置播放器');
-      } catch (e) {
-        _toast('唤起 mpv-android 失败：$e，已改用内置播放器');
-      }
-      return false;
-    }
 
     final setting = app.playerSettings.defaultPlayer;
     if (normalizeDefaultPlayer(setting) == kDefaultPlayerBuiltin) return false;

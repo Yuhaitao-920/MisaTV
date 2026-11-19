@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- MpvInstallPlugin.apkDir = cacheDir/mpv-android -->
-    <cache-path name="mpv_apk" path="mpv-android/" />
-</paths>
