@@ -22,7 +22,7 @@ class MpvKitSession extends ValueNotifier<VideoPlayerValue> {
   final Player _player;
   late final VideoController videoController = VideoController(_player);
 
-  /// 用取消闭包保存订阅，规避不同 Stream<T> 的 StreamSubscription<T> 泛型不匹配。
+  /// 用取消闭包保存订阅，规避不同 `Stream<T>` 的 `StreamSubscription<T>` 泛型不匹配。
   final List<Future<void> Function()> _cancelSubs = <Future<void> Function()>[];
   bool _disposed = false;
 
