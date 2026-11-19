@@ -403,6 +403,7 @@ class PlayerSettings {
     this.autoLandscape = true,
     this.useFfmpeg = true,
     this.useMpvAndroid = false,
+    this.androidExternalPlayerPackage = '',
   });
   final double speed;
   final bool autoPlayNext;
@@ -413,10 +414,13 @@ class PlayerSettings {
   /// 桌面端始终使用 fvp，该开关仅影响安卓。
   final bool useFfmpeg;
 
-  /// 安卓端是否把片源交给已安装的 mpv-android（FongMi/mpv-android，
-  /// 包名 is.xyz.mpv）外部播放。通过 Intent 唤起，失败自动回落内置播放器。
-  /// 仅对安卓生效；桌面 / Web 忽略。
+  /// 安卓端是否把片源交给系统里安装的外部播放器播放。通过 Intent 唤起，
+  /// 失败自动回落内置播放器。仅对安卓生效；桌面 / Web 忽略。
   final bool useMpvAndroid;
+
+  /// 安卓端指定的外部播放器包名；空串 = 每次弹出系统选择器（可选任意播放器）。
+  /// 该包可以不在 [externalPlayers] 里（那是桌面端的可执行文件路径）。
+  final String androidExternalPlayerPackage;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
@@ -507,11 +511,14 @@ class PlayerSettings {
     bool? autoLandscape,
     bool? useFfmpeg,
     bool? useMpvAndroid,
+    String? androidExternalPlayerPackage,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
     useFfmpeg: useFfmpeg ?? this.useFfmpeg,
     useMpvAndroid: useMpvAndroid ?? this.useMpvAndroid,
+    androidExternalPlayerPackage:
+        androidExternalPlayerPackage ?? this.androidExternalPlayerPackage,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
@@ -595,6 +602,7 @@ class PlayerSettings {
     'autoLandscape': autoLandscape,
     'useFfmpeg': useFfmpeg,
     'useMpvAndroid': useMpvAndroid,
+    'androidExternalPlayerPackage': androidExternalPlayerPackage,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'magnetDownloadDir': magnetDownloadDir,
@@ -637,6 +645,8 @@ class PlayerSettings {
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
     useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
     useMpvAndroid: (j['useMpvAndroid'] as bool?) ?? false,
+    androidExternalPlayerPackage:
+        (j['androidExternalPlayerPackage'] ?? '').toString().trim(),
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),

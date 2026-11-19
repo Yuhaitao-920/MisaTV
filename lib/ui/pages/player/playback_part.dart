@@ -72,7 +72,9 @@ extension _PlayerPlaybackExt on _PlayerPageState {
                   item(
                     icon: Icons.open_in_new_rounded,
                     title: '外部播放器',
-                    subtitle: '自动检测 + 设置中添加的播放器',
+                    subtitle: MpvAndroid.supported
+                        ? '手机里的任意播放器（可在设置中指定）'
+                        : '自动检测 + 设置中添加的播放器',
                     onTap: _showExternalPlayers,
                   ),
                   item(

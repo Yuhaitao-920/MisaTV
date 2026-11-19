@@ -1325,3 +1325,145 @@ class _MpvAndroidInstallTileState extends State<_MpvAndroidInstallTile> {
     );
   }
 }
+
+/// 选择安卓端外部播放器：可指定设备上任意一个 App，或每次弹出系统选择器。
+class _AndroidExternalPlayerTile extends StatefulWidget {
+  const _AndroidExternalPlayerTile();
+
+  @override
+  State<_AndroidExternalPlayerTile> createState() =>
+      _AndroidExternalPlayerTileState();
+}
+
+class _AndroidExternalPlayerTileState
+    extends State<_AndroidExternalPlayerTile> {
+  List<AndroidVideoPlayer> _players = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final players = await MpvAndroid.installedPlayers();
+    if (!mounted) return;
+    setState(() {
+      _players = players;
+      _loading = false;
+    });
+  }
+
+  String _labelFor(String package, String fallback) {
+    if (package.isEmpty) return '每次让我选择';
+    for (final player in _players) {
+      if (player.package == package) return player.label;
+    }
+    return fallback.isEmpty ? package : fallback;
+  }
+
+  Future<void> _pick() async {
+    final app = AppScope.of(context);
+    final current = app.playerSettings.androidExternalPlayerPackage;
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('选择外部播放器'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(ctx).pop(''),
+            child: Row(
+              children: [
+                Icon(
+                  current.isEmpty
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
+                  size: 19,
+                  color: current.isEmpty
+                      ? Theme.of(ctx).colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('每次让我选择（显示全部可用播放器）'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 8),
+          for (final player in _players)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(player.package),
+              child: Row(
+                children: [
+                  Icon(
+                    current == player.package
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
+                    size: 19,
+                    color: current == player.package
+                        ? Theme.of(ctx).colorScheme.primary
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(player.label),
+                        Text(
+                          player.package,
+                          style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                            color: Theme.of(ctx)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_players.isEmpty && !_loading)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              child: Text(
+                '没有检测到支持视频播放的 App。可先安装一个播放器，'
+                '或直接保持「每次让我选择」由系统列出。',
+                style: Theme.of(ctx).textTheme.labelSmall,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    final freshApp = AppScope.of(context);
+    await freshApp.setPlayerSettings(
+      freshApp.playerSettings.copyWith(androidExternalPlayerPackage: picked),
+    );
+    if (!context.mounted) return;
+    _settingsSnack(context, '外部播放器已设为 ${_labelFor(picked, '')}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final current = AppScope.of(context)
+        .playerSettings
+        .androidExternalPlayerPackage;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(Icons.play_circle_outline_rounded, size: 20),
+      title: const Text('指定播放器（可选任意 App）'),
+      subtitle: Text(
+        _loading ? '正在扫描已安装的播放器…' : _labelFor(current, current),
+        style: theme.textTheme.labelSmall,
+      ),
+      trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+      onTap: _loading ? null : _pick,
+    );
+  }
+}

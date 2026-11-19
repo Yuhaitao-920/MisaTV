@@ -46,7 +46,47 @@ extension _PlayerCastExt on _PlayerPageState {
     return path;
   }
 
+  /// 安卓端：把当前播放地址交给系统里任意外部播放器。
+  Future<void> _openWithAndroidExternal() async {
+    final cached = _currentPlay;
+    final play =
+        (cached != null && _currentPlayIndex == _index && cached.playable)
+        ? cached
+        : await _resolve(_index);
+    if (play == null || !play.playable) {
+      _toast(
+        play?.message.isNotEmpty == true ? play!.message : '当前地址无法交给外部播放器',
+      );
+      return;
+    }
+    if (!await _warmUpExternalPlay(play)) return;
+    await _saveProgress();
+    final source = _app.preparePlay(play, forceRelay: true);
+    final ok = await MpvAndroid.open(
+      source.url,
+      title: '${_detail.name} $_episodeName'.trim(),
+      positionMs: _position.inMilliseconds,
+      package: _app.playerSettings.androidExternalPlayerPackage,
+    );
+    if (!ok) {
+      _toast('没有可用播放器或启动失败，可到 设置 → 外部播放器（手机） 检查');
+      return;
+    }
+    // 外部播放器可能正在读本机 /chunk：保留取流 JVM，退出播放器页。
+    _handedToExternalPlayer = true;
+    _app.sourceService.jar.holdPlaybackForExternal();
+    if (!mounted) return;
+    _toast('已在外部播放器中打开');
+    unawaited(_exitPage());
+  }
+
   Future<void> _showExternalPlayers() async {
+    // 手机上没有 exe 路径的概念：直接走 ACTION_VIEW，把当前片源交给
+    // 系统选择器或用户在设置里指定的任意播放器。
+    if (MpvAndroid.supported) {
+      await _openWithAndroidExternal();
+      return;
+    }
     final players = detectExternalPlayers(custom: _app.customExternalPlayers);
     if (players.isEmpty) {
       if (_mpvReady) {

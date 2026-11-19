@@ -38,6 +38,7 @@ import '../../services/artwork/artwork_service.dart';
 import '../../services/player/auto_line_switch.dart';
 import '../../services/player/network_speed_smoother.dart';
 import '../../services/player/external_players.dart';
+import '../../services/player/mpv_android.dart';
 import '../../services/player/skip_segments.dart';
 import '../../services/player/sleep_timer.dart';
 import '../../services/relay/local_relay.dart';

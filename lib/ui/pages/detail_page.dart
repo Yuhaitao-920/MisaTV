@@ -669,7 +669,7 @@ class _DetailPageState extends State<DetailPage> {
     final seconds = effectiveStart ~/ 1000;
     final source = app.preparePlay(play, forceRelay: true);
 
-    // 安卓端：交给已安装的 mpv-android（is.xyz.mpv）外部播放。
+    // 安卓端：交给手机上任意外部播放器（系统选择器或用户指定的 App）。
     // 这是独立于桌面 defaultPlayer 的开关，必须放在下面的 builtin 提前返回之前，
     // 否则默认播放器是「内置」时，打开开关也永远走不到这里（表现为按钮失灵）。
     // 拉起失败则回落内置播放器。
@@ -687,15 +687,16 @@ class _DetailPageState extends State<DetailPage> {
           source.url,
           title: '${detail.name} · $episodeKey',
           positionMs: effectiveStart,
+          package: app.playerSettings.androidExternalPlayerPackage,
         );
         if (ok) {
           app.sourceService.jar.holdPlaybackForExternal();
-          if (mounted) _toast('已在 mpv-android 中打开');
+          if (mounted) _toast('已在外部播放器中打开');
           return true;
         }
-        _toast('未安装 mpv-android 或启动失败，已改用内置播放器');
+        _toast('没有可用播放器或启动失败，已改用内置播放器');
       } catch (e) {
-        _toast('唤起 mpv-android 失败：$e，已改用内置播放器');
+        _toast('唤起外部播放器失败：$e，已改用内置播放器');
       }
       return false;
     }

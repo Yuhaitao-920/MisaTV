@@ -37,6 +37,7 @@ import '../../services/live/live_ua_policy.dart';
 import '../../services/jvm/jvm_runtime.dart';
 import '../../services/mpv_extension.dart';
 import '../../services/player/external_players.dart';
+import '../../services/player/mpv_android.dart';
 import '../../services/player/mpv_android_installer.dart';
 import '../../services/py_runtime_service.dart';
 import '../../services/relay/local_relay.dart';
@@ -1494,15 +1495,21 @@ class SettingsPageState extends State<SettingsPage> {
                   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
                     const SizedBox(height: 16),
                     _Section(
-                      title: '外部播放器',
+                      title: '外部播放器（手机）',
                       icon: Icons.open_in_new_rounded,
                       trailing: Text(
-                        app.playerSettings.useMpvAndroid ? 'mpv-android' : '内置',
+                        app.playerSettings.useMpvAndroid
+                            ? (app.playerSettings.androidExternalPlayerPackage.isEmpty
+                                ? '任选'
+                                : '已指定')
+                            : '内置',
                         style: theme.textTheme.labelSmall,
                       ),
                       summary: Text(
                         app.playerSettings.useMpvAndroid
-                            ? '片源交给 mpv-android 外部播放'
+                            ? app.playerSettings.androidExternalPlayerPackage.isEmpty
+                                ? '片源交给系统播放器列表中的任意 App'
+                                : '片源交给指定的外部播放器'
                             : '使用 MisaTV 内置播放器',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
@@ -1516,20 +1523,22 @@ class SettingsPageState extends State<SettingsPage> {
                             onChanged: (v) => app.setPlayerSettings(
                               app.playerSettings.copyWith(useMpvAndroid: v),
                             ),
-                            title: const Text('用 mpv-android 播放'),
+                            title: const Text('用外部播放器播放'),
                             subtitle: const Text(
-                              '开启后点播与直播通过 Intent 交给已安装的 '
-                              'FongMi/mpv-android（is.xyz.mpv）；未安装或启动失败'
-                              '会自动回落到内置播放器',
+                              '开启后点播与直播通过系统 Intent 交给手机里安装的'
+                              '任意视频播放器（MX Player、VLC、mpv 等）；'
+                              '未安装或启动失败会自动回落到内置播放器',
                             ),
                             secondary: const SizedBox(width: 20),
                             contentPadding: EdgeInsets.zero,
                           ),
                           const SizedBox(height: 10),
+                          const _AndroidExternalPlayerTile(),
+                          const SizedBox(height: 10),
                           const _MpvAndroidInstallTile(),
                           const SizedBox(height: 10),
                           Text(
-                            '需要 Referer/UA 的片源会经本机中继后交给 mpv，一般可正常播放。',
+                            '需要 Referer/UA 的片源会经本机中继后再交给外部播放器，一般可正常播放。',
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                             ),
