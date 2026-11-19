@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -42,6 +43,8 @@ void main(List<String> args) {
 
 Future<void> _bootstrap(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 内嵌 libmpv（media_kit）必须在 runApp 之前初始化，否则首次播放会抛未初始化错误。
+  MediaKit.ensureInitialized();
   // 必须在任何 HttpClient 创建之前安装：之后 Dart / package:http 的网络请求
   // 都会按当前代理配置自动走本机 HTTP 代理桥（未启用时返回 DIRECT）。
   ProxyRuntime.installHttpOverrides();
