@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/services.dart';
@@ -288,7 +287,7 @@ class JarSpiderAndroidService extends JarSpiderService {
   }
 
   Future<String> _invoke(SourceBean site, String method, List<String> args) async {
-    final loaded = await _ensureLoaded(site);
+    await _ensureLoaded(site);
     final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'invoke',
       {
