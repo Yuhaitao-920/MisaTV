@@ -153,6 +153,7 @@ class _PlayerPageState extends State<PlayerPage>
   bool _playing = false;
   bool _fullscreen = false;
   bool _fsToggling = false;
+  bool _appDark = false;
   bool _resolving = false;
   bool _completedHandled = false;
   bool _mpvReady = false;
@@ -434,6 +435,7 @@ class _PlayerPageState extends State<PlayerPage>
     _lastAppliedBufferMin = _app.playerSettings.bufferMinSec;
     _lastAppliedBufferMax = _app.playerSettings.bufferMaxSec;
     _immersiveMode = _app.playerSettings.immersiveMode;
+    _appDark = Theme.of(context).brightness == Brightness.dark;
     // 移动端播放时自动横屏：进入播放器即请求横屏，并隐藏系统栏（沉浸模式）
     // 避免系统状态栏/导航栏的白色条盖住播放器按键；退出时（dispose）恢复。
     if (_isMobile && _app.playerSettings.autoLandscape) {
@@ -443,6 +445,8 @@ class _PlayerPageState extends State<PlayerPage>
           DeviceOrientation.landscapeRight,
         ]),
       );
+      // 先把系统栏染黑，避免横屏瞬间或退出沉浸时露出白色竖条（白边）。
+      _applyDarkSystemBars();
       unawaited(
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
       );
@@ -1545,6 +1549,37 @@ class _PlayerPageState extends State<PlayerPage>
     hint: '↑ / ↓ 以 5% 步进调节，M 静音；播放器音量与 Windows 系统音量互不影响。',
   );
 
+  /// 把 Android 系统状态栏/导航栏染成黑色，避免横屏时白色竖条（白边）。
+  /// 播放页整页黑底，深色系统栏能与画面融合。
+  void _applyDarkSystemBars() {
+    if (!_isMobile) return;
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.black,
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarDividerColor: Colors.black,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    ));
+  }
+
+  /// 离开播放器时按当前主题恢复系统栏，避免黑色导航栏留在亮色页面里。
+  void _restoreSystemBars() {
+    if (!_isMobile) return;
+    final dark = _appDark;
+    final iconBrightness = dark ? Brightness.light : Brightness.dark;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: dark ? Colors.black : const Color(0xFFF7F7F7),
+      systemNavigationBarDividerColor: Colors.transparent,
+      statusBarIconBrightness: iconBrightness,
+      systemNavigationBarIconBrightness: iconBrightness,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    ));
+  }
+
   Future<void> _toggleFullscreen() async {
     // 小窗也允许全屏：进入全屏后临时铺满屏幕，退出全屏时窗口恢复成原来的
     // 小窗尺寸，`_mini` 状态保持不变。
@@ -1559,9 +1594,15 @@ class _PlayerPageState extends State<PlayerPage>
         _fsAnim.value = 0;
       });
       if (_isMobile) {
-        await SystemChrome.setEnabledSystemUIMode(
-          next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
-        );
+        if (next) {
+          await SystemChrome.setEnabledSystemUIMode(
+            SystemUiMode.immersiveSticky,
+          );
+        } else {
+          // 退出全屏会露回系统栏：先把导航栏/状态栏染黑，避免白色竖条白边。
+          _applyDarkSystemBars();
+          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+        }
         // 移动端整页本就铺满，系统栏隐藏与否的视觉差异很轻微，
         // 给一次明确提示，避免误以为全屏按钮「没反应」。
         _toast(next ? '已进入全屏（隐藏系统栏）' : '已退出全屏（显示系统栏）');
@@ -1692,6 +1733,8 @@ class _PlayerPageState extends State<PlayerPage>
       // 自动横屏隐藏了系统栏，离开播放器恢复（与全屏恢复一致）。
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
+    // 恢复系统栏配色，避免播放时的黑色导航栏带到亮色列表页。
+    if (_isMobile) _restoreSystemBars();
     // 移动端自动横屏：离开播放器时恢复系统默认方向。
     if (_opened && _isMobile) {
       unawaited(SystemChrome.setPreferredOrientations(<DeviceOrientation>[]));

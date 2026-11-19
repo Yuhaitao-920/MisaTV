@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/logging/app_log.dart';
@@ -59,9 +60,23 @@ class MpvAndroid {
       AppLog.w(_tag, '无效播放地址：$url');
       return false;
     }
+    // 优先走原生标准 Intent：本机 /chunk 地址无扩展名，mpv 靠 MIME 匹配，
+    // 且 intent:// URI 的 #Intent fragment 经 url_launcher 传输时不会被解析，
+    // 会报 ACTIVITY_NOT_FOUND。原生通道用 setDataAndType + setPackage 精确匹配。
+    try {
+      final ok = await _openNative(url, title: title, positionMs: positionMs);
+      if (ok != null) {
+        AppLog.i(_tag, '唤起 mpv-android(原生) scheme=${uri.scheme} ok=$ok');
+        if (!ok) AppLog.w(_tag, '原生通道未拉起 mpv（未安装或 MIME 不匹配）');
+        return ok;
+      }
+    } catch (e) {
+      AppLog.w(_tag, '原生通道不可用，回退 intent URI：$e');
+    }
+    // 兜底：老版宿主未注册原生方法时用 intent URI（部分系统可解析）。
     try {
       final intentUrl = _buildIntent(uri, title: title, positionMs: positionMs);
-      AppLog.i(_tag, '唤起 mpv-android scheme=${uri.scheme}');
+      AppLog.i(_tag, '唤起 mpv-android(intent URI) scheme=${uri.scheme}');
       final ok = await launchUrl(
         Uri.parse(intentUrl),
         mode: LaunchMode.externalApplication,
@@ -72,6 +87,22 @@ class MpvAndroid {
       AppLog.e(_tag, '唤起 mpv-android 失败', e);
       return false;
     }
+  }
+
+  static const MethodChannel _installChannel =
+      MethodChannel('com.kniephos.kniephos/mpv_install');
+
+  /// 调用原生标准 Intent 拉起 mpv。返回 null 表示原生方法不可用（老宿主）。
+  static Future<bool?> _openNative(
+    String url, {
+    String? title,
+    int positionMs = 0,
+  }) async {
+    return await _installChannel.invokeMethod<bool>('openWithMpv', <String, dynamic>{
+      'url': url,
+      'title': title,
+      'positionMs': positionMs,
+    });
   }
 
   /// 拼装 Android intent URI。

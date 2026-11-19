@@ -46,6 +46,16 @@ class MpvInstallPlugin(private val context: Context) {
                     }
                     result.success(install(path))
                 }
+                "openWithMpv" -> {
+                    val url = call.argument<String>("url")
+                    if (url.isNullOrEmpty()) {
+                        result.success(false)
+                        return
+                    }
+                    val title = call.argument<String>("title")
+                    val positionMs = call.argument<Int>("positionMs") ?: 0
+                    result.success(openWithMpv(url, title, positionMs))
+                }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -82,5 +92,33 @@ class MpvInstallPlugin(private val context: Context) {
         }
         context.startActivity(intent)
         return true
+    }
+
+    /// 用标准 ACTION_VIEW Intent 把播放地址交给 mpv-android。
+    ///
+    /// 必须显式 setType("video/*")：本机 /chunk 地址没有扩展名，mpv 的
+    /// intent-filter 靠 MIME 匹配；同时 setPackage 精确定位到 is.xyz.mpv，
+    /// 避免 url_launcher 拼 intent:// URI 时 fragment 不被解析的问题。
+    private fun openWithMpv(url: String, title: String?, positionMs: Int): Boolean {
+        val uri = try {
+            Uri.parse(url)
+        } catch (e: Exception) {
+            return false
+        }
+        val scheme = uri.scheme
+        if (scheme != "http" && scheme != "https" && scheme != "ftp") return false
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "video/*")
+            setPackage(MPV_PACKAGE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (!title.isNullOrEmpty()) putExtra("title", title)
+            if (positionMs > 0) putExtra("position", positionMs)
+        }
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 }
