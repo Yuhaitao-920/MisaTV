@@ -4,6 +4,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/logging/app_log.dart';
+import '../../models/player_fit.dart';
 
 /// 内嵌 libmpv（media_kit）播放会话。
 ///
@@ -39,7 +40,27 @@ class MpvKitSession extends ValueNotifier<VideoPlayerValue> {
   Duration _buffered = Duration.zero;
 
   /// 原生 mpv 视频输出视图；播放页在 mpv 模式下用它替代 VideoPlayer(controller)。
-  Widget buildView() => Video(controller: videoController);
+  ///
+  /// media_kit 的 [Video] 默认 `fit: BoxFit.contain`，在横屏上会按视频原始
+  /// 宽高比letterbox，出现左右黑边。这里把播放页统一的画面比例设置透传进去，
+  /// 默认与内置内核一致使用裁剪填满；同时关掉 media_kit 自带控制条，避免
+  /// 与播放页自己的手势/控制栏叠加。
+  Widget buildView(PlayerFit fit) {
+    final (BoxFit boxFit, double? aspectRatio) = switch (fit) {
+      PlayerFit.contain => (BoxFit.contain, null),
+      PlayerFit.fill => (BoxFit.fill, null),
+      PlayerFit.cover => (BoxFit.cover, null),
+      PlayerFit.ratio169 => (BoxFit.contain, 16 / 9),
+      PlayerFit.ratio43 => (BoxFit.contain, 4 / 3),
+      PlayerFit.original => (BoxFit.none, null),
+    };
+    return Video(
+      controller: videoController,
+      fit: boxFit,
+      aspectRatio: aspectRatio,
+      controls: NoVideoControls,
+    );
+  }
 
   Future<void> open(
     String url, {

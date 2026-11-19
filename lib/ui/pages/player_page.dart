@@ -2314,11 +2314,12 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   Widget _videoView() {
-    // 内嵌 libmpv 内核：media_kit 自己管理视频输出/画面比例，铺满容器即可。
+    // 内嵌 libmpv 内核：把播放页统一的比例设置透传给 media_kit 的 Video，
+    // 默认裁剪填满，避免横屏时左右留黑边。
     if (_useMpv) {
       final session = _mpvSession;
       if (session == null) return const SizedBox.expand();
-      return SizedBox.expand(child: session.buildView());
+      return SizedBox.expand(child: session.buildView(_fit));
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
