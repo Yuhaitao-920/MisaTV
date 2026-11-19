@@ -37,6 +37,7 @@ import '../../services/live/live_ua_policy.dart';
 import '../../services/jvm/jvm_runtime.dart';
 import '../../services/mpv_extension.dart';
 import '../../services/player/external_players.dart';
+import '../../services/player/mpv_android_installer.dart';
 import '../../services/py_runtime_service.dart';
 import '../../services/relay/local_relay.dart';
 import '../../services/runtime_extension.dart';
@@ -1525,9 +1526,10 @@ class SettingsPageState extends State<SettingsPage> {
                             contentPadding: EdgeInsets.zero,
                           ),
                           const SizedBox(height: 10),
+                          const _MpvAndroidInstallTile(),
+                          const SizedBox(height: 10),
                           Text(
-                            '需先在设备上安装 mpv-android。需要 Referer/UA 的片源'
-                            '会经本机中继后交给 mpv，一般可正常播放。',
+                            '需要 Referer/UA 的片源会经本机中继后交给 mpv，一般可正常播放。',
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                             ),
