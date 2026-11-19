@@ -387,7 +387,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
               _buffering = false;
             });
           }
-          if (mounted) _toast('已在 mpv-android 中打开');
+          AppLog.i('live', 'mpv-android 已唤起（静默）');
           return;
         }
         AppLog.w('live', 'mpv-android 未安装或启动失败，回落内置播放器');

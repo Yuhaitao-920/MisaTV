@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../parse_play.dart';
+import '../../core/logging/app_log.dart';
 import '../../core/platform/window_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/site_config.dart';
@@ -674,12 +675,9 @@ class _DetailPageState extends State<DetailPage> {
     // 否则默认播放器是「内置」时，打开开关也永远走不到这里（表现为按钮失灵）。
     // 拉起失败则回落内置播放器。
     if (MpvAndroid.supported && app.playerSettings.useMpvAndroid) {
-      // 外部播放器打开 `/chunk` 会并发多条探针，先预热本机取流服务。
-      if (play.url.contains('/chunk') && play.url.contains('127.0.0.1')) {
-        _toast('正在准备取流地址…');
-      }
+      // 静默唤起：预热、唤起、失败回落全程只写日志，不弹 toast。
       if (!await app.sourceService.jar.warmUpLocalPlayUrl(play.url)) {
-        _toast('取流地址准备失败，已改用内置播放器');
+        AppLog.w('detail', 'mpv 取流预热失败，静默回落内置播放器');
         return false;
       }
       try {
@@ -690,12 +688,12 @@ class _DetailPageState extends State<DetailPage> {
         );
         if (ok) {
           app.sourceService.jar.holdPlaybackForExternal();
-          if (mounted) _toast('已在 mpv-android 中打开');
+          AppLog.i('detail', 'mpv-android 已唤起（静默）');
           return true;
         }
-        _toast('未安装 mpv-android 或启动失败，已改用内置播放器');
+        AppLog.w('detail', 'mpv-android 未安装或启动失败，静默回落内置播放器');
       } catch (e) {
-        _toast('唤起 mpv-android 失败：$e，已改用内置播放器');
+        AppLog.w('detail', '唤起 mpv-android 异常，静默回落内置播放器', e);
       }
       return false;
     }
