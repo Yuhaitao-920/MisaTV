@@ -447,6 +447,10 @@ class _PlayerPageState extends State<PlayerPage>
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
       );
       _landscapeUiApplied = true;
+      // 自动横屏已经进入沉浸（系统栏隐藏），把全屏状态同步为 true，
+      // 让右下角全屏按钮的图标与真实状态一致：首次点击即为「退出全屏」，
+      // 有可见变化；否则按钮显示「进入全屏」却只是重复设置沉浸，看着像失灵。
+      _fullscreen = true;
     }
     BossKeyService.instance.bindPlayer(
       this,
@@ -1558,6 +1562,9 @@ class _PlayerPageState extends State<PlayerPage>
         await SystemChrome.setEnabledSystemUIMode(
           next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
         );
+        // 移动端整页本就铺满，系统栏隐藏与否的视觉差异很轻微，
+        // 给一次明确提示，避免误以为全屏按钮「没反应」。
+        _toast(next ? '已进入全屏（隐藏系统栏）' : '已退出全屏（显示系统栏）');
       } else {
         await setWindowFullscreen(next);
       }

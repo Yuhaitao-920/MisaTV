@@ -132,15 +132,20 @@ class MpvAndroidInstaller {
     if (usable.isEmpty) return null;
 
     // arm64 机型优先小包（约 34 MB），universal 作为兜底（约 135 MB）。
+    // 上游 release 文件名用连字符（app-default-arm64-v8a-release.apk），
+    // Android 返回的 ABI 也是连字符；两种分隔符都尝试，避免误选 universal 大包。
     final preferred = <String>[];
     for (final abi in abis) {
-      final clean = abi.replaceAll('-', '_');
-      preferred.add('app-default-$clean-release.apk');
+      final lower = abi.toLowerCase();
+      preferred.add('app-default-$lower-release.apk');
+      preferred.add('app-default-${lower.replaceAll('-', '_')}-release.apk');
     }
     preferred.addAll(const [
-      'app-default-universal-release.apk',
-      'app-default-arm64_v8a-release.apk',
       'app-default-arm64-v8a-release.apk',
+      'app-default-armeabi-v7a-release.apk',
+      'app-default-x86_64-release.apk',
+      'app-default-x86-release.apk',
+      'app-default-universal-release.apk',
     ]);
     for (final name in preferred) {
       for (final a in usable) {
@@ -205,6 +210,7 @@ class MpvAndroidInstaller {
       final name = (asset['name'] ?? 'mpv-android.apk').toString();
       final total = (asset['size'] as num?)?.toInt() ?? 0;
       final tag = (data['tag_name'] ?? '').toString();
+      AppLog.i(_tag, '选中 APK name=$name tag=$tag bytes=$total abis=$abis');
 
       final dir = Directory(await apkDir);
       if (!await dir.exists()) await dir.create(recursive: true);
