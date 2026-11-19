@@ -44,5 +44,7 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- 允许检测和拉起 mpv-android（外部播放器选项） -->
+        <package android:name="is.xyz.mpv" />
     </queries>
 </manifest>

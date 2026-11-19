@@ -18,6 +18,7 @@ import '../../services/drive/drive_line_hint.dart';
 import '../../services/jar_spider/hyms_native.dart';
 import '../../services/mpv_extension.dart';
 import '../../services/player/external_players.dart';
+import '../../services/player/mpv_android.dart';
 import '../../services/torrent/torrent_play.dart';
 import '../../state/app_state.dart';
 import '../open_player.dart';
@@ -679,6 +680,28 @@ class _DetailPageState extends State<DetailPage> {
       _toast('取流地址准备失败，已改用内置播放器');
       return false;
     }
+
+    // 安卓端：交给已安装的 mpv-android（is.xyz.mpv）外部播放。
+    // 这是独立于桌面 defaultPlayer 的开关；拉起失败则回落内置播放器。
+    if (MpvAndroid.supported && app.playerSettings.useMpvAndroid) {
+      try {
+        final ok = await MpvAndroid.open(
+          source.url,
+          title: '${detail.name} · $episodeKey',
+          positionMs: effectiveStart,
+        );
+        if (ok) {
+          app.sourceService.jar.holdPlaybackForExternal();
+          if (mounted) _toast('已在 mpv-android 中打开');
+          return true;
+        }
+        _toast('未安装 mpv-android 或启动失败，已改用内置播放器');
+      } catch (e) {
+        _toast('唤起 mpv-android 失败：$e，已改用内置播放器');
+      }
+      return false;
+    }
+
     final isMpv = setting == kDefaultPlayerYaozhiMpv;
     final customPath = app.playerSettings.defaultCustomPlayerPathValue;
     var playerName = isMpv

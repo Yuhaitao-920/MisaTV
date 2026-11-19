@@ -402,6 +402,7 @@ class PlayerSettings {
     this.bossKey = kUnsetBossKey,
     this.autoLandscape = true,
     this.useFfmpeg = true,
+    this.useMpvAndroid = false,
   });
   final double speed;
   final bool autoPlayNext;
@@ -411,6 +412,11 @@ class PlayerSettings {
   /// 封装与编码（与 FongMi/TV 同款解码能力），关掉则回落到系统 ExoPlayer。
   /// 桌面端始终使用 fvp，该开关仅影响安卓。
   final bool useFfmpeg;
+
+  /// 安卓端是否把片源交给已安装的 mpv-android（FongMi/mpv-android，
+  /// 包名 is.xyz.mpv）外部播放。通过 Intent 唤起，失败自动回落内置播放器。
+  /// 仅对安卓生效；桌面 / Web 忽略。
+  final bool useMpvAndroid;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
@@ -500,10 +506,12 @@ class PlayerSettings {
     String? bossKey,
     bool? autoLandscape,
     bool? useFfmpeg,
+    bool? useMpvAndroid,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
     useFfmpeg: useFfmpeg ?? this.useFfmpeg,
+    useMpvAndroid: useMpvAndroid ?? this.useMpvAndroid,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
@@ -586,6 +594,7 @@ class PlayerSettings {
     'speed': speed,
     'autoLandscape': autoLandscape,
     'useFfmpeg': useFfmpeg,
+    'useMpvAndroid': useMpvAndroid,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'magnetDownloadDir': magnetDownloadDir,
@@ -627,6 +636,7 @@ class PlayerSettings {
     speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
     useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
+    useMpvAndroid: (j['useMpvAndroid'] as bool?) ?? false,
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),
