@@ -20,7 +20,17 @@ class DownloadManager extends ChangeNotifier {
   void attach(Aria2Sidecar Function() engine) => _engineProvider = engine;
 
   Aria2Sidecar? get engine => _engineProvider?.call();
-  bool get available => engine != null;
+
+  /// 下载引擎是否在本平台真正可用。
+  ///
+  /// 内置的是 Windows 版 aria2c.exe（见 [Aria2Sidecar.available]），
+  /// 安卓 / iOS / Web 上即使被 attach 也无法工作。这里叠加平台判断，
+  /// 让设置页入口、下载页空状态、磁力下载守卫统一反映真实可用性，
+  /// 避免出现「点得进去但永远失败」的假入口。
+  static bool get platformSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  bool get available => platformSupported && engine != null;
 
   List<DownloadTask> tasks = const [];
   int downloadSpeed = 0;
