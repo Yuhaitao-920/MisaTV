@@ -186,7 +186,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       message: manager.available
                           ? '点右上角「+」添加 http / 磁力链接；'
                                 '磁力播放中的任务也会出现在这里。'
-                          : '浏览器版不支持 aria2 下载，请使用桌面版。',
+                          : 'aria2 下载仅桌面版支持。',
                     ),
                   )
                 else
