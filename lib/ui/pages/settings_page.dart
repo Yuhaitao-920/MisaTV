@@ -328,6 +328,9 @@ class SettingsPageState extends State<SettingsPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final narrow = constraints.maxWidth < 760;
+        // JVM 保温是桌面 JVM 进程池专属（安卓走 ART DexClassLoader，没有进程池）；
+        // 统一收口到这个判断，避免安卓端出现「点了没反应」的开关。
+        final isDesktop = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1000),
@@ -1703,7 +1706,7 @@ class SettingsPageState extends State<SettingsPage> {
                           title: '下载管理',
                           subtitle: app.downloadManager.available
                               ? 'aria2 · ${app.downloadManager.tasks.length} 个任务'
-                              : '浏览器版不支持 aria2 下载',
+                              : '仅桌面版支持 aria2 下载',
                           onTap: app.downloadManager.available
                               ? () => Navigator.of(context).push(
                                   MaterialPageRoute<void>(
@@ -1841,7 +1844,7 @@ class SettingsPageState extends State<SettingsPage> {
                       collapsible: true,
                       initiallyExpanded: false,
                       trailing: Text(
-                        'MPV / Python / JVM / 加固壳 / 字体',
+                        'MPV / Python / JVM / 加固壳',
                         style: theme.textTheme.labelSmall,
                       ),
                       summary: Text(
@@ -1861,23 +1864,6 @@ class SettingsPageState extends State<SettingsPage> {
                           _JvmRuntimeTile(key: _jvmTileKey),
                           const Divider(height: 24),
                           _ArmBridgeTile(key: _guardTileKey),
-                          const Divider(height: 24),
-                          AnimatedBuilder(
-                            animation: HeroFontService.instance,
-                            builder: (context, _) => _ActionRow(
-                              icon: Icons.font_download_outlined,
-                              title: '沉浸标题字体',
-                              subtitle: HeroFontService.instance.supported
-                                  ? '已安装 '
-                                        '${HeroFontService.instance.installedCount}/'
-                                        '${heroFontPacks.length} 个字体包'
-                                        ' · 按地区与类型自动匹配'
-                                  : '当前平台不支持运行时字体扩展',
-                              onTap: HeroFontService.instance.supported
-                                  ? () => _openHeroFonts(context)
-                                  : null,
-                            ),
-                          ),
                           const Divider(height: 24),
                           _ActionRow(
                             icon: Icons.extension_outlined,
@@ -1902,14 +1888,14 @@ class SettingsPageState extends State<SettingsPage> {
                       initiallyExpanded: false,
                       trailing: Text(
                         app.playerSettings.jsWorkerPool ||
-                                app.playerSettings.keepSpiderHosts
+                                (isDesktop && app.playerSettings.keepSpiderHosts)
                             ? '已开启'
                             : '默认',
                         style: theme.textTheme.labelSmall,
                       ),
                       summary: Text(
                         'JS 并行：${app.playerSettings.jsWorkerPool ? '开' : '关'}'
-                        ' · JVM 保温：${app.playerSettings.keepSpiderHosts ? '开' : '关'}',
+                        '${isDesktop ? ' · JVM 保温：${app.playerSettings.keepSpiderHosts ? '开' : '关'}' : ''}',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.45,
@@ -1940,20 +1926,58 @@ class SettingsPageState extends State<SettingsPage> {
                               height: 1.5,
                             ),
                           ),
-                          const Divider(height: 24),
-                          SwitchListTile.adaptive(
-                            value: app.playerSettings.keepSpiderHosts,
-                            onChanged: (v) => app.setPlayerSettings(
-                              app.playerSettings.copyWith(keepSpiderHosts: v),
+                          // 仅桌面有 JVM 进程池；安卓走 ART DexClassLoader，此开关无效。
+                          if (isDesktop) ...[
+                            const Divider(height: 24),
+                            SwitchListTile.adaptive(
+                              value: app.playerSettings.keepSpiderHosts,
+                              onChanged: (v) => app.setPlayerSettings(
+                                app.playerSettings.copyWith(keepSpiderHosts: v),
+                              ),
+                              title: const Text('常驻 JVM 保温（实验）'),
+                              subtitle: const Text(
+                                '搜索 / 浏览结束后保留 JVM 取数进程 2 分钟，减少再次冷启动；'
+                                '更占内存，默认关闭',
+                              ),
+                              contentPadding: EdgeInsets.zero,
                             ),
-                            title: const Text('常驻 JVM 保温（实验）'),
-                            subtitle: const Text(
-                              '搜索 / 浏览结束后保留 JVM 取数进程 2 分钟，减少再次冷启动；'
-                              '更占内存，默认关闭',
-                            ),
-                            contentPadding: EdgeInsets.zero,
-                          ),
+                          ],
                         ],
+                      ),
+                    ),
+                  ],
+                  // 沉浸标题字体：底层 HeroFontService 在非 Web 平台均可用
+                  // （supported => !kIsWeb），安卓端也应当能设置，不再藏进
+                  // Windows 专属的「运行时组件」分区。
+                  if (!kIsWeb && HeroFontService.instance.supported) ...[
+                    const SizedBox(height: 16),
+                    _Section(
+                      title: '沉浸标题字体',
+                      icon: Icons.font_download_outlined,
+                      collapsible: true,
+                      initiallyExpanded: false,
+                      trailing: Text(
+                        '${HeroFontService.instance.installedCount}/${heroFontPacks.length}',
+                        style: theme.textTheme.labelSmall,
+                      ),
+                      summary: Text(
+                        '按地区与类型自动匹配标题字体包',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.45,
+                          ),
+                        ),
+                      ),
+                      child: AnimatedBuilder(
+                        animation: HeroFontService.instance,
+                        builder: (context, _) => _ActionRow(
+                          icon: Icons.font_download_outlined,
+                          title: '标题字体包管理',
+                          subtitle: '已安装 '
+                              '${HeroFontService.instance.installedCount}/'
+                              '${heroFontPacks.length} 个 · 按地区与类型自动匹配',
+                          onTap: () => _openHeroFonts(context),
+                        ),
                       ),
                     ),
                   ],
