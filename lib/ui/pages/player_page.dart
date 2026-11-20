@@ -2977,19 +2977,13 @@ class _PlayerPageState extends State<PlayerPage>
                   icon: Icon(_volumeIcon, color: Colors.white),
                 ),
                 Expanded(
-                  // 动作按钮分两行：第一行是内容类（弹幕/字幕/跳过/详情/内核），
-                  // 第二行是系统类（设置/手机播放器/MPV/倍速/全屏）。
-                  // 横屏下按钮多，单行 Wrap 会挤成一条、间距太小不好点也不美观。
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  // 动作按钮单行排布：横屏下全部按钮放在同一行。
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 2,
+                    runSpacing: 0,
                     children: [
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 2,
-                        runSpacing: 0,
-                        children: [
                           if (!_live)
                             Tooltip(
                               message: '弹幕：点击开关，长按调节速度 / 屏占 / 屏蔽词',
@@ -3039,14 +3033,6 @@ class _PlayerPageState extends State<PlayerPage>
                               active: _useMpv,
                               onTap: _togglePlaybackKernel,
                             ),
-                        ],
-                      ),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 2,
-                        runSpacing: 0,
-                        children: [
                           IconButton(
                             tooltip: '播放设置（画面比例 / 音轨 / 下载）',
                             onPressed: _showPlaybackSettings,
@@ -3067,6 +3053,11 @@ class _PlayerPageState extends State<PlayerPage>
                           if (_mpvReady)
                             TextButton.icon(
                               onPressed: _openWithMpv,
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                               icon: const Icon(
                                 Icons.open_in_new_rounded,
                                 color: Colors.white70,
@@ -3082,6 +3073,11 @@ class _PlayerPageState extends State<PlayerPage>
                             ),
                           TextButton.icon(
                             onPressed: _showSpeed,
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
                             icon: const Icon(
                               Icons.speed_rounded,
                               color: Colors.white70,
@@ -3105,8 +3101,6 @@ class _PlayerPageState extends State<PlayerPage>
                               color: Colors.white,
                             ),
                           ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -3152,13 +3146,13 @@ class _PlayerPageState extends State<PlayerPage>
       onTap: onTap,
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 3),
+            Text(label, style: TextStyle(color: color, fontSize: 11)),
           ],
         ),
       ),
