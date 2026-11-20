@@ -2328,12 +2328,20 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   Widget _videoView() {
+    // 竖屏时把默认的「裁剪填满」改成「保持比例居中」：横版视频在竖屏上若继续
+    // cover，会被裁成只剩中间一条大头特写。改成 contain 后视频保持 16:9 居中，
+    // 上下留黑边，能看全画面——即「竖屏居中的横屏」。横屏仍按用户配置填满铺满。
+    // 注意：只有配置落在「默认/适应」(contain→被改写成 cover) 时才降级，
+    // 用户显式选了拉伸/16:9/4:3/原始等模式则完全尊重。
+    final portrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final effectiveFit =
+        portrait && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
     // 内嵌 libmpv 内核：把播放页统一的比例设置透传给 media_kit 的 Video，
     // 默认裁剪填满，避免横屏时左右留黑边。
     if (_useMpv) {
       final session = _mpvSession;
       if (session == null) return const SizedBox.expand();
-      return SizedBox.expand(child: session.buildView(_fit));
+      return SizedBox.expand(child: session.buildView(effectiveFit));
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
@@ -2344,7 +2352,7 @@ class _PlayerPageState extends State<PlayerPage>
     final aspect = value.aspectRatio <= 0 ? 16 / 9 : value.aspectRatio;
     final width = value.size.width <= 0 ? 1280.0 : value.size.width;
     final height = value.size.height <= 0 ? 720.0 : value.size.height;
-    return switch (_fit) {
+    return switch (effectiveFit) {
       PlayerFit.contain => Center(
         child: AspectRatio(aspectRatio: aspect, child: video),
       ),
