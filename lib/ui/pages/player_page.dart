@@ -2530,50 +2530,7 @@ class _PlayerPageState extends State<PlayerPage>
                           ),
                         ),
                       ),
-                    AnimatedOpacity(
-                      opacity: _controls ? 1 : 0,
-                      duration: const Duration(milliseconds: 220),
-                      child: IgnorePointer(
-                        ignoring: !_controls,
-                        child: Stack(
-                          children: [
-                            _topBar(context),
-                            if (!_mini)
-                              Center(
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (!_live)
-                                      _roundButton(
-                                        icon: Icons.replay_10_rounded,
-                                        onTap: () => _seekBy(
-                                          const Duration(seconds: -10),
-                                        ),
-                                      ),
-                                    if (!_live) const SizedBox(width: 22),
-                                    _roundButton(
-                                      icon: _playing
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                      size: 64,
-                                      onTap: _togglePlay,
-                                    ),
-                                    if (!_live) const SizedBox(width: 22),
-                                    if (!_live)
-                                      _roundButton(
-                                        icon: Icons.forward_10_rounded,
-                                        onTap: () => _seekBy(
-                                          const Duration(seconds: 10),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            _bottomBar(context),
-                          ],
-                        ),
-                      ),
-                    ),
+                    _controlsLayer(context),
                     Positioned(
                       left: 0,
                       right: 0,
@@ -2596,7 +2553,89 @@ class _PlayerPageState extends State<PlayerPage>
     );
   }
 
-  Widget _topBar(BuildContext context) {
+  /// 控制层。横屏/桌面：维持原来的整屏铺满布局（不变）。
+  /// 竖屏（移动端、非小窗）：整套控制栏按「横屏逻辑画布」排布后整体缩放，
+  /// 贴合到视频画面矩形里——顶栏 / 进度条 / 播放键 / 弹幕字幕全屏等
+  /// 全部落在视频画面上、保持一行横排，不再散落到上下黑边或挤成右侧竖条。
+  Widget _controlsLayer(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    // 竖屏且非小窗才贴合视频画面；横屏/桌面/小窗保持原样。
+    final portrait = _isMobile && !_mini && size.height > size.width;
+
+    final layer = Stack(
+      children: [
+        _topBar(context, confined: portrait),
+        if (!_mini)
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!_live)
+                  _roundButton(
+                    icon: Icons.replay_10_rounded,
+                    onTap: () => _seekBy(const Duration(seconds: -10)),
+                  ),
+                if (!_live) const SizedBox(width: 22),
+                _roundButton(
+                  icon: _playing
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  size: 64,
+                  onTap: _togglePlay,
+                ),
+                if (!_live) const SizedBox(width: 22),
+                if (!_live)
+                  _roundButton(
+                    icon: Icons.forward_10_rounded,
+                    onTap: () => _seekBy(const Duration(seconds: 10)),
+                  ),
+              ],
+            ),
+          ),
+        _bottomBar(context, confined: portrait),
+      ],
+    );
+
+    final content = AnimatedOpacity(
+      opacity: _controls ? 1 : 0,
+      duration: const Duration(milliseconds: 220),
+      child: IgnorePointer(ignoring: !_controls, child: layer),
+    );
+
+    if (!portrait) return content;
+
+    // 横屏逻辑画布：宽 920、高按视频比例（16:9 默认），让所有按钮在此宽度下
+    // 一行排布（与横屏一致，不会挤成竖条），再整体等比缩放到视频画面矩形。
+    const designW = 920.0;
+    final aspect = _videoAspectForLayout;
+    final designH = designW / aspect;
+    final scale = size.width / designW;
+    return Center(
+      child: SizedBox(
+        width: size.width,
+        height: designH * scale,
+        // 虚拟画布宽高比与视频矩形一致，FittedBox.fill 实为等比缩放，
+        // 且不会像 Transform + 超大 SizedBox 那样产生 overflow 警告。
+        child: FittedBox(
+          fit: BoxFit.fill,
+          child: SizedBox(width: designW, height: designH, child: content),
+        ),
+      ),
+    );
+  }
+
+  /// 竖屏贴合布局用的画面宽高比：内置内核取真实视频比例，
+  /// mpv 内核未暴露比例，按常见的 16:9 处理。
+  double get _videoAspectForLayout {
+    if (!_useMpv) {
+      final c = _controller;
+      final a = c != null && c.value.isInitialized ? c.value.aspectRatio : 0;
+      if (a > 0) return a;
+    }
+    return 16 / 9;
+  }
+
+  Widget _topBar(BuildContext context, {bool confined = false}) {
     final mini = _mini;
     return Positioned(
       left: 0,
@@ -2605,7 +2644,7 @@ class _PlayerPageState extends State<PlayerPage>
       child: Container(
         padding: EdgeInsets.fromLTRB(
           8,
-          MediaQuery.paddingOf(context).top + 8,
+          confined ? 6 : MediaQuery.paddingOf(context).top + 8,
           12,
           24,
         ),
@@ -2820,7 +2859,7 @@ class _PlayerPageState extends State<PlayerPage>
     );
   }
 
-  Widget _bottomBar(BuildContext context) {
+  Widget _bottomBar(BuildContext context, {bool confined = false}) {
     if (_mini) return _miniBottomBar(context);
     final total = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
     final value = _position.inMilliseconds.clamp(0, total).toDouble();
@@ -2833,7 +2872,7 @@ class _PlayerPageState extends State<PlayerPage>
           14,
           30,
           14,
-          MediaQuery.paddingOf(context).bottom + 10,
+          confined ? 6 : MediaQuery.paddingOf(context).bottom + 10,
         ),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
