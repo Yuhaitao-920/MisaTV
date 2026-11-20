@@ -2630,7 +2630,7 @@ class _PlayerPageState extends State<PlayerPage>
     if (!_useMpv) {
       final c = _controller;
       final a = c != null && c.value.isInitialized ? c.value.aspectRatio : 0;
-      if (a > 0) return a;
+      if (a > 0) return a.toDouble();
     }
     return 16 / 9;
   }
