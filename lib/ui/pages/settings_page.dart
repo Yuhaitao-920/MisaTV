@@ -2006,41 +2006,47 @@ class SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _Section(
-                    title: '隐私与快捷键',
-                    icon: Icons.keyboard_outlined,
-                    collapsible: true,
-                    initiallyExpanded: false,
-                    trailing: Text(
-                      bossKeyLabel(app.playerSettings.bossKey),
-                      style: theme.textTheme.labelSmall,
-                    ),
-                    summary: Text(
-                      isBossKeySet(app.playerSettings.bossKey)
-                          ? '老板键 ${bossKeyLabel(app.playerSettings.bossKey)}：暂停并收进托盘'
-                          : '老板键未设置：不占用全局热键',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.45,
+                  // 老板键是全局热键 + 系统托盘功能，仅桌面端有意义；
+                  // 安卓端没有全局热键/托盘，隐藏整个「隐私与快捷键」入口。
+                  if (!kIsWeb &&
+                      defaultTargetPlatform != TargetPlatform.android &&
+                      defaultTargetPlatform != TargetPlatform.iOS) ...[
+                    const SizedBox(height: 16),
+                    _Section(
+                      title: '隐私与快捷键',
+                      icon: Icons.keyboard_outlined,
+                      collapsible: true,
+                      initiallyExpanded: false,
+                      trailing: Text(
+                        bossKeyLabel(app.playerSettings.bossKey),
+                        style: theme.textTheme.labelSmall,
+                      ),
+                      summary: Text(
+                        isBossKeySet(app.playerSettings.bossKey)
+                            ? '老板键 ${bossKeyLabel(app.playerSettings.bossKey)}：暂停并收进托盘'
+                            : '老板键未设置：不占用全局热键',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.45,
+                          ),
                         ),
                       ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _ActionRow(
+                            icon: Icons.keyboard_outlined,
+                            title: '老板键',
+                            subtitle: isBossKeySet(app.playerSettings.bossKey)
+                                ? '${bossKeyLabel(app.playerSettings.bossKey)}'
+                                      ' · 暂停视频并收进托盘；沉浸观影模式下不生效'
+                                : '未设置 · 默认不占用任何全局热键，点此选择组合',
+                            onTap: () => _openBossKeySettings(context, app),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _ActionRow(
-                          icon: Icons.keyboard_outlined,
-                          title: '老板键',
-                          subtitle: isBossKeySet(app.playerSettings.bossKey)
-                              ? '${bossKeyLabel(app.playerSettings.bossKey)}'
-                                    ' · 暂停视频并收进托盘；沉浸观影模式下不生效'
-                              : '未设置 · 默认不占用任何全局热键，点此选择组合',
-                          onTap: () => _openBossKeySettings(context, app),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 ],
                 if (_pageIndex == _accountPage) ...[
                   if (!kIsWeb) const SizedBox(height: 16),

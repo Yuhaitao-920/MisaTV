@@ -76,7 +76,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _playing = false;
   bool _buffering = true;
   bool _fullscreen = false;
-  bool _fsToggling = false;
+  /// 全屏切换代次：连按时只让最新一次负责动画/提示，状态在点击当帧就翻转。
+  int _fsGeneration = 0;
   bool _mini = false;
   /// 直播画面填充模式。默认裁剪填满（cover），避免 16:9 源在更宽的手机横屏上出现左右黑边。
   PlayerFit _fit = PlayerFit.cover;
@@ -795,39 +796,37 @@ class _LivePlayerPageState extends State<LivePlayerPage>
 
   Future<void> _toggleFullscreen() async {
     // 小窗是独立的置顶小窗口，不参与全屏切换。
-    if (_mini || _fsToggling) return;
-    _fsToggling = true;
+    if (_mini) return;
     final next = !_fullscreen;
+    // 点击当帧就翻转目标状态：连按每次都有反馈，不再被慢速系统栏 await 吞掉。
     setState(() {
       _fullscreen = next;
       _fsAnim.value = 0;
     });
-    try {
-      if (_isMobile) {
-        // 手机端「全屏」必须真正切系统方向与系统栏，否则按钮只改了图标状态，
-        // 屏幕方向和系统栏都没变化，看起来就像点了没反应。
-        _landscapeUiApplied = next;
-        await SystemChrome.setPreferredOrientations(
-          next
-              ? <DeviceOrientation>[
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight,
-                ]
-              : <DeviceOrientation>[],
-        );
-        await SystemChrome.setEnabledSystemUIMode(
-          next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
-        );
-      } else {
-        await setWindowFullscreen(next);
-      }
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      _fsAnim.forward();
-    } finally {
-      _fsToggling = false;
+    final gen = ++_fsGeneration;
+    if (_isMobile) {
+      // 手机端「全屏」必须真正切系统方向与系统栏，否则按钮只改了图标状态，
+      // 屏幕方向和系统栏都没变化，看起来就像点了没反应。
+      _landscapeUiApplied = next;
+      await SystemChrome.setPreferredOrientations(
+        next
+            ? <DeviceOrientation>[
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]
+            : <DeviceOrientation>[],
+      );
+      await SystemChrome.setEnabledSystemUIMode(
+        next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+    } else {
+      await setWindowFullscreen(next);
     }
+    // 只让最新一次点击负责动画：连按时过期请求不重启动画，避免画面抖动。
+    if (!mounted || gen != _fsGeneration) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || gen != _fsGeneration) return;
+    _fsAnim.forward();
   }
 
   Future<void> _toggleAlwaysOnTop() async {

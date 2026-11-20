@@ -69,10 +69,19 @@ extension _PlayerPlaybackExt on _PlayerPageState {
                     subtitle: _danmakuSummary(),
                     onTap: _showDanmakuPanel,
                   ),
+                  if (AndroidExternalPlayer.supported)
+                    item(
+                      icon: Icons.smartphone_rounded,
+                      title: '用手机播放器打开',
+                      subtitle: '任选手机里已安装的视频播放器（系统选择器）',
+                      onTap: _showAndroidExternalPlayers,
+                    ),
                   item(
                     icon: Icons.open_in_new_rounded,
                     title: '外部播放器',
-                    subtitle: '自动检测 + 设置中添加的播放器',
+                    subtitle: AndroidExternalPlayer.supported
+                        ? '自动检测 + 设置中添加的播放器（桌面端）'
+                        : '自动检测 + 设置中添加的播放器',
                     onTap: _showExternalPlayers,
                   ),
                   item(

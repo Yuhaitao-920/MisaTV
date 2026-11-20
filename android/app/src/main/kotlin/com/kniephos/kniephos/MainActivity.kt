@@ -21,6 +21,9 @@ class MainActivity : FlutterActivity() {
         // 该插件是本地代码（未走 pub 插件自动注册），故在此显式添加。
         flutterEngine.plugins.add(SpiderHostPlugin())
 
+        // 安卓外部播放器通道：枚举手机上任意播放器 + ACTION_VIEW 拉起。
+        ExternalPlayerPlugin.register(flutterEngine, application)
+
         // 播放期间保持屏幕常亮：Dart 侧 SleepInhibitor 通过此 channel 控制。
         // 用 window flag 而非 WakeLock，无需额外权限；失败静默忽略，不影响播放。
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WAKELOCK_CHANNEL)

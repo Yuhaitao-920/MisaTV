@@ -38,6 +38,7 @@ import '../../services/artwork/artwork_service.dart';
 import '../../services/player/auto_line_switch.dart';
 import '../../services/player/network_speed_smoother.dart';
 import '../../services/player/external_players.dart';
+import '../../services/player/android_external_player.dart';
 import '../../services/player/mpv_kit_session.dart';
 import '../../services/player/skip_segments.dart';
 import '../../services/player/sleep_timer.dart';
@@ -175,7 +176,9 @@ class _PlayerPageState extends State<PlayerPage>
   Timer? _bufferingHintTimer;
   bool _playing = false;
   bool _fullscreen = false;
-  bool _fsToggling = false;
+  /// 全屏切换代次：每次点击 +1。系统栏切换是慢速 await，连按时只让最新一次
+  /// 负责 toast 与动画，避免重复提示；状态本身在点击当帧就翻转，保证连按有反馈。
+  int _fsGeneration = 0;
   bool _appDark = false;
   bool _resolving = false;
   bool _completedHandled = false;
@@ -1647,40 +1650,35 @@ class _PlayerPageState extends State<PlayerPage>
   Future<void> _toggleFullscreen() async {
     // 小窗也允许全屏：进入全屏后临时铺满屏幕，退出全屏时窗口恢复成原来的
     // 小窗尺寸，`_mini` 状态保持不变。
-    if (_fsToggling) return;
-    _fsToggling = true;
     final next = !_fullscreen;
-    try {
-      // 先把过渡动画归零，窗口切换后的第一帧就从缩放/半透明状态开始，
-      // 不再出现「先满帧闪一下、再开始动画」的突兀感。
-      setState(() {
-        _fullscreen = next;
-        _fsAnim.value = 0;
-      });
-      if (_isMobile) {
-        if (next) {
-          await SystemChrome.setEnabledSystemUIMode(
-            SystemUiMode.immersiveSticky,
-          );
-        } else {
-          // 退出全屏会露回系统栏：先把导航栏/状态栏染黑，避免白色竖条白边。
-          _applyDarkSystemBars();
-          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-        }
-        // 移动端整页本就铺满，系统栏隐藏与否的视觉差异很轻微，
-        // 给一次明确提示，避免误以为全屏按钮「没反应」。
-        _toast(next ? '已进入全屏（隐藏系统栏）' : '已退出全屏（显示系统栏）');
+    // 点击当帧立即翻转目标状态：这样连续快速点击每次都能看到反馈，
+    // 不会因为上一轮还在 await 系统栏切换就把这次点击直接丢弃。
+    setState(() {
+      _fullscreen = next;
+      _fsAnim.value = 0;
+    });
+    final gen = ++_fsGeneration;
+    if (_isMobile) {
+      if (next) {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.immersiveSticky,
+        );
       } else {
-        await setWindowFullscreen(next);
+        // 退出全屏会露回系统栏：先把导航栏/状态栏染黑，避免白色竖条白边。
+        _applyDarkSystemBars();
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       }
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      // 纯 Flutter 合成层动画：不触发逐帧窗口 resize，不会卡顿。
-      _fsAnim.forward();
-    } finally {
-      _fsToggling = false;
+    } else {
+      await setWindowFullscreen(next);
     }
+    // 只有最新一次点击负责提示与动画：连按时老的请求已过期，避免反复 toast、
+    // 反复重启动画导致画面抖动；但系统栏/窗口状态本身已经按每次点击应用完成。
+    if (!mounted || gen != _fsGeneration) return;
+    _toast(next ? '已进入全屏（隐藏系统栏）' : '已退出全屏（显示系统栏）');
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || gen != _fsGeneration) return;
+    // 纯 Flutter 合成层动画：不触发逐帧窗口 resize，不会卡顿。
+    _fsAnim.forward();
   }
 
   bool get _isMobile =>
@@ -3027,6 +3025,15 @@ class _PlayerPageState extends State<PlayerPage>
                           color: Colors.white,
                         ),
                       ),
+                      if (AndroidExternalPlayer.supported)
+                        IconButton(
+                          tooltip: '用手机里的播放器打开',
+                          onPressed: _showAndroidExternalPlayers,
+                          icon: const Icon(
+                            Icons.open_in_new_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
                       if (_mpvReady)
                         TextButton.icon(
                           onPressed: _openWithMpv,

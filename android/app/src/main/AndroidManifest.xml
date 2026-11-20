@@ -44,5 +44,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Android 11+ 包可见性：枚举并拉起手机上任意视频播放器 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:mimeType="video/*"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:mimeType="application/vnd.apple.mpegurl"/>
+        </intent>
     </queries>
 </manifest>

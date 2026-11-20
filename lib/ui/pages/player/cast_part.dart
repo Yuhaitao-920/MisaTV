@@ -2,6 +2,106 @@ part of '../player_page.dart';
 
 /// 以下逻辑由 [player_page.dart] 的 part 拆分而来，仍可访问 State 私有成员。
 extension _PlayerCastExt on _PlayerPageState {
+  /// 安卓端：弹出手机上所有能播放视频的 App（含系统选择器），任选其一打开当前集。
+  /// 不绑定任何特定播放器，也不带下载/安装逻辑。
+  Future<void> _showAndroidExternalPlayers() async {
+    if (!AndroidExternalPlayer.supported) return;
+    final cached = _currentPlay;
+    final play =
+        (cached != null && _currentPlayIndex == _index && cached.playable)
+        ? cached
+        : await _resolve(_index);
+    if (play == null || !play.playable) {
+      _toast(
+        play?.message.isNotEmpty == true
+            ? play!.message
+            : '当前地址无法交给外部播放器',
+      );
+      return;
+    }
+    if (!await _warmUpExternalPlay(play)) return;
+
+    // 枚举手机上已安装的播放器（原生 queryIntentActivities）。
+    final players = await AndroidExternalPlayer.installedPlayers();
+    if (!mounted) return;
+    final source = _app.preparePlay(play, forceRelay: true);
+    final title = '${_detail.name} $_episodeName'.trim();
+    final startMs = _position.inMilliseconds;
+
+    Future<void> launch(String? pkg, String label) async {
+      final ok = await AndroidExternalPlayer.open(
+        source.url,
+        title: title,
+        positionMs: startMs,
+        package: pkg,
+      );
+      if (ok) {
+        // 外部播放器读的是本机 /chunk 地址：离开本页也不能回收取流 JVM。
+        _handedToExternalPlayer = true;
+        _app.sourceService.jar.holdPlaybackForExternal();
+        await _saveProgress();
+        if (mounted) _toast('已在 $label 中打开');
+      } else {
+        _toast('无法拉起 $label，请确认该播放器已安装');
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.86,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('外部播放器', style: Theme.of(ctx).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  '选择手机里已安装的任意播放器打开当前集；多集时可优先用系统选择器。'
+                  '需要 Referer/UA 的片源已自动经本机中继处理。',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.apps_rounded),
+                  title: const Text('每次让我选择'),
+                  subtitle: const Text('弹出系统列表，可选任意已安装的视频播放器'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    unawaited(launch(null, '系统播放器'));
+                  },
+                ),
+                if (players.isNotEmpty) const Divider(height: 12),
+                for (final player in players)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.play_circle_outline_rounded),
+                    title: Text(player.label),
+                    subtitle: Text(
+                      player.package,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(launch(player.package, player.label));
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _castToDevice() async {
     final current = _currentPlay;
     if (current == null || current.url.trim().isEmpty) {

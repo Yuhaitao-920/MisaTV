@@ -74,10 +74,30 @@ class MpvKitSession extends ValueNotifier<VideoPlayerValue> {
     await _player.setVolume(_volume * 100);
     await _player.setRate(_rate);
     if (startPosition > Duration.zero) {
-      try {
-        await _player.seek(startPosition);
-      } catch (_) {
-        // 直播或不可 seek 的流忽略起播跳转失败。
+      // 关键：网络流刚 open 时尚未解析出时长/关键帧，此时立刻 seek 会被
+      // libmpv 忽略，表现为「切到 mpv 从头播」。等时长流给出有效值（首帧可定位）
+      // 后再 seek；直播等无法解析时长的流等不到就放弃跳转、从头播。
+      final deadline = DateTime.now().add(const Duration(seconds: 8));
+      while (!_disposed &&
+          _duration <= Duration.zero &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+      if (_disposed) return;
+      if (_duration > Duration.zero) {
+        // seek 是异步落点的：等一小会儿再核对位置，没跳到位就重试几次。
+        for (var attempt = 0; attempt < 3 && !_disposed; attempt++) {
+          try {
+            await _player.seek(startPosition);
+            await Future<void>.delayed(const Duration(milliseconds: 120));
+            final diff = _position > startPosition
+                ? _position - startPosition
+                : startPosition - _position;
+            if (diff < const Duration(seconds: 2)) break;
+          } catch (_) {
+            // 直播或不可 seek 的流忽略跳转失败。
+          }
+        }
       }
     }
     await _player.play();
