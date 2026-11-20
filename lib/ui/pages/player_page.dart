@@ -1651,7 +1651,7 @@ class _PlayerPageState extends State<PlayerPage>
     // 小窗也允许全屏：进入全屏后临时铺满屏幕，退出全屏时窗口恢复成原来的
     // 小窗尺寸，`_mini` 状态保持不变。
     final next = !_fullscreen;
-    // 点击当帧立即翻转目标状态：这样连续快速点击每次都能看到反馈，
+    // 点击当帧立即翻转目标状态：连续快速点击每次都能看到反馈，
     // 不会因为上一轮还在 await 系统栏切换就把这次点击直接丢弃。
     setState(() {
       _fullscreen = next;
@@ -1659,6 +1659,18 @@ class _PlayerPageState extends State<PlayerPage>
     });
     final gen = ++_fsGeneration;
     if (_isMobile) {
+      // 关键：移动端「全屏」必须像直播页那样真正切换屏幕方向 + 系统栏，
+      // 否则自动横屏后 immersiveSticky 与 edgeToEdge 视觉差异很小，
+      // 连按第二次看着就像「没反应」。进入=锁横屏+沉浸，退出=放开方向+显示系统栏。
+      _landscapeUiApplied = next;
+      await SystemChrome.setPreferredOrientations(
+        next
+            ? <DeviceOrientation>[
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]
+            : <DeviceOrientation>[],
+      );
       if (next) {
         await SystemChrome.setEnabledSystemUIMode(
           SystemUiMode.immersiveSticky,
@@ -1672,9 +1684,10 @@ class _PlayerPageState extends State<PlayerPage>
       await setWindowFullscreen(next);
     }
     // 只有最新一次点击负责提示与动画：连按时老的请求已过期，避免反复 toast、
-    // 反复重启动画导致画面抖动；但系统栏/窗口状态本身已经按每次点击应用完成。
+    // 反复重启动画导致画面抖动；状态本身已经按每次点击应用完成。
     if (!mounted || gen != _fsGeneration) return;
-    _toast(next ? '已进入全屏（隐藏系统栏）' : '已退出全屏（显示系统栏）');
+    AppLog.i('player', '全屏切换 -> ${next ? '进入' : '退出'}');
+    _toast(next ? '已进入全屏（横屏沉浸）' : '已退出全屏（显示系统栏）');
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || gen != _fsGeneration) return;
     // 纯 Flutter 合成层动画：不触发逐帧窗口 resize，不会卡顿。
@@ -2404,14 +2417,15 @@ class _PlayerPageState extends State<PlayerPage>
               // 鼠标移动只维持光标可见，不唤出控制栏（单击才唤出）。
               onHover: (_) => _onPointerMove(),
               child: GestureDetector(
-                // 单击切换控制栏；双击全屏。二者由 Flutter 手势仲裁区分：
-                // 双击判定窗口内的第二次点击会取消 onTap，因此快速双击不会
-                // 顺带把控制栏切一下。
+                // 单击切换控制栏。
+                // 注意：这里不能再挂 onDoubleTap -> 全屏。底栏那个「全屏」按钮就嵌在
+                // 这个 GestureDetector 的子树里，快速连按按钮时父级双击手势会与按钮的
+                // onPressed 一起触发，两次切换互相抵消 —— 表现就是「第二下没反应」。
+                // 全屏统一交给按钮 / 键盘 F、Enter，避免手势仲裁抢点击。
                 // opaque：加载中/无控制栏时子级（进度圈、弹幕层）不吸收点击，
                 // 默认的 deferToChild 会导致单击落空、无法唤出控制栏返回。
                 behavior: HitTestBehavior.opaque,
                 onTap: _toggleControls,
-                onDoubleTap: () => unawaited(_toggleFullscreen()),
                 onLongPressStart: (_) => _startHoldRate(),
                 onLongPressEnd: (_) => _endHoldRate(),
                 onLongPressCancel: _endHoldRate,
@@ -2963,117 +2977,135 @@ class _PlayerPageState extends State<PlayerPage>
                   icon: Icon(_volumeIcon, color: Colors.white),
                 ),
                 Expanded(
-                  child: Wrap(
-                    alignment: WrapAlignment.end,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 2,
+                  // 动作按钮分两行：第一行是内容类（弹幕/字幕/跳过/详情/内核），
+                  // 第二行是系统类（设置/手机播放器/MPV/倍速/全屏）。
+                  // 横屏下按钮多，单行 Wrap 会挤成一条、间距太小不好点也不美观。
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (!_live)
-                        Tooltip(
-                          message: '弹幕：点击开关，长按调节速度 / 屏占 / 屏蔽词',
-                          child: _barAction(
-                            icon: Icons.chat_bubble_outline_rounded,
-                            label: '弹幕',
-                            active: _danmakuEnabled,
-                            onTap: _toggleDanmaku,
-                            onLongPress: _showDanmakuPanel,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 2,
+                        runSpacing: 0,
+                        children: [
+                          if (!_live)
+                            Tooltip(
+                              message: '弹幕：点击开关，长按调节速度 / 屏占 / 屏蔽词',
+                              child: _barAction(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                label: '弹幕',
+                                active: _danmakuEnabled,
+                                onTap: _toggleDanmaku,
+                                onLongPress: _showDanmakuPanel,
+                              ),
+                            ),
+                          if (_mdkEnabled && !_live)
+                            _barAction(
+                              icon: Icons.subtitles_outlined,
+                              label: '字幕',
+                              active: _subtitleStatus.isNotEmpty,
+                              onTap: _showSubtitlePanel,
+                            ),
+                          // 多音轨的视频直接给入口，不用再进「播放设置」里翻。
+                          if (_mdkEnabled && !_live && _audioOptions.length > 1)
+                            _barAction(
+                              icon: Icons.graphic_eq_rounded,
+                              label: '音轨',
+                              onTap: _showAudioTracks,
+                            ),
+                          if (!_live)
+                            Tooltip(
+                              message: '跳过片头 / 片尾：${_skipSummary()}',
+                              child: _barAction(
+                                icon: Icons.content_cut_rounded,
+                                label: '跳过',
+                                active: _skipIntro > 0 || _skipOutro > 0,
+                                onTap: _showSkipSettings,
+                              ),
+                            ),
+                          _barAction(
+                            icon: Icons.analytics_outlined,
+                            label: '详情',
+                            active: _detailsVisible,
+                            onTap: _toggleDetails,
+                            onLongPress: _showDetailsSettings,
                           ),
-                        ),
-                      if (_mdkEnabled && !_live)
-                        _barAction(
-                          icon: Icons.subtitles_outlined,
-                          label: '字幕',
-                          active: _subtitleStatus.isNotEmpty,
-                          onTap: _showSubtitlePanel,
-                        ),
-                      // 多音轨的视频直接给入口，不用再进「播放设置」里翻。
-                      if (_mdkEnabled && !_live && _audioOptions.length > 1)
-                        _barAction(
-                          icon: Icons.graphic_eq_rounded,
-                          label: '音轨',
-                          onTap: _showAudioTracks,
-                        ),
-                      if (!_live)
-                        Tooltip(
-                          message: '跳过片头 / 片尾：${_skipSummary()}',
-                          child: _barAction(
-                            icon: Icons.content_cut_rounded,
-                            label: '跳过',
-                            active: _skipIntro > 0 || _skipOutro > 0,
-                            onTap: _showSkipSettings,
-                          ),
-                        ),
-                      _barAction(
-                        icon: Icons.analytics_outlined,
-                        label: '详情',
-                        active: _detailsVisible,
-                        onTap: _toggleDetails,
-                        onLongPress: _showDetailsSettings,
+                          if (!kIsWeb)
+                            _barAction(
+                              icon: Icons.swap_horiz_rounded,
+                              label: _useMpv ? 'mpv' : '内置',
+                              active: _useMpv,
+                              onTap: _togglePlaybackKernel,
+                            ),
+                        ],
                       ),
-                      if (!kIsWeb)
-                        _barAction(
-                          icon: Icons.swap_horiz_rounded,
-                          label: _useMpv ? 'mpv' : '内置',
-                          active: _useMpv,
-                          onTap: _togglePlaybackKernel,
-                        ),
-                      IconButton(
-                        tooltip: '播放设置（画面比例 / 音轨 / 外部播放器）',
-                        onPressed: _showPlaybackSettings,
-                        icon: const Icon(
-                          Icons.tune_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                      if (AndroidExternalPlayer.supported)
-                        IconButton(
-                          tooltip: '用手机里的播放器打开',
-                          onPressed: _showAndroidExternalPlayers,
-                          icon: const Icon(
-                            Icons.open_in_new_rounded,
-                            color: Colors.white,
-                          ),
-                        ),
-                      if (_mpvReady)
-                        TextButton.icon(
-                          onPressed: _openWithMpv,
-                          icon: const Icon(
-                            Icons.open_in_new_rounded,
-                            color: Colors.white70,
-                            size: 18,
-                          ),
-                          label: const Text(
-                            'MPV',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 2,
+                        runSpacing: 0,
+                        children: [
+                          IconButton(
+                            tooltip: '播放设置（画面比例 / 音轨 / 下载）',
+                            onPressed: _showPlaybackSettings,
+                            icon: const Icon(
+                              Icons.tune_rounded,
+                              color: Colors.white,
                             ),
                           ),
-                        ),
-                      TextButton.icon(
-                        onPressed: _showSpeed,
-                        icon: const Icon(
-                          Icons.speed_rounded,
-                          color: Colors.white70,
-                          size: 18,
-                        ),
-                        label: Text(
-                          '${_rate.toStringAsFixed(_rate % 1 == 0 ? 0 : 2)}x',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
+                          if (AndroidExternalPlayer.supported)
+                            IconButton(
+                              tooltip: '用手机里的播放器打开',
+                              onPressed: _showAndroidExternalPlayers,
+                              icon: const Icon(
+                                Icons.open_in_new_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                          if (_mpvReady)
+                            TextButton.icon(
+                              onPressed: _openWithMpv,
+                              icon: const Icon(
+                                Icons.open_in_new_rounded,
+                                color: Colors.white70,
+                                size: 18,
+                              ),
+                              label: const Text(
+                                'MPV',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          TextButton.icon(
+                            onPressed: _showSpeed,
+                            icon: const Icon(
+                              Icons.speed_rounded,
+                              color: Colors.white70,
+                              size: 18,
+                            ),
+                            label: Text(
+                              '${_rate.toStringAsFixed(_rate % 1 == 0 ? 0 : 2)}x',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '全屏（F / Enter）',
-                        onPressed: _toggleFullscreen,
-                        icon: Icon(
-                          _fullscreen
-                              ? Icons.fullscreen_exit_rounded
-                              : Icons.fullscreen_rounded,
-                          color: Colors.white,
-                        ),
+                          IconButton(
+                            tooltip: '全屏（F / Enter）',
+                            onPressed: _toggleFullscreen,
+                            icon: Icon(
+                              _fullscreen
+                                  ? Icons.fullscreen_exit_rounded
+                                  : Icons.fullscreen_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

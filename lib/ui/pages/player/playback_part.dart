@@ -76,14 +76,15 @@ extension _PlayerPlaybackExt on _PlayerPageState {
                       subtitle: '任选手机里已安装的视频播放器（系统选择器）',
                       onTap: _showAndroidExternalPlayers,
                     ),
-                  item(
-                    icon: Icons.open_in_new_rounded,
-                    title: '外部播放器',
-                    subtitle: AndroidExternalPlayer.supported
-                        ? '自动检测 + 设置中添加的播放器（桌面端）'
-                        : '自动检测 + 设置中添加的播放器',
-                    onTap: _showExternalPlayers,
-                  ),
+                  // 桌面端专属的外部播放器入口：安卓端已有「用手机播放器打开」
+                  // （系统选择器，任选已安装播放器），这里不再重复展示，避免混淆。
+                  if (!AndroidExternalPlayer.supported)
+                    item(
+                      icon: Icons.open_in_new_rounded,
+                      title: '外部播放器',
+                      subtitle: '自动检测 + 设置中添加的播放器',
+                      onTap: _showExternalPlayers,
+                    ),
                   item(
                     icon: Icons.download_rounded,
                     title: '下载视频',
