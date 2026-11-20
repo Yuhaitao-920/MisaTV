@@ -1669,7 +1669,10 @@ class _PlayerPageState extends State<PlayerPage>
                 DeviceOrientation.landscapeLeft,
                 DeviceOrientation.landscapeRight,
               ]
-            : <DeviceOrientation>[],
+            // 退出全屏必须显式请求竖屏：空列表只是「放开方向锁、跟随系统」，
+            // 手机横着拿或未开自动旋转时会卡在横屏，视频看着就「缩不小」。
+            // Android TV 会忽略该请求（固定横屏），无副作用。
+            : <DeviceOrientation>[DeviceOrientation.portraitUp],
       );
       if (next) {
         await SystemChrome.setEnabledSystemUIMode(
@@ -2383,10 +2386,13 @@ class _PlayerPageState extends State<PlayerPage>
           // 只做合成层的缩放 + 黑色压暗，不对整页做 Opacity/saveLayer，
           // 4K 视频全屏时也不会掉帧。
           final t = Curves.easeOutCubic.transform(_fsAnim.value);
-          final scale = _fullscreen ? 1.045 - 0.045 * t : 0.955 + 0.045 * t;
+          // 移动端全屏是靠系统方向 + 系统栏切换实现的，视频始终铺满屏幕，
+          // 不存在桌面那种窗口从小变大的硬跳，因此不需要缩放/压黑过渡：
+          // 这套动画在移动端退出时反而是 0.955→1.0 的「放大」，与缩小观感相悖。
+          final scale = _isMobile ? 1.0 : (_fullscreen ? 1.045 - 0.045 * t : 0.955 + 0.045 * t);
           // 窗口切换瞬间整屏压黑，视觉上只剩「从黑场淡入并归位」，
           // 完全看不到系统窗口从小变大的硬跳。
-          final dim = 1 - t;
+          final dim = _isMobile ? 0.0 : 1 - t;
           return Stack(
             fit: StackFit.expand,
             children: [
