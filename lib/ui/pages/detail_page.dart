@@ -898,7 +898,10 @@ class _DetailPageState extends State<DetailPage> {
     final app = AppScope.of(context);
     final torrent = app.torrentPlay;
     final name = _detail?.name ?? widget.item.name;
-    if (torrent == null) {
+    // torrentPlay 在移动端也会被创建（本机中继的 btSource 需要），但内置
+    // aria2c.exe 只有 Windows 版，安卓/iOS/Web 上 downloadManager.available
+    // 恒为 false。用它判断真实可用性，避免出现「弹窗转半天再报不支持」。
+    if (torrent == null || !app.downloadManager.available) {
       _toast('当前平台没有内置 BT 引擎');
       return;
     }
