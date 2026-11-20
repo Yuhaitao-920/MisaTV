@@ -26,6 +26,10 @@ dependencies:
   gbk_codec: ^0.4.0
   video_player: ^2.14.1
   fvp: ^0.39.1
+  # 内嵌 libmpv 播放器：media_kit 以预编译 .so 分发 libmpv，零本地 NDK 工具链。
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_android_video: ^1.3.8
   path_provider: ^2.1.6
   flutter_js: ^0.8.7
   crypto: ^3.0.8

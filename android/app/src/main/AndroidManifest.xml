@@ -1,8 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <!-- 允许拉起系统安装器安装下载好的 mpv-android APK（不会静默安装，需用户确认） -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="MisaTV"
         android:name="${applicationName}"
@@ -35,16 +33,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- 分享下载目录里的 APK 给系统安装器（content:// URI，Android 7+ 必需） -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/mpv_file_paths" />
-        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -55,17 +43,6 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
-        </intent>
-        <!-- 允许检测和拉起 mpv-android（外部播放器选项） -->
-        <package android:name="is.xyz.mpv" />
-        <!-- Android 11+ 包可见性：枚举并拉起手机上任意视频播放器 -->
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:mimeType="video/*"/>
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:mimeType="application/vnd.apple.mpegurl"/>
         </intent>
     </queries>
 </manifest>

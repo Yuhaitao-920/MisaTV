@@ -402,8 +402,7 @@ class PlayerSettings {
     this.bossKey = kUnsetBossKey,
     this.autoLandscape = true,
     this.useFfmpeg = true,
-    this.useMpvAndroid = false,
-    this.androidExternalPlayerPackage = '',
+    this.useEmbeddedMpv = false,
   });
   final double speed;
   final bool autoPlayNext;
@@ -414,13 +413,10 @@ class PlayerSettings {
   /// 桌面端始终使用 fvp，该开关仅影响安卓。
   final bool useFfmpeg;
 
-  /// 安卓端是否把片源交给系统里安装的外部播放器播放。通过 Intent 唤起，
-  /// 失败自动回落内置播放器。仅对安卓生效；桌面 / Web 忽略。
-  final bool useMpvAndroid;
-
-  /// 安卓端指定的外部播放器包名；空串 = 每次弹出系统选择器（可选任意播放器）。
-  /// 该包可以不在 [externalPlayers] 里（那是桌面端的可执行文件路径）。
-  final String androidExternalPlayerPackage;
+  /// 是否使用内嵌 libmpv（media_kit）作为播放内核。
+  /// 内嵌 mpv 在 App 内部渲染，切换播放器不跳出 App、可接续进度。
+  /// 安卓 / 桌面可用；Web 忽略（media_kit 无 Web 视频输出）。
+  final bool useEmbeddedMpv;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
@@ -510,15 +506,12 @@ class PlayerSettings {
     String? bossKey,
     bool? autoLandscape,
     bool? useFfmpeg,
-    bool? useMpvAndroid,
-    String? androidExternalPlayerPackage,
+    bool? useEmbeddedMpv,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
     useFfmpeg: useFfmpeg ?? this.useFfmpeg,
-    useMpvAndroid: useMpvAndroid ?? this.useMpvAndroid,
-    androidExternalPlayerPackage:
-        androidExternalPlayerPackage ?? this.androidExternalPlayerPackage,
+    useEmbeddedMpv: useEmbeddedMpv ?? this.useEmbeddedMpv,
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
@@ -601,8 +594,7 @@ class PlayerSettings {
     'speed': speed,
     'autoLandscape': autoLandscape,
     'useFfmpeg': useFfmpeg,
-    'useMpvAndroid': useMpvAndroid,
-    'androidExternalPlayerPackage': androidExternalPlayerPackage,
+    'useEmbeddedMpv': useEmbeddedMpv,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'magnetDownloadDir': magnetDownloadDir,
@@ -644,9 +636,7 @@ class PlayerSettings {
     speed: (j['speed'] as num?)?.toDouble() ?? 1.0,
     autoLandscape: (j['autoLandscape'] as bool?) ?? true,
     useFfmpeg: (j['useFfmpeg'] as bool?) ?? true,
-    useMpvAndroid: (j['useMpvAndroid'] as bool?) ?? false,
-    androidExternalPlayerPackage:
-        (j['androidExternalPlayerPackage'] ?? '').toString().trim(),
+    useEmbeddedMpv: (j['useEmbeddedMpv'] as bool?) ?? false,
     autoPlayNext: (j['autoPlayNext'] as bool?) ?? true,
     autoSwitchLine: (j['autoSwitchLine'] as bool?) ?? false,
     magnetDownloadDir: (j['magnetDownloadDir'] ?? '').toString().trim(),

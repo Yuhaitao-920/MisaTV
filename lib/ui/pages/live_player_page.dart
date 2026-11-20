@@ -24,7 +24,6 @@ import '../../services/live/live_ua_policy.dart';
 import '../../services/live_service.dart';
 import '../../services/boss_key/boss_key_service.dart';
 import '../../services/relay/local_relay.dart';
-import '../../services/player/mpv_android.dart';
 import '../widgets/hover_marquee_text.dart';
 import '../widgets/player_overlay_settings.dart';
 import '../widgets/volume_hud.dart';
@@ -376,26 +375,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
           : cleanUrl;
       if (viaRelay) {
         AppLog.i('live', '经中继/代理打开直播 ${redactUrl(cleanUrl)}');
-      }
-      // 安卓端：交给手机上的外部播放器（系统选择器或用户指定的 App）。
-      // target 已包含本机中继地址，避免了自定义 header 无法经 Intent 传递的问题。
-      final androidSettings = AppScope.of(context).playerSettings;
-      if (MpvAndroid.supported && androidSettings.useMpvAndroid) {
-        final ok = await MpvAndroid.open(
-          target,
-          title: _channel.name,
-          package: androidSettings.androidExternalPlayerPackage,
-        );
-        if (ok) {
-          if (mounted) {
-            setState(() {
-              _buffering = false;
-            });
-          }
-          if (mounted) _toast('已在外部播放器中打开');
-          return;
-        }
-        AppLog.w('live', '外部播放器未安装或启动失败，回落内置播放器');
       }
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(target),

@@ -38,7 +38,7 @@ import '../../services/artwork/artwork_service.dart';
 import '../../services/player/auto_line_switch.dart';
 import '../../services/player/network_speed_smoother.dart';
 import '../../services/player/external_players.dart';
-import '../../services/player/mpv_android.dart';
+import '../../services/player/mpv_kit_session.dart';
 import '../../services/player/skip_segments.dart';
 import '../../services/player/sleep_timer.dart';
 import '../../services/relay/local_relay.dart';
@@ -133,6 +133,28 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage>
     with SingleTickerProviderStateMixin {
   VideoPlayerController? _controller;
+
+  /// 内嵌 libmpv（media_kit）播放会话。与 _controller 二选一作为当前内核，
+  /// 通过 _useMpv 标记切换；两者共用本页的进度/音量/倍速/缓冲 UI。
+  MpvKitSession? _mpvSession;
+  bool _useMpv = false;
+
+  /// 当前活动内核的播放状态（供进度条/详情/统计等共用逻辑读取）。
+  VideoPlayerValue? get _activeValue => _useMpv ? _mpvSession?.value : _controller?.value;
+
+  /// 把控制操作转发给当前活动内核，避免在几十处调用点反复判断内核类型。
+  Future<void> _activePlay() =>
+      _useMpv ? (_mpvSession?.play() ?? Future<void>.value()) : (_controller?.play() ?? Future<void>.value());
+  Future<void> _activePause() =>
+      _useMpv ? (_mpvSession?.pause() ?? Future<void>.value()) : (_controller?.pause() ?? Future<void>.value());
+  Future<void> _activeSeek(Duration pos) =>
+      _useMpv ? (_mpvSession?.seekTo(pos) ?? Future<void>.value()) : (_controller?.seekTo(pos) ?? Future<void>.value());
+  Future<void> _activeSetVolume(double v) =>
+      _useMpv ? (_mpvSession?.setVolume(v) ?? Future<void>.value()) : (_controller?.setVolume(v) ?? Future<void>.value());
+  Future<void> _activeSetRate(double r) =>
+      _useMpv ? (_mpvSession?.setPlaybackSpeed(r) ?? Future<void>.value()) : (_controller?.setPlaybackSpeed(r) ?? Future<void>.value());
+  bool get _hasActiveKernel => _useMpv ? _mpvSession != null : _controller != null;
+
   late final AnimationController _fsAnim;
   late int _index = widget.session.episodeIndex;
 
@@ -173,7 +195,7 @@ class _PlayerPageState extends State<PlayerPage>
   /// 定时器到点：暂停播放并提示。
   void _onSleepTimerExpired() {
     if (!mounted) return;
-    _controller?.pause();
+    unawaited(_activePause());
     setState(() => _playing = false);
     _toast('睡眠定时器已到点，播放已暂停');
   }
@@ -483,9 +505,8 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   void _onPlayerValue() {
-    final controller = _controller;
-    if (controller == null || !mounted) return;
-    final value = controller.value;
+    final value = _activeValue;
+    if (value == null || !mounted) return;
     // libmdk 对未知时长的直播会给一个接近 Duration 上限的时长；识别到以后
     // 不再显示进度、弹幕与片头片尾逻辑。
     final live = _live || value.duration > const Duration(hours: 24);
@@ -730,15 +751,23 @@ class _PlayerPageState extends State<PlayerPage>
       _netSmoother.reset();
       _live = false;
     });
-    final old = _controller;
+    final oldVp = _controller;
+    final oldMpv = _mpvSession;
     _controller = null;
-    old?.removeListener(_onPlayerValue);
-    // 必须等旧 controller 释放完再建新的：fvp/libmdk 的销毁与初始化都在原生侧，
+    _mpvSession = null;
+    oldVp?.removeListener(_onPlayerValue);
+    oldMpv?.removeListener(_onPlayerValue);
+    // 必须等旧内核释放完再建新的：fvp/libmdk 与 libmpv 的销毁/初始化都在原生侧，
     // 换集/换线路时并发会让播放内核在驱动/解析线程上崩溃（整进程闪退，没有 Dart 栈）。
     try {
-      await old?.dispose();
+      await oldVp?.dispose();
     } catch (_) {
       // 旧实例释放失败不影响新一集
+    }
+    try {
+      await oldMpv?.dispose();
+    } catch (_) {
+      // 同上
     }
     final pendingDispose = _controllerDisposePending;
     if (pendingDispose != null) {
@@ -755,34 +784,56 @@ class _PlayerPageState extends State<PlayerPage>
           'url=${redactUrl(source.url)}',
     );
     try {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(source.url),
-        httpHeaders: source.headers,
-      );
-      _controller = controller;
-      controller.addListener(_onPlayerValue);
-      // 4K / HDR 线路经过本机中继时，个别清单会让 fvp 一直没首帧；
-      // 25 秒没有初始化完成就放弃，后面会尝试绕过中继直连。
-      await controller.initialize().timeout(const Duration(seconds: 25));
-      // 缓冲参数要在起播前设好：fvp 的 bufferRange 只影响后续拉流。
-      _applyBufferRange(controller);
-      final live = _detectLive(controller);
-      _live = live;
-      await controller.setPlaybackSpeed(_rate);
-      await controller.setVolume(_volume);
-      final durationMs = controller.value.duration.inMilliseconds;
-      // 片头记录可能超过片长（换集后沿用旧设置）：越界就不跳。
-      // 直播没有时间轴，不做起播跳转。
-      final canSeek =
-          !live &&
-          (startMs > 0 ||
-              durationMs <= 0 ||
-              effectiveStart < durationMs - 1000);
-      final appliedStart = canSeek ? effectiveStart : 0;
-      if (appliedStart > 0) {
-        await controller.seekTo(Duration(milliseconds: appliedStart));
+      late final bool live;
+      late final int appliedStart;
+      final useMpv = app.playerSettings.useEmbeddedMpv &&
+          !kIsWeb &&
+          defaultTargetPlatform != TargetPlatform.windows &&
+          defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.linux;
+      if (useMpv) {
+        // 内嵌 libmpv：不跳出 App，media_kit 自己渲染视频输出。
+        final session = MpvKitSession(headers: source.headers);
+        _mpvSession = session;
+        _useMpv = true;
+        session.addListener(_onPlayerValue);
+        await session.open(source.url, startPosition: Duration(milliseconds: effectiveStart));
+        await session.setPlaybackSpeed(_rate);
+        await session.setVolume(_volume);
+        live = false;
+        appliedStart = effectiveStart;
+        AppLog.i('player', '内嵌 libmpv 内核已就绪 index=$index');
+      } else {
+        final controller = VideoPlayerController.networkUrl(
+          Uri.parse(source.url),
+          httpHeaders: source.headers,
+        );
+        _controller = controller;
+        _useMpv = false;
+        controller.addListener(_onPlayerValue);
+        // 4K / HDR 线路经过本机中继时，个别清单会让 fvp 一直没首帧；
+        // 25 秒没有初始化完成就放弃，后面会尝试绕过中继直连。
+        await controller.initialize().timeout(const Duration(seconds: 25));
+        // 缓冲参数要在起播前设好：fvp 的 bufferRange 只影响后续拉流。
+        _applyBufferRange(controller);
+        live = _detectLive(controller);
+        await controller.setPlaybackSpeed(_rate);
+        await controller.setVolume(_volume);
+        final durationMs = controller.value.duration.inMilliseconds;
+        // 片头记录可能超过片长（换集后沿用旧设置）：越界就不跳。
+        // 直播没有时间轴，不做起播跳转。
+        final canSeek =
+            !live &&
+            (startMs > 0 ||
+                durationMs <= 0 ||
+                effectiveStart < durationMs - 1000);
+        appliedStart = canSeek ? effectiveStart : 0;
+        if (appliedStart > 0) {
+          await controller.seekTo(Duration(milliseconds: appliedStart));
+        }
+        await controller.play();
       }
-      await controller.play();
+      _live = live;
       if (seq != _openSeq || !mounted) return false;
       AppLog.i(
         'player',
@@ -791,17 +842,21 @@ class _PlayerPageState extends State<PlayerPage>
       );
       _mediaRetriedEpisode = -1;
       _directRetriedEpisode = -1;
+      final active = _activeValue;
       setState(() {
         _resolving = false;
         _buffering = false;
         _live = live;
-        _position = controller.value.position;
-        _duration = controller.value.duration;
-        _playing = controller.value.isPlaying;
+        _position = active?.position ?? Duration.zero;
+        _duration = active?.duration ?? Duration.zero;
+        _playing = active?.isPlaying ?? false;
       });
       _syncSleepInhibitor();
-      _syncAudioTracks(controller);
-      _applyVideoAspect(controller);
+      final vp = _controller;
+      if (vp != null) {
+        _syncAudioTracks(vp);
+        _applyVideoAspect(vp);
+      }
       if (!_ephemeral) {
         await app.recordHistory(
           detail: _detail,
@@ -822,12 +877,20 @@ class _PlayerPageState extends State<PlayerPage>
     } catch (e) {
       if (seq != _openSeq || !mounted) return false;
       final controller = _controller;
+      final mpv = _mpvSession;
       _controller = null;
+      _mpvSession = null;
       controller?.removeListener(_onPlayerValue);
+      mpv?.removeListener(_onPlayerValue);
       try {
         await controller?.dispose();
       } catch (_) {
         // 释放失败不影响后续提示 / 重新取链
+      }
+      try {
+        await mpv?.dispose();
+      } catch (_) {
+        // 同上
       }
       // 加固壳/网盘源的地址是本机 JVM 的 /chunk、/proxy：JVM 已退出或端口没起来时
       // fvp 只会报 invalid or unsupported media。自动重新取链一次（会重起常驻进程）。
@@ -1273,7 +1336,7 @@ class _PlayerPageState extends State<PlayerPage>
     // 睡眠定时器优先于自动连播：「播完当前视频后暂停」就是让这一集播完后停下，
     // 不能被下面的自动连播逻辑抢先切到下一集。
     if (_sleepTimer.handleVideoEnded()) {
-      _controller?.pause();
+      unawaited(_activePause());
       _toast('已播完，睡眠定时器已暂停播放');
       return;
     }
@@ -1424,12 +1487,12 @@ class _PlayerPageState extends State<PlayerPage>
 
   /// 长按画面：临时 1.5x（松开恢复原倍速）。
   Future<void> _startHoldRate() async {
-    if (_holdingRate || _controller == null) return;
+    if (_holdingRate || !_hasActiveKernel) return;
     _holdingRate = true;
     _rateBeforeHold = _rate;
     final boost = _rate < 1.5 ? 1.5 : _rate;
     setState(() => _rate = boost);
-    await _controller?.setPlaybackSpeed(boost);
+    await _activeSetRate(boost);
     if (boost != _rateBeforeHold) _toast('长按 1.5x 快进中');
   }
 
@@ -1439,56 +1502,56 @@ class _PlayerPageState extends State<PlayerPage>
     final back = _rateBeforeHold ?? _app.playerSettings.speed;
     _rateBeforeHold = null;
     if (mounted) setState(() => _rate = back);
-    await _controller?.setPlaybackSpeed(back);
+    await _activeSetRate(back);
   }
 
   void _togglePlay() {
-    final controller = _controller;
-    if (controller == null) return;
-    if (controller.value.isPlaying) {
-      controller.pause();
+    final value = _activeValue;
+    if (value == null) return;
+    if (value.isPlaying) {
+      unawaited(_activePause());
     } else {
-      controller.play();
+      unawaited(_activePlay());
     }
     _showControls();
   }
 
   /// 老板键：暂停当前视频；返回是否真的从播放中暂停（原本暂停就不恢复）。
   bool _pauseForBossKey() {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return false;
-    if (!controller.value.isPlaying) return false;
-    controller.pause();
+    final value = _activeValue;
+    if (value == null || !value.isInitialized) return false;
+    if (!value.isPlaying) return false;
+    unawaited(_activePause());
     return true;
   }
 
   /// 老板键恢复：只有按下前正在播放时才继续播放。
   void _resumeFromBossKey() {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
-    if (!controller.value.isPlaying) controller.play();
+    final value = _activeValue;
+    if (value == null || !value.isInitialized) return;
+    if (!value.isPlaying) unawaited(_activePlay());
   }
 
   void _seekBy(Duration delta) {
     if (_live) return;
-    final controller = _controller;
-    if (controller == null) return;
-    final total = controller.value.duration;
-    var target = controller.value.position + delta;
+    final value = _activeValue;
+    if (value == null) return;
+    final total = value.duration;
+    var target = value.position + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (total > Duration.zero && target > total) target = total;
-    controller.seekTo(target);
+    unawaited(_activeSeek(target));
   }
 
   void _seekTo(Duration target) {
     if (_live) return;
-    final controller = _controller;
-    if (controller == null) return;
-    final total = controller.value.duration;
+    final value = _activeValue;
+    if (value == null) return;
+    final total = value.duration;
     var safe = target;
     if (safe < Duration.zero) safe = Duration.zero;
     if (total > Duration.zero && safe > total) safe = total;
-    controller.seekTo(safe);
+    unawaited(_activeSeek(safe));
   }
 
   IconData get _volumeIcon {
@@ -1502,7 +1565,7 @@ class _PlayerPageState extends State<PlayerPage>
     final volume = value.clamp(0.0, 1.0).toDouble();
     if (_volume > 0.001) _lastVolume = _volume;
     if (mounted) setState(() => _volume = volume);
-    await _controller?.setVolume(volume);
+    await _activeSetVolume(volume);
     if (!persist) return;
     final app = _app;
     await app.setPlayerSettings(app.playerSettings.copyWith(volume: volume));
@@ -1721,6 +1784,8 @@ class _PlayerPageState extends State<PlayerPage>
     _fsAnim.dispose();
     _controller?.removeListener(_onPlayerValue);
     _controller?.dispose();
+    _mpvSession?.removeListener(_onPlayerValue);
+    unawaited(_mpvSession?.dispose());
     final isDesktop =
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
@@ -2030,7 +2095,7 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   String? _metricText(String id, _MediaStats? media) {
-    final value = _controller?.value;
+    final value = _activeValue;
     switch (id) {
       case 'title':
         return _detail.name;
@@ -2106,7 +2171,7 @@ class _PlayerPageState extends State<PlayerPage>
 
   /// 已缓冲到的位置（毫秒）：取所有 buffered range 里最靠后的 end。
   double _bufferedEndMs() {
-    final value = _controller?.value;
+    final value = _activeValue;
     if (value == null || value.buffered.isEmpty) return 0;
     var end = Duration.zero;
     for (final range in value.buffered) {
@@ -2166,6 +2231,24 @@ class _PlayerPageState extends State<PlayerPage>
     } catch (_) {
       return null;
     }
+  }
+
+  /// 在「内置内核」与「内嵌 libmpv」之间无缝切换：保留当前进度，
+  /// 同一集用新内核从该位置重开，全程不跳出 App。
+  Future<void> _togglePlaybackKernel() async {
+    if (_resolving) return;
+    final app = _app;
+    final positionMs = _position.inMilliseconds;
+    final nextUseMpv = !app.playerSettings.useEmbeddedMpv;
+    AppLog.i('player', '切换播放内核 -> ${nextUseMpv ? '内嵌 libmpv' : '内置'} pos=${positionMs}ms');
+    await app.setPlayerSettings(
+      app.playerSettings.copyWith(useEmbeddedMpv: nextUseMpv),
+    );
+    if (!mounted) return;
+    // 记住进度：重开时从当前位置接续（未开启记忆进度的会话用 0）。
+    final startMs = app.playerSettings.rememberProgress && !_ephemeral ? positionMs : 0;
+    _toast(nextUseMpv ? '已切换到内嵌 mpv' : '已切换到内置播放器');
+    await _openEpisode(index: _index, startMs: startMs);
   }
 
   Future<void> _openWithMpv() async {
@@ -2231,6 +2314,13 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   Widget _videoView() {
+    // 内嵌 libmpv 内核：把播放页统一的比例设置透传给 media_kit 的 Video，
+    // 默认裁剪填满，避免横屏时左右留黑边。
+    if (_useMpv) {
+      final session = _mpvSession;
+      if (session == null) return const SizedBox.expand();
+      return SizedBox.expand(child: session.buildView(_fit));
+    }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.expand();
@@ -2922,6 +3012,13 @@ class _PlayerPageState extends State<PlayerPage>
                         onTap: _toggleDetails,
                         onLongPress: _showDetailsSettings,
                       ),
+                      if (!kIsWeb)
+                        _barAction(
+                          icon: Icons.swap_horiz_rounded,
+                          label: _useMpv ? 'mpv' : '内置',
+                          active: _useMpv,
+                          onTap: _togglePlaybackKernel,
+                        ),
                       IconButton(
                         tooltip: '播放设置（画面比例 / 音轨 / 外部播放器）',
                         onPressed: _showPlaybackSettings,
