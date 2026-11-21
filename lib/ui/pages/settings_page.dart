@@ -1192,8 +1192,7 @@ class SettingsPageState extends State<SettingsPage> {
                     ),
                     summary: Text(
                       '沉浸观影：${app.playerSettings.immersiveMode ? '开' : '关'}'
-                      ' · 台词轮换：${app.showMovieQuotes ? '开' : '关'}'
-                      ' · 每行 ${app.homeColumns == 0 ? '自动' : '${app.homeColumns} 个'}',
+                      ' · 台词轮换：${app.showMovieQuotes ? '开' : '关'}',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.45,
@@ -1225,37 +1224,6 @@ class SettingsPageState extends State<SettingsPage> {
                                 selected: app.homeBrowseMode == item.$1,
                                 onSelected: (_) =>
                                     app.setHomeBrowseMode(item.$1),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Text('首页每行封面', style: theme.textTheme.labelMedium),
-                        const SizedBox(height: 4),
-                        Text(
-                          '默认窗口大小下一行显示几个封面；自动 = 随窗口宽度排列',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.55,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final item in const [
-                              (0, '自动'),
-                              (4, '4 个'),
-                              (5, '5 个'),
-                              (6, '6 个'),
-                              (7, '7 个'),
-                              (8, '8 个'),
-                            ])
-                              ChoiceChip(
-                                label: Text(item.$2),
-                                selected: app.homeColumns == item.$1,
-                                onSelected: (_) => app.setHomeColumns(item.$1),
                               ),
                           ],
                         ),
