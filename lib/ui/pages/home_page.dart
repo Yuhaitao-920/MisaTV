@@ -415,6 +415,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// 下拉刷新：重新拉取当前视图（推荐页重载首页，分类页重载当前分类页）。
+  /// 源站偶尔首屏拉不到数据，给用户一个触手可及的重新加载入口。
+  Future<void> _onRefresh() async {
+    final tid = _tid;
+    if (tid != null) {
+      await _loadCategory(tid, page: _pg);
+    } else {
+      await _loadHome();
+    }
+  }
+
   /// 把分类条顶到视口顶部：换页后只看当前页、不回到应用大标题。
   void _scrollToBrowseTop() {
     final ctx = _categoryBarKey.currentContext;
@@ -559,9 +570,15 @@ class _HomePageState extends State<HomePage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CustomScrollView(
-                  controller: _scrollController,
-                  slivers: [
+                RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  // 加载失败 / 空列表时内容不足一屏，仍要能下拉触发重新加载。
+                  notificationPredicate: (notification) =>
+                      notification.depth == 0,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    controller: _scrollController,
+                    slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(
@@ -769,7 +786,8 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     const SliverToBoxAdapter(child: SizedBox(height: 56)),
-                  ],
+                    ],
+                  ),
                 ),
                 // 换页模式不展示「回到顶部」；瀑布模式保留。
                 if (waterfall)
