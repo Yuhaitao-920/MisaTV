@@ -156,9 +156,10 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 "resetSpiders" -> {
                     // 网盘凭据变更后只重建蜘蛛实例：保留 ClassLoader（壳 native 已解包）
                     // 与本地代理端口，重新走 init(Context, ext) 即可读到新 Cookie。
-                    spiders.clear()
-                    lastClassName = null
-                    result.success(mapOf("ok" to true))
+                    // 必须与 loadSpider 串行（共用同一把实例锁）：启动期凭据刷新若与
+                    // 正在进行的加固壳 .so 初始化/调用交错，会 native 重入崩溃（闪退，
+                    // Dart 侧 catch 不到）。这里也走后台线程池，不再占主线程。
+                    runAsync(result) { resetSpidersInternal() }
                 }
                 "unload" -> {
                     result.success(unload())
@@ -292,6 +293,19 @@ class SpiderHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 file.writeText(obj.toString())
             }
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * 凭据变更后的蜘蛛实例回收。必须与 [loadSpider] 共用同一把实例锁（@Synchronized）：
+     * 启动期凭据刷新与首页加载并发时，若 clear() 插在壳 .so 初始化 / init() 中途，
+     * 加固壳的进程级 native 状态会重入，直接 SIGSEGV（Dart 无法捕获、无日志、闪退）。
+     * 只清实例缓存，保留 ClassLoader / initializedShells / proxy 端口，下次按需重建。
+     */
+    @Synchronized
+    private fun resetSpidersInternal(): Map<String, Any?> {
+        spiders.clear()
+        lastClassName = null
+        return mapOf("ok" to true)
     }
 
     // ------------------------------------------------------------------
