@@ -526,26 +526,33 @@ class _HomePageState extends State<HomePage> {
         final width = constraints.maxWidth;
         final isNarrow = width < 720;
         final maxContent = width;
-        // 每行封面数：0 = 自动（沿用 188px 自适应），4-8 = 按窗口宽度算死列数。
+        // 每行封面数：0 = 自动（沿用 188px 自适应），4-8 = 固定列数。
         final columns = app.homeColumns;
         final gridPadding = isNarrow ? 18.0 : 28.0;
         const gridSpacing = 14.0;
-        var maxExtent = 188.0;
-        var mainExtent = 292.0;
+        final SliverGridDelegate gridDelegate;
         if (columns >= 2) {
+          // 固定列数必须直接用 FixedCrossAxisCount。之前用 MaxCrossAxisExtent
+          // 反推 extent 再让 Flutter 猜列数，浮点/取整误差会把 4-8 列压成 3 列。
           final gridWidth = maxContent - gridPadding * 2;
-          if (gridWidth > 0) {
-            final extent = (gridWidth - gridSpacing * (columns - 1)) / columns;
-            maxExtent = extent.clamp(120.0, 320.0);
-            mainExtent = maxExtent * 292 / 188;
-          }
+          final extent = gridWidth > 0
+              ? (gridWidth - gridSpacing * (columns - 1)) / columns
+              : 188.0;
+          final cardExtent = extent.clamp(120.0, 320.0);
+          gridDelegate = SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: cardExtent * 292 / 188,
+            crossAxisSpacing: gridSpacing,
+            mainAxisSpacing: 18,
+          );
+        } else {
+          gridDelegate = const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 188.0,
+            mainAxisExtent: 292.0,
+            crossAxisSpacing: 14.0,
+            mainAxisSpacing: 18,
+          );
         }
-        final gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: maxExtent,
-          mainAxisExtent: mainExtent,
-          crossAxisSpacing: gridSpacing,
-          mainAxisSpacing: 18,
-        );
         return Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: maxContent),
