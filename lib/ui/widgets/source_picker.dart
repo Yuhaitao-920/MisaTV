@@ -25,46 +25,11 @@ class _SourcePickerSheetState extends State<_SourcePickerSheet> {
   final GlobalKey _activeKey = GlobalKey();
   String _query = '';
   bool _scrolledToActive = false;
-  bool _refreshing = false;
 
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
-  }
-
-  /// 下拉刷新当前点播档案的订阅：重新拉取站点列表。本地配置没有订阅地址时跳过。
-  Future<void> _onRefresh() async {
-    if (_refreshing) return;
-    final app = AppScope.of(context);
-    final profile = app.activeProfile;
-    if (profile == null ||
-        !RegExp(r'^https?://', caseSensitive: false)
-            .hasMatch(profile.url.trim())) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('当前配置没有可刷新的订阅地址')),
-        );
-      }
-      return;
-    }
-    setState(() => _refreshing = true);
-    try {
-      await app.refreshProfile(profile.id, activate: false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('订阅已刷新'), duration: Duration(seconds: 2)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('刷新失败：$e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
-    }
   }
 
   @override
@@ -149,60 +114,51 @@ class _SourcePickerSheetState extends State<_SourcePickerSheet> {
               ),
               const SizedBox(height: 12),
             ],
-            // 下拉刷新订阅：重新拉取当前档案的站点列表。空列表也要能下拉，
-            // 故统一用 SingleChildScrollView + AlwaysScrollableScrollPhysics。
-            Flexible(
-              child: RefreshIndicator(
-                onRefresh: _onRefresh,
+            if (sites.isEmpty)
+              const EmptyState(
+                icon: Icons.source_outlined,
+                title: '还没有站点',
+                message: '先导入一份 TVBox 订阅配置',
+                compact: true,
+              )
+            else if (filtered.isEmpty)
+              const EmptyState(
+                icon: Icons.search_off_rounded,
+                title: '没有匹配的站点',
+                message: '换个关键词试试',
+                compact: true,
+              )
+            else
+              Flexible(
+                // 用 SingleChildScrollView + Column 一次性挂载所有站点：ListView
+                // 的 itemBuilder / children 首屏只建可见项，当前站点太靠下时
+                // GlobalKey 没有 context，无法在打开后定位到它。
                 child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 320),
-                    child: sites.isEmpty
-                        ? const EmptyState(
-                            icon: Icons.source_outlined,
-                            title: '还没有站点',
-                            message: '先导入一份 TVBox 订阅配置，或下拉刷新订阅',
-                            compact: true,
-                          )
-                        : filtered.isEmpty
-                            ? const EmptyState(
-                                icon: Icons.search_off_rounded,
-                                title: '没有匹配的站点',
-                                message: '换个关键词试试',
-                                compact: true,
-                              )
-                            // 用 Column 一次性挂载所有站点：ListView 的 itemBuilder
-                            // 首屏只建可见项，当前站点太靠下时 GlobalKey 没有 context，
-                            // 无法在打开后自动定位到它。
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  for (var i = 0; i < filtered.length; i++) ...[
-                                    if (i > 0) const SizedBox(height: 8),
-                                    _SiteTile(
-                                      key: filtered[i].key == activeSite?.key
-                                          ? _activeKey
-                                          : null,
-                                      site: filtered[i],
-                                      active: filtered[i].key == activeSite?.key,
-                                      usable: app.isSiteUsable(filtered[i]),
-                                      onTap: app.isSiteUsable(filtered[i])
-                                          ? () async {
-                                              await app.setActiveSite(filtered[i].key);
-                                              if (context.mounted) {
-                                                Navigator.of(context).pop();
-                                              }
-                                            }
-                                          : null,
-                                    ),
-                                  ],
-                                ],
-                              ),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < filtered.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        _SiteTile(
+                          key: filtered[i].key == activeSite?.key
+                              ? _activeKey
+                              : null,
+                          site: filtered[i],
+                          active: filtered[i].key == activeSite?.key,
+                          usable: app.isSiteUsable(filtered[i]),
+                          onTap: app.isSiteUsable(filtered[i])
+                              ? () async {
+                                  await app.setActiveSite(filtered[i].key);
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                }
+                              : null,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),
