@@ -972,6 +972,15 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   Widget _videoView() {
+    // 与点播播放器一致：竖屏（缩小）时把默认的「裁剪填满」改成「保持比例
+    // 居中」——横版直播流在竖屏上若继续 cover，会被裁成一条大头特写且看着
+    // 像溢出屏幕。contain 后视频保持比例居中、上下留黑边，能看全画面。
+    // 横屏全屏仍按用户配置填满铺满；用户显式选了拉伸/16:9/4:3/原始等模式
+    // 则完全尊重。
+    final portrait =
+        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final effectiveFit =
+        portrait && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.expand();
@@ -981,7 +990,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     final aspect = value.aspectRatio <= 0 ? 16 / 9 : value.aspectRatio;
     final width = value.size.width <= 0 ? 1280.0 : value.size.width;
     final height = value.size.height <= 0 ? 720.0 : value.size.height;
-    return switch (_fit) {
+    return switch (effectiveFit) {
       PlayerFit.contain => Center(
         child: AspectRatio(aspectRatio: aspect, child: video),
       ),

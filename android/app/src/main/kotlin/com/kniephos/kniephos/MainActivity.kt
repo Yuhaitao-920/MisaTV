@@ -1,11 +1,7 @@
 package com.kniephos.kniephos
 
 import android.content.ContentValues
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.os.Environment
 import android.os.Looper
 import android.provider.MediaStore
@@ -46,21 +42,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun ensureAllFilesAccessIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        if (Environment.isExternalStorageManager()) return
-        val prefs = getSharedPreferences("misatv_perms", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("asked_all_files_v1", false)) return
-        prefs.edit().putBoolean("asked_all_files_v1", true).apply()
-        runOnUiThread {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-            } catch (_: Throwable) {
-                try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (_: Throwable) {}
-            }
-        }
-    }
-
     private fun exportLogFileToDownloads(srcPath: String, displayName: String): String {
         val src = File(srcPath)
         if (!src.exists() || !src.isFile) {
@@ -89,7 +70,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         installSpiderThreadCrashGuard()
-        ensureAllFilesAccessIfNeeded()
         // wex / *Guard 加固壳的 Init.init(Application) 必须拿到真实的 Application。
         // FlutterPluginBinding.applicationContext 在部分机型上是 ContextImpl 而不是
         // Application，插件里再怎么剥 ContextWrapper 都取不到，所以这里从 Activity
