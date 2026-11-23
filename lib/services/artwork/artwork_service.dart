@@ -700,16 +700,6 @@ class ArtworkService {
           );
         }
       }
-      final cover = (pick?['cover_url'] ?? '').toString().trim();
-      if (cover.isEmpty) return null;
-      return _Artwork(
-        relayImageUrl(cover, referer: 'https://movie.douban.com/'),
-        width: 720,
-        height: 405,
-        source: 'douban-trailer',
-      );
-    } catch (_) {
-      return null;
     }
     return best;
   }

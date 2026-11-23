@@ -396,6 +396,7 @@ class PlayerSettings {
     this.immersiveMode = false,
     this.immersiveFontScale = 1.0,
     this.popOutPlayer = false,
+    this.artworkPriority = 'douban',
     this.tmdbApiKey = '',
     this.tmdbReadToken = '',
     this.bossKey = kUnsetBossKey,
@@ -454,6 +455,9 @@ class PlayerSettings {
   /// 此时独立窗口一律不弹（设置本身保留，退出沉浸后自动恢复）。
   bool get effectivePopOutPlayer => popOutPlayer && !immersiveMode;
 
+  /// 横图封面优先来源：`douban` / `tmdb` / `imdb`。
+  final String artworkPriority;
+
   /// TMDB 的 v3 API Key（32 位十六进制，走 query 的 `api_key`）；空 = 未填。
   final String tmdbApiKey;
 
@@ -496,6 +500,7 @@ class PlayerSettings {
     bool? immersiveMode,
     double? immersiveFontScale,
     bool? popOutPlayer,
+    String? artworkPriority,
     String? tmdbApiKey,
     String? tmdbReadToken,
     String? bossKey,
@@ -532,6 +537,9 @@ class PlayerSettings {
     immersiveMode: immersiveMode ?? this.immersiveMode,
     immersiveFontScale: immersiveFontScale ?? this.immersiveFontScale,
     popOutPlayer: popOutPlayer ?? this.popOutPlayer,
+    artworkPriority: normalizeArtworkPriority(
+      artworkPriority ?? this.artworkPriority,
+    ),
     tmdbApiKey: tmdbApiKey ?? this.tmdbApiKey,
     tmdbReadToken: tmdbReadToken ?? this.tmdbReadToken,
     bossKey: normalizeBossKey(bossKey ?? this.bossKey),
@@ -612,6 +620,7 @@ class PlayerSettings {
     'immersiveMode': immersiveMode,
     'immersiveFontScale': immersiveFontScale,
     'popOutPlayer': popOutPlayer,
+    'artworkPriority': artworkPriority,
     'tmdbApiKey': tmdbApiKey,
     'tmdbReadToken': tmdbReadToken,
     'bossKey': bossKey,
@@ -677,6 +686,9 @@ class PlayerSettings {
         .clamp(1.0, 1.5)
         .toDouble(),
     popOutPlayer: (j['popOutPlayer'] as bool?) ?? false,
+    artworkPriority: normalizeArtworkPriority(
+      (j['artworkPriority'] ?? '').toString(),
+    ),
     tmdbApiKey: (j['tmdbApiKey'] ?? '').toString().trim(),
     tmdbReadToken: (j['tmdbReadToken'] ?? '').toString().trim(),
     bossKey: normalizeBossKey((j['bossKey'] ?? '').toString()),
@@ -732,6 +744,16 @@ String bossKeyLabel(String raw) {
     if (item.$1 == value) return item.$2;
   }
   return '未设置';
+}
+
+/// 横图封面来源归一：只认 douban / tmdb / imdb，未知值回落到豆瓣。
+String normalizeArtworkPriority(String raw) {
+  final value = raw.trim().toLowerCase();
+  return switch (value) {
+    'tmdb' => 'tmdb',
+    'imdb' => 'imdb',
+    _ => 'douban',
+  };
 }
 
 List<ExternalPlayerEntry> _externalPlayersFromJson(Object? raw) {

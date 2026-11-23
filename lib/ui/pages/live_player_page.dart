@@ -19,10 +19,8 @@ import '../../models/live.dart';
 import '../../models/player_fit.dart';
 import '../../models/site_config.dart';
 import '../../models/user_data.dart';
-import '../../models/vod.dart';
 import '../../services/live/epg.dart';
 import '../../services/live/live_ua_policy.dart';
-import '../../services/live/tvbus.dart';
 import '../../services/live_service.dart';
 import '../../services/boss_key/boss_key_service.dart';
 import '../../services/relay/local_relay.dart';
@@ -83,9 +81,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _mini = false;
   /// 直播画面填充模式。默认裁剪填满（cover），避免 16:9 源在更宽的手机横屏上出现左右黑边。
   PlayerFit _fit = PlayerFit.cover;
-
-  /// 是否因「自动横屏」改过系统方向/系统栏；离开时据此恢复。
-  bool _landscapeUiApplied = false;
 
   /// 是否因「自动横屏」改过系统方向/系统栏；离开时据此恢复。
   bool _landscapeUiApplied = false;
@@ -353,21 +348,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     old?.removeListener(_onPlayerValue);
     unawaited(old?.dispose());
     try {
-      // TVBus P2P：频道地址是 tvbus://，交给 Go 引擎换成它自己起的本地 HLS。
-      if (cleanUrl.startsWith('tvbus://')) {
-        final core = widget.bean.core;
-        if (core == null || !core.hasEngine) {
-          throw SourceException('该直播源没有配置 TVBus 引擎（core.so）');
-        }
-        cleanUrl = await TvBusService.instance.resolve(
-          url: cleanUrl,
-          core: core,
-          headers: headers,
-          baseUrl: widget.bean.url,
-        );
-        if (seq != _openSeq || !mounted) return;
-        AppLog.i('live', 'TVBus 播放地址 ${redactUrl(cleanUrl)}');
-      }
       // 蜘蛛直播的频道地址是本机 `/proxy?do=py`：点击时才向蜘蛛取动态地址。
       if (LiveService.isSpiderProxyUrl(cleanUrl)) {
         final app = AppScope.of(context);
@@ -955,9 +935,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
 
   @override
   void dispose() {
-    if (_channel.urls.any((url) => url.startsWith('tvbus://'))) {
-      unawaited(TvBusService.instance.stop());
-    }
     BossKeyService.instance.unbindPlayer(this);
     _hideTimer?.cancel();
     _detailsTimer?.cancel();

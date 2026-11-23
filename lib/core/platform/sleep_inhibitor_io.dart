@@ -19,10 +19,8 @@ class SleepInhibitor {
   static const _continuous = 0x80000000;
   static const _systemRequired = 0x00000001;
   static const _displayRequired = 0x00000002;
-  static const _androidChannel = MethodChannel('com.kniephos.kniephos/sleep_inhibitor');
-
   static const MethodChannel _androidChannel =
-      MethodChannel('com.kniephos.kniephos/wakelock');
+      MethodChannel('com.kniephos.kniephos/sleep_inhibitor');
 
   static _SetThreadExecutionStateDart? _fn;
   static int _depth = 0;
@@ -65,7 +63,7 @@ class SleepInhibitor {
           .lookupFunction<_SetThreadExecutionStateNative, _SetThreadExecutionStateDart>(
         'SetThreadExecutionState',
       );
-      _fn!(windowsFlags);
+      _fn!(flags);
     } catch (_) {
       // 非 Windows / 调用失败（权限、无桌面会话）时静默忽略，不影响播放
     }
