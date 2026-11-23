@@ -47,6 +47,7 @@ jobs:
           fi
           echo "=== log after merge ==="
           git log --oneline -6
+          echo "MERGED_TREE_SHA=$(git rev-parse HEAD^{tree})"
           echo "=== diff stat vs backup point ==="
           git diff --stat 067b2d9156fa2ad901aba1fc81e7c655e2be4538 HEAD | tail -25
           git push origin main
