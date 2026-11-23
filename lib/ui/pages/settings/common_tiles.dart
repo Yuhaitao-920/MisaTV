@@ -38,9 +38,7 @@ class _DriveAccountRow extends StatelessWidget {
     'baidu' => Icons.cloud_done_outlined,
     '115' => Icons.folder_special_outlined,
     'bili' => Icons.smart_display_outlined,
-    'thunder' => Icons.bolt_rounded,
-    'guangya' => Icons.cloud_sync_outlined,
-      _ => Icons.cloud_outlined,
+    _ => Icons.cloud_outlined,
   };
 
   bool get _webLogin => driveSupportsWebLogin(provider);
