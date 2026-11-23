@@ -1018,8 +1018,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         animation: _fsAnim,
         builder: (context, child) {
           final t = Curves.easeOutCubic.transform(_fsAnim.value);
-          final scale = _fullscreen ? 1.045 - 0.045 * t : 0.955 + 0.045 * t;
-          final dim = 1 - t;
+          // 与点播播放器一致：手机端全屏靠系统方向+系统栏切换实现，视频始终
+          // 铺满屏幕（直播画面为 cover 裁剪填充，本就刚好铺满），不需要缩放
+          // 过渡。若沿用桌面的 1.045 缩放，会把画面放大到超出屏幕边缘；退出时
+          // 0.955→1.0 的「放大」也与缩小观感相悖。移动端同时去掉压黑。
+          final scale = _isMobile
+              ? 1.0
+              : (_fullscreen ? 1.045 - 0.045 * t : 0.955 + 0.045 * t);
+          final dim = _isMobile ? 0.0 : 1 - t;
           return Stack(
             fit: StackFit.expand,
             children: [
