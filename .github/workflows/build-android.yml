@@ -98,12 +98,18 @@ jobs:
         # 的 build.gradle 仍引用它导致构建失败。按官方建议改用 proguard-android-optimize.txt。
         # 仅修改 pub-cache 内的临时副本，仓库源码零侵入。
         run: |
-          f=$(find "$HOME/.pub-cache" -path '*flutter_inappwebview_android*/android/build.gradle' 2>/dev/null | head -1)
-          if [ -n "$f" ]; then
-            sed -i "s/getDefaultProguardFile('proguard-android.txt')/getDefaultProguardFile('proguard-android-optimize.txt')/g" "$f"
-            echo "patched: $f"
-          else
-            echo "flutter_inappwebview_android build.gradle not found, skip"
+          find "$HOME/.pub-cache" -path '*flutter_inappwebview_android*/android/build.gradle' ! -path '*/example/*' -type f 2>/dev/null > /tmp/iw_files.txt
+          patched=0
+          while IFS= read -r f; do
+            if grep -q "proguard-android.txt" "$f"; then
+              sed -i "s/getDefaultProguardFile('proguard-android.txt')/getDefaultProguardFile('proguard-android-optimize.txt')/g" "$f"
+              echo "patched: $f"
+              patched=$((patched + 1))
+            fi
+          done < /tmp/iw_files.txt
+          echo "PATCHED_COUNT=$patched"
+          if [ "$patched" -eq 0 ]; then
+            echo "flutter_inappwebview_android build.gradle not found or already patched, skip"
           fi
 
       - name: Build release APK
