@@ -972,15 +972,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   Widget _videoView() {
-    // 与点播播放器一致：竖屏（缩小）时把默认的「裁剪填满」改成「保持比例
-    // 居中」——横版直播流在竖屏上若继续 cover，会被裁成一条大头特写且看着
-    // 像溢出屏幕。contain 后视频保持比例居中、上下留黑边，能看全画面。
-    // 横屏全屏仍按用户配置填满铺满；用户显式选了拉伸/16:9/4:3/原始等模式
-    // 则完全尊重。
-    final portrait =
-        MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    // 与点播播放器一致：手机端不再让默认的「裁剪填满(cover)」裁掉画面。
+    // 直播流几乎都是 16:9，而全面屏手机横屏普遍是 2.1~2.4:1；cover 会把
+    // 16:9 流按宽度铺满，导致上下台标、字幕被切掉，看起来就是「画面溢出屏幕」。
+    // 因此手机端竖屏/横屏一律降级为「保持比例居中(contain)」：整幅画面完整显示、
+    // 左右(或上下)留黑边并居中，绝不裁切。用户显式选了拉伸/16:9/4:3/原始等
+    // 模式则完全尊重；桌面窗口仍按配置铺满。
     final effectiveFit =
-        portrait && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
+        _isMobile && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.expand();

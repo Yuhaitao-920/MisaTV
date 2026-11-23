@@ -2328,14 +2328,14 @@ class _PlayerPageState extends State<PlayerPage>
   }
 
   Widget _videoView() {
-    // 竖屏时把默认的「裁剪填满」改成「保持比例居中」：横版视频在竖屏上若继续
-    // cover，会被裁成只剩中间一条大头特写。改成 contain 后视频保持 16:9 居中，
-    // 上下留黑边，能看全画面——即「竖屏居中的横屏」。横屏仍按用户配置填满铺满。
-    // 注意：只有配置落在「默认/适应」(contain→被改写成 cover) 时才降级，
-    // 用户显式选了拉伸/16:9/4:3/原始等模式则完全尊重。
-    final portrait = MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    // 与直播播放器一致：手机端不再让默认的「裁剪填满(cover)」裁掉画面。
+    // 全面屏手机横屏普遍是 2.1~2.4:1，16:9 视频若用 cover 按宽度铺满会把
+    // 上下字幕、画面内容切掉，看起来像「溢出屏幕」。手机端竖屏/横屏一律降级为
+    // 「保持比例居中(contain)」：整幅画面完整显示、留黑边并居中，绝不裁切。
+    // 只有配置落在「默认/适应」(contain→被改写成 cover) 时才降级，用户显式选了
+    // 拉伸/16:9/4:3/原始等模式则完全尊重；桌面窗口仍按配置铺满。
     final effectiveFit =
-        portrait && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
+        _isMobile && _fit == PlayerFit.cover ? PlayerFit.contain : _fit;
     // 内嵌 libmpv 内核：把播放页统一的比例设置透传给 media_kit 的 Video，
     // 默认裁剪填满，避免横屏时左右留黑边。
     if (_useMpv) {
