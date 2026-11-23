@@ -13,7 +13,30 @@ class NormalizedSubtitleQuery {
 }
 
 final RegExp _noise = RegExp(
-  r'(1080[pPiI]?|2160[pPiI]?|720[pPiI]?|4k|web[-_.]?dl|web[-_.]?rip|bd[-_.]?(rip|720|1080)?|blu[-_.]?ray|h\.?264|x264|h\.?265|x265|hevc|10[-_.]?bit|hdr(10\+?)?|dolby[-_.]?vision|dv|dts[-_.]?hd?|dd[+p]?|ac3|aac(2\.?0)?|atmos|mkv|mp4|mp4b|srt|ass|uniqp|yysubs|fnf|dmhy|简体|简体中文|繁体|繁体中文|中字|国语|粤语|双语|中英|国粤|英语|日语|韩语|[/_#].*)',
+  r'(1080[pPiI]?|2160[pPiI]?|720[pPiI]?|4k|web[-_.]?dl|web[-_.]?rip|bd[-_.]?(rip|720|1080)?|blu[-_.]?ray|remux|uhd|bdmv|hdtv|h\.?264|x264|h\.?265|x265|hevc|avc|10[-_.]?bit|8[-_.]?bit|hdr(10\+?)?|dolby[-_.]?vision|dv|dts[-_.]?hd?|truehd|atmos|dd[+p]?|eac3|ac3|aac(2\.?0)?|flac|opus|mkv|mp4b?|srt|ass|ssa|vtt|uniqp|yysubs|fnf|dmhy|简体|简体中文|繁体|繁体中文|中字|国语|粤语|双语|中英|国粤|英语|日语|韩语|[/_#].*)',
+  caseSensitive: false,
+);
+
+/// 方括号 / 中文方括号整段：`[1.9GB]`、`[82.2GB]`、`【L-兰香如故】`、`【噢/澳·嘚·噻】`。
+///
+/// ★ 必须在 [normalizeTitle] 的最前面切掉，理由有三：
+///   ① `【噢/澳·嘚·噻】` 里的 `/` 会被 [_noise] 的 `[/_#].*` 当发布组吃掉，
+///      结果只剩 `【噢` —— 实测奥德赛就是这样搜出一堆残片关键词；
+///   ② `【L-兰香如故】` 里的 `-` 会被「去集名」的 `X - Y` 规则当成副标题切开，
+///      把 `兰香如故` 整段扔掉，只剩 `【L`；
+///   ③ 这一段本来就是站点的线路别名 / 体积说明，不是片名。
+final RegExp _blockRe = RegExp(r'\[[^\]]*\]|【[^】]*】');
+
+/// 集号提取前要抹掉的「非集号数字」。
+///
+/// 实测漏判（2026-11-17 日志）：
+///   · `[82.2GB]2160p…`  → 尾巴数字取到 82（体积）和 160（分辨率前半）
+///   · `DTS-HD.MA.5.1…`  → 取到 5（声道）
+///   · `…10bit…`         → 取到 10（位深）
+/// 这些都不是集号，认成集号会让字幕按「第 82 集」去匹配，必然 0 条。
+final RegExp _nonEpisodeNumbers = RegExp(
+  r'(\d+(\.\d+)?\s*[GgMm][Bb]|\d{3,4}[pPiI]|\d+\s*[Bb]it|\d+\.\d+|\d+\s*[Ff][Pp][Ss])'
+  r'|(dts|truehd|atmos|dd\+?|eac3|ac3|aac|flac|opus)[-_.a-z0-9]*',
   caseSensitive: false,
 );
 
@@ -28,6 +51,9 @@ final List<RegExp> _epPatterns = <RegExp>[
 final RegExp _tailNumber = RegExp(r'(?<![0-9A-Za-z])(\d{1,3})(?![0-9])');
 
 /// 提取集号（优先中文“第N集”；其次 E/如；再退化为末尾数字）。
+///
+/// ★ 退化路径（末尾数字）必须先抹掉体积 / 分辨率 / 声道 / 位深，否则
+///   `[82.2GB]2160p…` 会取到 82、`DTS-HD.MA.5.1` 会取到 5。
 String extractEp(String name) {
   for (final re in _epPatterns) {
     for (final m in re.allMatches(name)) {
@@ -37,7 +63,10 @@ String extractEp(String name) {
       }
     }
   }
-  final tail = _tailNumber.firstMatch(name);
+  final cleaned = name
+      .replaceAll(_blockRe, ' ')
+      .replaceAll(_nonEpisodeNumbers, ' ');
+  final tail = _tailNumber.firstMatch(cleaned);
   return tail == null ? '' : tail.group(1)!.replaceFirst(RegExp(r'^0+'), '');
 }
 
@@ -47,8 +76,13 @@ NormalizedSubtitleQuery normalizeSubtitleQuery(String name) =>
 
 /// 提取剧名主标题（去掉“- 集名”、“第N集”、年份、清晰度、发布组等后缀）。
 String normalizeTitle(String name) {
-  var title = name;
-  // 去掉「标题 - 集名」的后半段（- / — / 空格 + 第N集 或 集名）
+  // ★ 先切掉方括号段（`[1.9GB]`、`【L-兰香如故】`）。
+  //
+  //   必须最先做：里面的 `/` 会被 `_noise` 的发布组分支吃掉、`-` 会被
+  //   「X - Y」副标题规则切断，两条路都会把真剧名连残片一起丢掉。
+  //   实测：`[1.9GB]S01E02.mkv【L-兰香如故】` → 旧实现只剩 `S01E02 【L`。
+  var title = name.replaceAll(_blockRe, ' ');
+  // 去掉「标题 - 集名」的后半段（- — – 空格 + 第N集 或 集名）
   title = title.split(RegExp(r'[-—–]\s*第\s*\d+\s*[集话][^(-—–]*')).first;
   final dash = RegExp(r'^(.*?)[-\s]*(第\s*\d+\s*[集话]).*$').firstMatch(title);
   if (dash != null) {
@@ -106,7 +140,36 @@ String normalizeTitle(String name) {
       .replaceAll(_labelRe, ' ')
       .replaceAll(RegExp(r'\s{2,}'), ' ')
       .trim();
+  // ★ 剧名整段都在方括号里时（`[1.9GB]S01E02.mkv【L-兰香如故】`）上面会把真名
+  //   一起扔掉，只剩 `S01E02`。这里回填一次：从方括号内容里取连续汉字段。
+  //
+  //   只认「连续 ≥2 个汉字」的段落，所以
+  //     · `【L-兰香如故】` → `兰香如故` ✓
+  //     · `【噢/澳·嘚·噻】` → 没有连续汉字，不回填（那是站点的花体译名，
+  //       本来就不是可检索的剧名）✓
+  //   且只在当前结果「没有连续汉字」时才回填，正常片名不受影响。
+  if (!_hasCjkRun(title)) {
+    final fromBlock = _cjkRunInBlocks(name);
+    if (fromBlock.isNotEmpty) title = fromBlock;
+  }
   return title;
+}
+
+/// 是否含连续 ≥2 个汉字。
+bool _hasCjkRun(String text) =>
+    RegExp(r'[\u4e00-\u9fff]{2,}').hasMatch(text);
+
+/// 从方括号 / 【】段里取最长的连续汉字段（`【L-兰香如故】` → `兰香如故`）。
+String _cjkRunInBlocks(String name) {
+  var best = '';
+  for (final m in _blockRe.allMatches(name)) {
+    final inner = m.group(0)!;
+    for (final run in RegExp(r'[\u4e00-\u9fff]{2,}').allMatches(inner)) {
+      final t = run.group(0)!;
+      if (t.length > best.length) best = t;
+    }
+  }
+  return best;
 }
 
 /// 括号段（中文/英文括号各算一对，内容不含括号本身）。
@@ -115,15 +178,22 @@ final RegExp _bracketRe = RegExp(r'[（(]([^（()）]*)[)）]');
 /// 画质 / 编码 / 音轨词（只看括号段是否为「纯画质标签」时用）。
 final RegExp _qualityRe = RegExp(
   r'(8k|4k|2160[pi]?|1080[pi]?|720[pi]?|576[pi]?|480[pi]?|'
-  r'web[-_.]?dl|web[-_.]?rip|blu[-_.]?ray|bdrip|hdr10\+?|hdr|sdr|dolby|'
-  r'x\.?264|x\.?265|h\.?264|h\.?265|hevc|avc|10bit|8bit|aac|ac3|ddp?|dts|atmos|'
-  r'60fps|50fps|hq|hd|fhd|uhd|sd)',
+  r'web[-_.]?dl|web[-_.]?rip|blu[-_.]?ray|remux|bdrip|bdmv|hdtv|hdr10\+?|hdr|sdr|dolby|'
+  r'x\.?264|x\.?265|h\.?264|h\.?265|hevc|avc|10bit|8bit|aac|ac3|eac3|ddp?|dts|truehd|atmos|'
+  r'flac|opus|60fps|50fps|hq|hd|fhd|uhd|sd)',
   caseSensitive: false,
 );
 /// 画质 / 音轨 / 版本标签词：出现在标题里就是噪声。
+///
+/// ★ 「真彩」和「臻彩」是两个不同写法，源站两种都在用：
+///   · 玩偶的「奥德赛2026（臻彩）」
+///   · 花卷的「人性本兽（真彩）」「消失的爱人（真彩）」
+///   只写「臻彩」会漏掉后者 —— 实测「人性本兽（真彩）」剥不掉标签，
+///   于是 assrt 按全名精确匹配 → 0 条（真实结果 id=733904，用「人性本兽」能搜到）。
 final RegExp _labelRe = RegExp(
-  r'(臻彩|原画|高码率|臻享|蓝光|超清|高清|标清|抢鲜|抢先|杜比视界|杜比|视界|'
-  r'HDR10?\+?|SDR|国语版|粤语版|中字版|未删减|完整版|加长版)',
+  r'(臻彩|真彩|原画|高码率|臻享|蓝光|超清|高清|标清|抢鲜|抢先|杜比视界|杜比|视界|'
+  r'HDR10?\+?|SDR|国语版|粤语版|中字版|未删减|完整版|加长版|修复版|修復版|'
+  r'国配|台配|国粤|英字|双语|中字)',
   caseSensitive: false,
 );
 
@@ -139,6 +209,18 @@ List<String> titleVariants(String title) {
     final joined = parts.sublist(0, parts.length - 1).join(' ');
     if (joined.isNotEmpty) out.add(joined);
   }
+  // ★ 结尾粘着年份就拆一份「去掉年份」的变体。
+  //
+  //   实测：`奥德赛2026（臻彩）` → normalizeTitle → `奥德赛2026`，
+  //   而 assrt 用 `奥德赛2026` 搜不到（那是把片名和年份连写了一串），
+  //   用 `奥德赛` 才能搜到 15 条。反过来 `人性本兽` 没有年份，不受影响。
+  //
+  //   只在「年份紧贴汉字」时拆 —— `1917`、`2012` 这种纯数字片名不能动。
+  final m = RegExp(r'^(.{2,}?)((?:19|20)\d{2})$').firstMatch(t);
+  if (m != null) {
+    final base = m.group(1)!.trim();
+    if (base.isNotEmpty) out.add(base);
+  }
   return out.toSet().take(4).toList();
 }
 
@@ -146,6 +228,36 @@ String buildSearchQuery(String name) {
   final q = normalizeSubtitleQuery(name);
   final kw = q.title + (q.ep.isEmpty ? '' : ' ${q.ep}');
   return kw.trim();
+}
+
+/// 检索词是否是不能拿来搜的残片。
+///
+/// 判据（实测日志 `兰香如故` / `奥德赛` 两类残片）：
+///   · 带未闭合的括号残片（`S01E02 【L`、`UHD Remux MA 5 1 【噢`）；
+///   · 只有一个季集号（`S01E02`）；
+///   · 剥掉季集号 / 画质 / 音轨 / 标签后，剩下的「片名本体」不足 2 个字
+///     —— **前提是真剥掉了东西**，否则纯数字片名（`1917` / `2012`）会被误杀。
+///
+/// 为什么必须挡：这些词在 assrt 上要么 0 条，要么返回 15 条无关片；
+/// 而且每个词都是一次真实请求 —— 连着打 4~5 次就自己触发 509 限流。
+bool isJunkSubtitleKeyword(String keyword) {
+  final k = keyword.trim();
+  if (k.isEmpty) return true;
+  // 残片括号：`【L` / `【噢` / 半个 `)` / `[1.9GB]`
+  if (RegExp(r'[\[\]【】()（）]').hasMatch(k)) return true;
+  // 只有一个季集号
+  if (RegExp(r'^[Ss]\d{1,3}([Ee]\d{1,3})?$').hasMatch(k)) return true;
+  final stripped = k
+      .replaceAll(RegExp(r'[Ss]\d{1,3}[Ee]\d{1,3}'), ' ')
+      .replaceAll(RegExp(r'\b[Ee]\d{1,3}\b'), ' ')
+      .replaceAll(_qualityRe, ' ')
+      .replaceAll(_nonEpisodeNumbers, ' ')
+      .replaceAll(_labelRe, ' ')
+      .replaceAll(RegExp(r'[\s._\-·/&+,:;|]+'), ' ')
+      .trim();
+  // 什么都没剥掉 → 本来就是干净片名（含 `1917` / `2012` 这种纯数字片名）。
+  if (stripped == k) return false;
+  return stripped.replaceAll(RegExp(r'[\d\s._\-·/&+,:;|]+'), '').length < 2;
 }
 
 /// 统一取「剧名副名」供检索（优先 knownTitle，为空则从资源名截取第一段）。

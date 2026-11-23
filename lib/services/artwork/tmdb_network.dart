@@ -23,6 +23,52 @@ bool looksLikePoisonedAddress(String address) {
   return false;
 }
 
+/// TMDB 图床前缀，按顺序回退：官方 → 公共镜像 → 备用域名。
+///
+/// 国内网络下 `image.tmdb.org` 经常被阻断；镜像与备用域名走同一套
+/// `/t/p/<size>/<file>` 路径，由本地 `/img` 中继在回源失败时自动换下一个。
+const List<String> kTmdbImagePrefixes = [
+  'https://image.tmdb.org/t/p/',
+  'https://tmdb-image.nocorp.space/t/p/',
+  'https://tmdb.org/t/p/',
+];
+
+/// 拼一张 TMDB 图片地址（默认原图，[size] 可传 `w780` 等）。
+String tmdbImageUrl(String path, {String size = 'original'}) {
+  final clean = path.trim();
+  if (clean.isEmpty) return '';
+  if (clean.startsWith('http')) return clean;
+  final normalized = clean.startsWith('/') ? clean : '/$clean';
+  return '${kTmdbImagePrefixes.first}$size$normalized';
+}
+
+/// 给定一张 TMDB 图地址，返回全部可用图床（官方在前）。
+///
+/// 只识别 `/t/p/<size>/<file>` 形态；非 TMDB 地址返回空列表，调用方按原地址请求。
+List<String> tmdbImageMirrors(String raw) {
+  final uri = Uri.tryParse(raw.trim());
+  if (uri == null) return const [];
+  final host = uri.host.toLowerCase();
+  final isTmdb =
+      host == 'tmdb.org' ||
+      host == 'image.tmdb.org' ||
+      host == 'tmdb-image.nocorp.space' ||
+      host.endsWith('.tmdb.org');
+  if (!isTmdb) return const [];
+  const marker = '/t/p/';
+  final index = uri.path.indexOf(marker);
+  if (index < 0) return const [];
+  final rest = uri.path.substring(index + marker.length);
+  if (rest.isEmpty) return const [];
+  final suffix = uri.hasQuery ? '?${uri.query}' : '';
+  final out = <String>[];
+  for (final prefix in kTmdbImagePrefixes) {
+    final url = '$prefix$rest$suffix';
+    if (!out.contains(url)) out.add(url);
+  }
+  return out;
+}
+
 /// 给用户看的一句话诊断。
 ///
 /// [addresses] 是直连解析到的地址；[proxyActive] 表示当前是否已经在走代理。

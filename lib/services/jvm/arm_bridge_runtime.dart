@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+
+import '../bundled_runtime.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/logging/app_log.dart';
 import '../../core/net/download_mirrors.dart';
+import '../../core/net/runtime_fetch.dart';
 import 'jvm_runtime.dart';
 
 /// 加固壳（Guard / DexNative）支持：ARM 原生桥运行期。
@@ -121,9 +125,11 @@ class ArmBridgeRuntime {
     await JvmRuntime.instance.ensureBridgeJar();
     final dir = await _dir();
     dir.createSync(recursive: true);
-    final http = HttpClient();
-    http.connectionTimeout = const Duration(seconds: 20);
+    final http = RuntimeFetch.newClient();
+    AppLog.i('arm-bridge', '开始安装加固壳运行时 → ${dir.path}');
     try {
+      // 随包 unidbg（<exe>/runtime/unidbg）优先；下面的循环本来就会跳过已存在的 jar。
+      BundledRuntime.seed('unidbg', dir);
       final bases = await _rankedBases();
       var done = 0;
       for (final rel in _jarPaths) {
@@ -143,14 +149,19 @@ class ArmBridgeRuntime {
             break;
           } catch (e) {
             lastError = '$e';
+            AppLog.w('arm-bridge', '$name 线路失败，换下一个镜像', e);
           }
         }
         if (!ok) throw StateError('$name 下载失败：$lastError');
       }
       _cachedInstalled = null;
       if (!await installed()) throw StateError('加固壳运行时安装不完整');
+      AppLog.i('arm-bridge', '加固壳运行时安装完成');
       _setProgress('加固壳支持已就绪', 1);
       return dir;
+    } catch (e, s) {
+      AppLog.e('arm-bridge', '加固壳运行时安装失败', e, s);
+      rethrow;
     } finally {
       http.close(force: true);
       Future<void>.delayed(const Duration(seconds: 4), () {
@@ -169,20 +180,14 @@ class ArmBridgeRuntime {
   }
 
   Future<void> _download(HttpClient http, String url, File target) async {
-    final req = await http.getUrl(Uri.parse(url));
-    req.headers.set('User-Agent', 'MisaTV/0.1');
-    final res = await req.close();
-    if (res.statusCode != 200) {
-      await res.drain<void>();
-      throw StateError('HTTP ${res.statusCode}');
-    }
-    target.parent.createSync(recursive: true);
-    final sink = target.openWrite();
-    try {
-      await res.forEach(sink.add);
-    } finally {
-      await sink.close();
-    }
+    await RuntimeFetch.file(
+      http,
+      Uri.parse(url),
+      target,
+      tag: 'arm-bridge',
+      userAgent: 'MisaTV/0.1',
+      minBytes: 1024,
+    );
   }
 
   void _setProgress(String message, double value) {

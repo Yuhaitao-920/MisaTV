@@ -6,6 +6,7 @@ class MpvExtension {
   static final MpvExtension instance = MpvExtension._();
 
   Future<bool> get isInstalled async => false;
+  Future<bool> get hasUpdate async => false;
   Future<String> get executablePath async => '';
   Future<Map<String, String>> get meta async => const {};
   Future<String> get rootPath async => '';

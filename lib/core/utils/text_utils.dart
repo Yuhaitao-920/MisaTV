@@ -33,7 +33,8 @@ bool isLiveUrl(String url) {
       (url.startsWith('http') ||
           url.startsWith('rtp') ||
           url.startsWith('rtsp') ||
-          url.startsWith('rtmp'));
+          url.startsWith('rtmp') ||
+          url.startsWith('tvbus://'));
 }
 
 /// 取 #EXTINF 最后一个逗号后的频道名，兼容引号内逗号。

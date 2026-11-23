@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../../core/errors/app_error.dart';
+import '../../services/webdav/dav_service.dart';
 import '../../state/app_state.dart';
 
 /// 多端同步：WebDAV 双向同步 + 局域网同步。
@@ -25,14 +26,24 @@ class _SyncPageState extends State<SyncPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_seeded) return;
-    _seeded = true;
     final app = AppScope.of(context);
-    _device.text = app.syncSettings.deviceName;
-    _path.text = app.syncSettings.remotePath;
+    if (!_seeded) {
+      _seeded = true;
+      _device.text = app.syncSettings.deviceName;
+      _path.text = app.syncSettings.remotePath;
+      if (app.lanServer.running) _loadAddresses(app);
+    }
+    // 服务器选择每次依赖变化都校正一次：设置页刚添加/删除 WebDAV 后，
+    // 同步页要立刻能点「立即同步」，而不是卡在「请先选择一个服务器」。
     final saved = app.syncSettings.davServerId;
-    _serverId = app.davService.byId(saved) == null ? null : saved;
-    if (app.lanServer.running) _loadAddresses(app);
+    final servers = app.davService.servers;
+    final current = _serverId;
+    final valid = current != null && servers.any((s) => s.id == current);
+    if (!valid) {
+      _serverId = servers.any((s) => s.id == saved)
+          ? saved
+          : (servers.isEmpty ? null : servers.first.id);
+    }
   }
 
   @override
@@ -49,7 +60,13 @@ class _SyncPageState extends State<SyncPage> {
   }
 
   String _describe(Object error) {
-    if (error is AppException || error is FormatException) return '$error';
+    // WebDAV 的 DavException 已经写清了「401 / 403 / 409 / 超时」等具体原因，
+    // 直接展示，别再被通用错误分类改写成「网盘 / 站点凭据」。
+    if (error is AppException ||
+        error is FormatException ||
+        error is DavException) {
+      return '$error';
+    }
     return describeAppError(error).message;
   }
 
@@ -67,9 +84,15 @@ class _SyncPageState extends State<SyncPage> {
   }
 
   Future<void> _syncWebDav(AppState app) async {
-    final serverId = _serverId;
+    // _serverId 一般已在 didChangeDependencies 里自动选好；这里再兜底取第一个，
+    // 避免「明明只有一个服务器，却提示请先选择」。
+    final serverId =
+        _serverId ??
+        (app.davService.servers.isEmpty
+            ? null
+            : app.davService.servers.first.id);
     if (serverId == null) {
-      _toast('请先选择一个 WebDAV 服务器');
+      _toast('请先在「设置 → 网盘与数据 → WebDAV」添加服务器');
       return;
     }
     setState(() {
@@ -82,6 +105,8 @@ class _SyncPageState extends State<SyncPage> {
         remotePath: _path.text,
       );
       if (!mounted) return;
+      // 远端路径会被归一（补前导 /、去尾 /），回填成真正落库的值。
+      _path.text = app.syncSettings.remotePath;
       _toast('${report.summary}${report.pushed ? '，已写回远端' : ''}');
     } catch (e) {
       if (!mounted) return;
@@ -257,12 +282,15 @@ class _SyncPageState extends State<SyncPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
-                    '还没有 WebDAV 服务器。请到「设置 → 账户 → WebDAV」添加。',
+                    '还没有 WebDAV 服务器。请到「设置 → 网盘与数据 → WebDAV」添加。',
                     style: theme.textTheme.bodySmall,
                   ),
                 )
               else
                 DropdownButtonFormField<String>(
+                  // FormField 只在创建时读取 initialValue；自动选中/切换服务器
+                  // 时用 key 重建，保证下拉框显示的就是真正会同步的那台。
+                  key: ValueKey('dav-${selectedServer ?? '-'}-${servers.length}'),
                   initialValue: selectedServer,
                   decoration: const InputDecoration(labelText: '服务器'),
                   items: [

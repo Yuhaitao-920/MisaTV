@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kniephos/core/net/proxy_runtime.dart';
 import 'package:kniephos/models/dav.dart';
 import 'package:kniephos/services/local_store.dart';
 import 'package:kniephos/services/webdav/dav.dart';
@@ -32,6 +33,17 @@ void main() {
       expect(davParentPath('/a'), '/');
       expect(davParentPath('/'), '/');
       expect(davParentPath(''), '/');
+    });
+
+    test('局域网 / 私有地址不走远程代理', () {
+      expect(ProxyRuntime.isPrivateHost('192.168.1.5'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('10.0.0.2'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('172.16.3.4'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('172.31.3.4'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('172.32.3.4'), isFalse);
+      expect(ProxyRuntime.isPrivateHost('nas'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('localhost'), isTrue);
+      expect(ProxyRuntime.isPrivateHost('dav.jianguoyun.com'), isFalse);
     });
   });
 
@@ -133,6 +145,88 @@ void main() {
       expect(back.url, 'https://host/dav');
       expect(back.username, 'u');
       expect(back.password, 'p');
+    });
+  });
+
+  group('DavService 同步读写', () {
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      HttpOverrides.global = null;
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('同步文件：GET 404 → PUT（自动建目录）→ GET 读回', () async {
+      final store = await LocalStore.create();
+      final service = DavService(store);
+      final files = <String, String>{};
+      final dirs = <String>{'/dav'};
+      final log = <String>[];
+      String? auth;
+      final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      upstream.listen((req) async {
+        log.add('${req.method} ${req.uri.path}');
+        auth = req.headers.value(HttpHeaders.authorizationHeader) ?? auth;
+        final path = req.uri.path;
+        if (req.method == 'MKCOL') {
+          // 真实服务器把带/不带尾斜杠视为同一集合，这里同样归一。
+          final dir = path.replaceAll(RegExp(r'/+$'), '');
+          if (dirs.contains(dir)) {
+            req.response.statusCode = 405;
+          } else {
+            dirs.add(dir);
+            req.response.statusCode = 201;
+          }
+          await req.response.close();
+          return;
+        }
+        if (req.method == 'PUT') {
+          final cut = path.lastIndexOf('/');
+          final parent = cut <= 0 ? '' : path.substring(0, cut);
+          final body = await utf8.decoder.bind(req).join();
+          if (!dirs.contains(parent)) {
+            req.response.statusCode = 409;
+          } else {
+            files[path] = body;
+            req.response.statusCode = 201;
+          }
+          await req.response.close();
+          return;
+        }
+        if (req.method == 'GET') {
+          final body = files[path];
+          if (body == null) {
+            req.response.statusCode = 404;
+          } else {
+            req.response.write(body);
+          }
+          await req.response.close();
+          return;
+        }
+        req.response.statusCode = 405;
+        await req.response.close();
+      });
+      try {
+        final saved = await service.save(
+          DavServer(
+            id: '',
+            name: 'local',
+            url: 'http://127.0.0.1:${upstream.port}/dav',
+            username: 'alice',
+            password: 'pw',
+          ),
+        );
+        expect(await service.getText(saved.id, '/MisaTV/sync.json'), isNull);
+        await service.putText(saved.id, '/MisaTV/sync.json', '{"ok":1}');
+        expect(files['/dav/MisaTV/sync.json'], '{"ok":1}');
+        expect(
+          await service.getText(saved.id, '/MisaTV/sync.json'),
+          '{"ok":1}',
+        );
+        expect(log, contains('MKCOL /dav/MisaTV/'));
+        expect(auth, davBasicAuth('alice', 'pw'));
+      } finally {
+        await upstream.close(force: true);
+      }
     });
   });
 

@@ -176,6 +176,7 @@ class AppHttp {
     Duration timeout = const Duration(seconds: 15),
     int maxBytes = 32 << 10,
     bool useDoh = false,
+    bool skipBinaryMedia = false,
   }) async {
     final normalized = _proxyRouted(normalizeHostUrl(url), headers: headers);
     final uri = Uri.tryParse(normalized);
@@ -192,13 +193,37 @@ class AppHttp {
       final res = await client.send(request).timeout(timeout);
       final setCookie = res.headers['set-cookie'];
       if (setCookie != null) _captureCookies(uri, setCookie);
-      if (res.statusCode >= 400) return null;
+      if (res.statusCode >= 400) {
+        await res.stream.listen((_) {}).cancel();
+        return null;
+      }
+      final ct = (res.headers['content-type'] ?? '').toLowerCase();
+      if (skipBinaryMedia &&
+          (ct.startsWith('video/') ||
+              ct.startsWith('audio/') ||
+              ct.contains('octet-stream') ||
+              (res.contentLength != null &&
+                  res.contentLength! > 2 * 1024 * 1024))) {
+        await res.stream.listen((_) {}).cancel();
+        return HttpResponseText(
+          normalized,
+          '',
+          res.statusCode,
+          res.headers['content-type'] ?? '',
+        );
+      }
       final buf = <int>[];
       final done = Completer<void>();
       sub = res.stream.listen(
         (chunk) {
-          buf.addAll(chunk);
-          if (buf.length >= maxBytes && !done.isCompleted) done.complete();
+          final remain = maxBytes - buf.length;
+          if (remain > 0) {
+            buf.addAll(chunk.length <= remain ? chunk : chunk.sublist(0, remain));
+          }
+          if (buf.length >= maxBytes && !done.isCompleted) {
+            sub?.pause();
+            done.complete();
+          }
         },
         onError: (Object _) {
           if (!done.isCompleted) done.complete();

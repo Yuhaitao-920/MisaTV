@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -16,6 +17,7 @@ import 'custom_provider.dart';
 import 'normalize_query.dart';
 import 'subtitle_http.dart';
 import 'subtitle_models.dart';
+import 'subtitle_package_store.dart';
 import 'subtitlecat_provider.dart';
 
 /// 候选排序（稳定排序）：
@@ -74,6 +76,98 @@ class SubtitleService {
       ? _timeout
       : const Duration(seconds: 8);
 
+  /// 已解出的字幕候选缓存：`providerId|id` → 包内全部条目。
+  ///
+  /// 一个 RAR 里常有多条（简中/繁中/eng/SDH）。用户点同一个候选第二次
+  /// 只是想「换一条试试」，没必要再下一次包、再解一次压。
+  ///
+  /// 双层：
+  ///   · 内存 Map（本字段）—— 最快，进程内命中
+  ///   · 落盘 `<userdata>/subtitles/cache/<key>.json` —— 重启 app 后仍命中
+  /// 落盘层走 [_store] 条件导入：io 平台真写文件，Web 退化成空实现。
+  final Map<String, List<SubtitleChoice>> _packageCache =
+      <String, List<SubtitleChoice>>{};
+
+  /// 取缓存键（provider + 候选 id）。
+  String _cacheKeyOf(SubtitleCandidate c) => '${c.providerId}|${c.id}';
+
+  /// 查过但没有落盘缓存的键（避免每次 build 都做一次文件探测）。
+  final Set<String> _packageMiss = <String>{};
+
+  /// 已缓存该候选解出的条目（内存优先，其次读盘；都没有返回 null）。
+  List<SubtitleChoice>? cachedChoices(SubtitleCandidate c) {
+    final key = _cacheKeyOf(c);
+    final hit = _packageCache[key];
+    if (hit != null && hit.isNotEmpty) return hit;
+    if (_packageMiss.contains(key)) return null;
+
+    final raw = readPackageCache(key);
+    if (raw == null || raw.isEmpty) {
+      // 记下「没有」，list itemBuilder 每帧都调它，别反复碰磁盘。
+      _packageMiss.add(key);
+      return null;
+    }
+    final parsed = _decodeChoices(raw);
+    if (parsed == null || parsed.isEmpty) {
+      _packageMiss.add(key);
+      return null;
+    }
+    _packageCache[key] = parsed;
+    _packageMiss.remove(key);
+    return parsed;
+  }
+
+  void _remember(String key, List<SubtitleChoice> choices) {
+    if (choices.isEmpty) return;
+    if (_packageCache.length >= 32 && !_packageCache.containsKey(key)) {
+      // 简单淘汰：丢掉最早插入的一个（Dart Map 保序）。
+      _packageCache.remove(_packageCache.keys.first);
+    }
+    _packageCache[key] = choices;
+    // 落盘：下次启动 app 仍能命中。
+    final json = _encodeChoices(choices);
+    if (json != null) writePackageCache(key, json);
+  }
+
+  /// 编码成 JSON：[{n: name, f: format, t: text}]
+  ///
+  /// 手写而不是 `jsonEncode` 一个 class —— 只有 3 个字段，少一层依赖，
+  /// 也避免给 `SubtitleChoice` 加 `toJson`（它在 UI 层用不到）。
+  String? _encodeChoices(List<SubtitleChoice> choices) {
+    try {
+      final list = <Map<String, String>>[
+        for (final c in choices) {'n': c.name, 'f': c.format, 't': c.text},
+      ];
+      return jsonEncode(list);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<SubtitleChoice>? _decodeChoices(String raw) {
+    try {
+      final data = jsonDecode(raw);
+      if (data is! List) return null;
+      final out = <SubtitleChoice>[];
+      for (final e in data) {
+        if (e is! Map) continue;
+        final name = '${e['n'] ?? ''}';
+        final text = '${e['t'] ?? ''}';
+        if (text.trim().isEmpty) continue;
+        out.add(
+          SubtitleChoice(
+            name: name.isEmpty ? '字幕' : name,
+            format: '${e['f'] ?? ''}',
+            text: text,
+          ),
+        );
+      }
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 网页源（subtitlecat / 自定义接口）超时：网页要下 HTML 再解析，给足。
   Duration get _htmlTimeout => _timeout;
 
@@ -85,11 +179,53 @@ class SubtitleService {
   ///   旧实现把多个源塞进 `Future.wait` 且共用同一个 15s 超时 ——
   ///   `subtitlecat.com` 在国内完全不通（连接直接失败后一直重试），
   ///   于是每次搜字幕都白等 15 秒，UI 表现为「点按钮半天没反应」。
+  /// 检索结果的进程内缓存：查询键 → 候选列表。
+  ///
+  /// ★ 面板不该每次打开都重新检索。
+  ///
+  ///   实测：打开字幕面板 → 检索（assrt ~1s + subtitlecat 15s 超时）
+  ///   → 关掉 → 再打开 → 又一整轮。用户只是想「换一条已下载的字幕」，
+  ///   却要白等十几秒。
+  ///
+  ///   所以：同一次播放（同 query）内，只在**用户点刷新**或**首次打开**时检索。
+  final Map<String, List<SubtitleCandidate>> _searchCache =
+      <String, List<SubtitleCandidate>>{};
+
+  /// 检索缓存键。
+  ///
+  /// ★ 必须把 `customKeyword` 算进去：面板里用户可以把检索词改掉再搜，
+  ///   改完的结果和自动推断的结果是两批不同的东西。旧键只看
+  ///   `title|episode|rawName`，于是「改成奥德赛搜出 15 条」会被存到
+  ///   「奥德赛2026」的键位上，下次打开面板又拿回那 15 条，而输入框显示的是
+  ///   另一个词 —— 用户看到的是「搜的词和结果对不上」。
+  String _searchKeyOf(SubtitleQuery q, Set<String> providers) {
+    final p = providers.toList()..sort();
+    return '${q.title}|${q.episode}|${q.rawName}|${q.customKeyword}|${p.join(",")}';
+  }
+
+  /// 已缓存的检索结果（无缓存返回 null）。
+  List<SubtitleCandidate>? cachedSearch(
+    SubtitleQuery query, {
+    Set<String> providers = const <String>{'subtitlecat', 'assrt'},
+  }) {
+    final hit = _searchCache[_searchKeyOf(query, providers)];
+    return (hit == null || hit.isEmpty) ? null : hit;
+  }
+
   Future<List<SubtitleCandidate>> search(
     SubtitleQuery query, {
     Set<String> providers = const <String>{'subtitlecat', 'assrt'},
+    bool refresh = false,
   }) async {
-    final ctx = _buildContext(query);
+    final cacheKey = _searchKeyOf(query, providers);
+    if (!refresh) {
+      final hit = _searchCache[cacheKey];
+      if (hit != null && hit.isNotEmpty) {
+        AppLog.i('subtitle', '命中检索缓存（${hit.length} 条），跳过网络');
+        return hit;
+      }
+    }
+    final ctx = buildSubtitleContext(query);
     final tokens = _readTokens();
     AppLog.i(
       'subtitle',
@@ -145,7 +281,9 @@ class SubtitleService {
         },
       ),
     );
-    return sortSubtitleCandidates(all, ctx.title);
+    final result = sortSubtitleCandidates(all, ctx.title);
+    if (result.isNotEmpty) _searchCache[cacheKey] = result;
+    return result;
   }
 
   /// 源站的连通性探测结果缓存（true 可达 / false 本次会话不再试）。
@@ -197,7 +335,12 @@ class SubtitleService {
       if (api == null) {
         throw SubtitleException('自定义字幕接口已不存在：${candidate.providerName}');
       }
-      return downloadCustomSubtitleApi(_http, api, candidate);
+      return downloadCustomSubtitleApi(
+        _http,
+        api,
+        candidate,
+        onChoices: (choices) => _remember(_cacheKeyOf(candidate), choices),
+      );
     }
     final type = subtitleProviderFromId(candidate.providerId);
     if (type == null) {
@@ -216,9 +359,15 @@ class SubtitleService {
         candidate,
         videoName: videoName,
         ep: ep,
+        onChoices: (choices) => _remember(_cacheKeyOf(candidate), choices),
       );
     }
-    return fetchSubtitleCat(_http, candidate, ep: ep);
+    return fetchSubtitleCat(
+      _http,
+      candidate,
+      ep: ep,
+      onChoices: (choices) => _remember(_cacheKeyOf(candidate), choices),
+    );
   }
 
   Map<String, String> _readTokens() {
@@ -254,20 +403,36 @@ class SubtitleService {
 }
 
 /// 由公开查询构造内部检索上下文（标题 / 集号 / 关键词候选）。
-({String title, String ep, List<String> keywords}) _buildContext(
+///
+/// 公开（非私有）是为了让单测能直接验证「哪些词进了检索队列」——
+/// 实测过线上日志里混进 `S01E02 【L`、`UHD Remux MA 5 1 【噢` 这类残片，
+/// 每一个都是一次真实 assrt 请求，连打几次就自己触发 509 限流。
+({String title, String ep, List<String> keywords}) buildSubtitleContext(
   SubtitleQuery query,
 ) {
-  final source = query.title.trim().isNotEmpty ? query.title : query.rawName;
-  var title = normalizeTitle(source);
+  // ★ 用户手填的检索词优先，且**不再做 normalizeTitle** ——
+  //   手填就是「我知道该搜什么」，再剥标签反而会弄坏。
+  final custom = query.customKeyword.trim();
+  final source = custom.isNotEmpty
+      ? custom
+      : (query.title.trim().isNotEmpty ? query.title : query.rawName);
+  var title = custom.isNotEmpty ? custom : normalizeTitle(source);
   if (title.isEmpty) title = source.trim();
   final ep = query.episode == null
-      ? extractEp(query.rawName.isNotEmpty ? query.rawName : source)
+      ? (custom.isNotEmpty
+            ? ''
+            : extractEp(query.rawName.isNotEmpty ? query.rawName : source))
       : query.episode.toString();
 
   final keywords = <String>[];
+  final seen = <String>{};
   void add(String value) {
     final t = value.trim();
-    if (t.isNotEmpty && !keywords.contains(t)) keywords.add(t);
+    if (t.isEmpty) return;
+    if (isJunkSubtitleKeyword(t)) return;
+    final key = t.toLowerCase();
+    if (!seen.add(key)) return;
+    keywords.add(t);
   }
 
   final variants = titleVariants(title);

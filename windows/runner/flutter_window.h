@@ -2,7 +2,9 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -33,6 +35,11 @@ class FlutterWindow : public Win32Window {
   // close message from destroying the window until the app cleaned up its child
   // processes); this timer force-closes the window if Dart never finishes.
   UINT_PTR close_watchdog_ = 0;
+
+  // Keeps the "misatv/process_job" method-channel handler registered for the
+  // lifetime of this engine.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      process_job_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

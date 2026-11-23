@@ -426,12 +426,30 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
     year: item.year,
     subtitle: item.remarks.isEmpty ? site.displayName : item.remarks,
     fallback: item.cleanPic,
+    headers: item.picHeaders,
     item: item,
   );
 
   void _open(_HomeEntry entry, {bool? autoPlay, bool fromStart = false}) {
     final item = entry.item;
     if (item != null) {
+      // 网盘型加固源先在首页返回云盘目录，需要逐层展开而不是进详情。
+      if (item.isFolder) {
+        final app = AppScope.of(context);
+        final site =
+            app.siteByKey(item.sourceKey) ??
+            (item.sourceKey.isEmpty ? app.activeSite : null);
+        if (site == null) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ImmersiveCategoryPage(
+              site: site,
+              sortClass: SortClass(id: item.id, name: item.name),
+            ),
+          ),
+        );
+        return;
+      }
       openImmersiveItem(
         context,
         item,
@@ -675,6 +693,7 @@ class _ImmersiveHomePageState extends State<ImmersiveHomePage> {
                         year: entry.year,
                         subtitle: entry.subtitle,
                         fallback: entry.fallback,
+                        imageHeaders: entry.headers,
                         badge: entry.badge,
                         progress: entry.progress,
                         showText: false,
@@ -758,6 +777,7 @@ class _HomeEntry {
     this.year = '',
     this.subtitle = '',
     this.fallback = '',
+    this.headers = const <String, String>{},
     this.badge = '',
     this.progress = 0,
     this.resume = false,
@@ -768,6 +788,7 @@ class _HomeEntry {
   final String year;
   final String subtitle;
   final String fallback;
+  final Map<String, String> headers;
   final String badge;
   final double progress;
 

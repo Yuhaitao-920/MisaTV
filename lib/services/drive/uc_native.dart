@@ -114,6 +114,12 @@ bool looksLikeUcShare(String text, {String flag = ''}) {
   return extractUcShare(text, flag: flag) != null;
 }
 
+/// 是否是 FTY 系 UC 复合集地址（`<name>__<fid>+<pwdId>+<token>`）。
+///
+/// 结构本身就能确定是 UC：夸克复合串用 `~~`，且分享 id 不在这个位置。
+bool looksLikeUcCompound(String text) =>
+    _ucCompoundRe.hasMatch(text.trim());
+
 /// 从文本解析 UC 分享 `pwd_id`、提取码与内层 fid。
 UcShareRef? extractUcShare(String text, {String flag = ''}) {
   final desc = parseDriveDescriptor(text);
@@ -143,16 +149,20 @@ UcShareRef? extractUcShare(String text, {String flag = ''}) {
     }
   }
 
-  // fty 的 UC / 夸克描述都使用 sId/fid；仅在明确 UC 线路时解释该描述。
+  // FTY 系复合集地址：`<name>__<fid>+<pwdId>+<share_fid_token>`。
+  // 结构是 UC 专有的（夸克复合串用 `~~`，且 pwd_id 在末段），不能只看线路名：
+  // 实测「夸克无限」线路会直接下发 UC 分享，按线路名过滤会误判成夸克。
+  final compound = _ucCompoundRe.firstMatch(text.trim());
+  if (compound != null) {
+    return UcShareRef(
+      pwdId: compound.group(3)!,
+      fileId: compound.group(2)!,
+      name: compound.group(1) ?? '',
+    );
+  }
+
+  // 逐项 JSON 描述（sId/fid）仍只在明确 UC 线路时解释，避免与夸克抢同一批 id。
   if (_ucFlagRe.hasMatch(flag)) {
-    final compound = _ucCompoundRe.firstMatch(text.trim());
-    if (compound != null) {
-      return UcShareRef(
-        pwdId: compound.group(3)!,
-        fileId: compound.group(2)!,
-        name: compound.group(1) ?? '',
-      );
-    }
     try {
       final d = _asMap(jsonDecode(text));
       if (d != null) {

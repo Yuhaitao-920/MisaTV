@@ -10,6 +10,7 @@ import 'jar_spider_service.dart';
 import 'js_spider_service.dart';
 import 'kazumi/kazumi_source.dart';
 import 'py_spider_service.dart';
+import 'search_round.dart';
 import 'source/source_adapter.dart';
 import 'source/source_adapters.dart';
 
@@ -48,6 +49,12 @@ class SourceService {
     await jar.shutdown();
   }
 
+  /// 新一轮聚合搜索开始：让 JAR 蜘蛛作废旧轮次排队中的调用。
+  void beginSearchRound(int round) => jar.beginSearchRound(round);
+
+  /// 搜索取消 / 时间预算到期：只作废指定的轮次。
+  void cancelSearchRound(int round) => jar.cancelSearchRound(round);
+
   /// 统一记录一次源调用（类型 / 耗时 / 结果 / 失败堆栈），便于复盘。
   Future<T> _logged<T>(
     String op,
@@ -66,13 +73,16 @@ class SourceService {
       );
       return value;
     } catch (e, s) {
-      AppLog.e(
-        'source',
-        '$op key=${site.key} type=${site.type} ${note.isEmpty ? '' : '$note '}'
-            '${sw.elapsedMilliseconds}ms api=${redactUrl(site.api)}',
-        e,
-        s,
-      );
+      // 搜索轮次过期是预期行为，不该在日志里伪装成源站失败。
+      if (e is! SearchCancelledException) {
+        AppLog.e(
+          'source',
+          '$op key=${site.key} type=${site.type} ${note.isEmpty ? '' : '$note '}'
+              '${sw.elapsedMilliseconds}ms api=${redactUrl(site.api)}',
+          e,
+          s,
+        );
+      }
       rethrow;
     }
   }
@@ -127,6 +137,43 @@ class SourceService {
     note: 'url=${redactUrl(url)}',
     summarize: (text) => 'chars=${text.length}',
   );
+
+  /// 直链播放初始化超时后的换路重取：跳过原生免转存，直接让 serve host 出 `/chunk`。
+  ///
+  /// 只对 JAR 蜘蛛源有意义（只有它们有 serve host）。夸克直链被 libmdk 顺读时
+  /// 永远等不到 mkv 的 Cues，而同一份数据经壳内 `/chunk` 是秒开 —— 见
+  /// [JarSpiderService.replayViaServe] 的实测记录。
+  Future<PlayResult?> replayViaServe({
+    required SourceBean site,
+    required SiteConfig config,
+    required String flag,
+    required String rawUrl,
+  }) async {
+    if (!site.isJarSpider) return null;
+    final sw = Stopwatch()..start();
+    try {
+      final result = await jar.replayViaServe(
+        site,
+        flag,
+        rawUrl,
+        vipFlags: config.flags,
+      );
+      AppLog.i(
+        'play',
+        '换路重取 site=${site.key} flag=$flag ${sw.elapsedMilliseconds}ms '
+            'url=${redactUrl(result?.url ?? '')} msg=${shorten(result?.message ?? '', 120)}',
+      );
+      return result;
+    } catch (e, s) {
+      AppLog.e(
+        'play',
+        '换路重取失败 site=${site.key} flag=$flag ${sw.elapsedMilliseconds}ms',
+        e,
+        s,
+      );
+      return null;
+    }
+  }
 
   Future<PlayResult> resolvePlay({
     required SourceBean site,

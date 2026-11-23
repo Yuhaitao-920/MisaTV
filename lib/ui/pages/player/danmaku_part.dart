@@ -359,9 +359,24 @@ extension _PlayerDanmakuExt on _PlayerPageState {
     }
   }
 
+  /// 本集字幕记忆键：`资源|集`（和 skipSegments 用的是同一套键）。
+  String get _subtitleResource => '${_detail.sourceKey}|${_detail.id}';
+  String get _subtitleEpisode => '${_index + 1}';
+
   Future<void> _showSubtitlePanel() async {
     final detail = _detail;
-    final file = await showSubtitlePanel(
+    // ★ 有记忆就先自动挂上，用户仍可打开面板换一条。
+    //
+    //   同一部片子第二次播放时，用户 99% 想继续用上次那条字幕。
+    //   旧行为是每次都要重新搜、重新下、重新选。
+    final remembered = await _autoApplyRememberedSubtitle();
+    if (!mounted) return;
+    if (remembered) {
+      _toast('已自动载入上次的字幕：$_subtitleStatus');
+      return;
+    }
+
+    final pick = await showSubtitlePanel(
       context,
       service: _app.subtitleService,
       query: SubtitleQuery(
@@ -373,8 +388,60 @@ extension _PlayerDanmakuExt on _PlayerPageState {
       currentName: _subtitleStatus,
       onClear: _clearSubtitle,
     );
-    if (file == null) return;
-    await _applySubtitle(file);
+    if (pick == null) return;
+    await _applySubtitle(pick.file);
+    // 记住这次选了哪一条（下次自动载入）。
+    await _app.saveSubtitleChoice(
+      resource: _subtitleResource,
+      episode: _subtitleEpisode,
+      providerId: pick.candidate.providerId,
+      id: pick.candidate.id,
+      name: pick.file.name,
+    );
+  }
+
+  /// 尝试自动载入上次的字幕；成功返回 true。
+  ///
+  /// 只看本地缓存（`subtitles/cache/`），不联网 —— 缓存没了就当没记忆。
+  Future<bool> _autoApplyRememberedSubtitle() async {
+    if (_subtitleStatus.isNotEmpty) return false; // 已经有字幕了
+    final mem = _app.subtitleChoiceFor(_subtitleResource, _subtitleEpisode);
+    if (mem == null) return false;
+    final providerId = mem['p'] ?? '';
+    final id = mem['i'] ?? '';
+    final wantName = mem['n'] ?? '';
+    if (providerId.isEmpty || id.isEmpty) return false;
+
+    final candidate = SubtitleCandidate(
+      providerId: providerId,
+      providerName: '',
+      id: id,
+      title: wantName,
+      language: '',
+      format: '',
+      downloadUrl: '',
+    );
+    final cached = _app.subtitleService.cachedChoices(candidate);
+    if (cached == null || cached.isEmpty) {
+      AppLog.i('subtitle', '字幕记忆命中但缓存已失效（$providerId|$id），退回手动选择');
+      return false;
+    }
+    // 优先同名条目（用户上次选的那条），否则取第一条。
+    final chosen = cached.firstWhere(
+      (c) => c.name == wantName,
+      orElse: () => cached.first,
+    );
+    await _applySubtitle(chosen.toFile());
+    AppLog.i('subtitle', '自动载入上次字幕：${chosen.name}');
+    return _subtitleStatus.isNotEmpty;
+  }
+
+  /// 起播后自动恢复上次的字幕（由 player_page 在 initialize 成功后调用）。
+  Future<void> _autoRestoreSubtitle() async {
+    if (_subtitleStatus.isNotEmpty) return;
+    if (!mounted) return;
+    final ok = await _autoApplyRememberedSubtitle();
+    if (ok && mounted) _toast('已自动载入上次的字幕：$_subtitleStatus');
   }
 
   Future<void> _applySubtitle(SubtitleFile file) async {

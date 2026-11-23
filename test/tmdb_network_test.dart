@@ -14,6 +14,32 @@ void main() {
     expect(looksLikePoisonedAddress('18.164.4.1'), isFalse);
   });
 
+  test('TMDB 图床：官方 → 公共镜像 → 备用地址', () {
+    expect(
+      tmdbImageUrl('/abc123.jpg'),
+      'https://image.tmdb.org/t/p/original/abc123.jpg',
+    );
+    expect(
+      tmdbImageUrl('abc123.jpg', size: 'w780'),
+      'https://image.tmdb.org/t/p/w780/abc123.jpg',
+    );
+    expect(
+      tmdbImageUrl('https://cdn.example.com/a.jpg'),
+      'https://cdn.example.com/a.jpg',
+    );
+    expect(tmdbImageMirrors('https://image.tmdb.org/t/p/original/abc123.jpg'), [
+      'https://image.tmdb.org/t/p/original/abc123.jpg',
+      'https://tmdb-image.nocorp.space/t/p/original/abc123.jpg',
+      'https://tmdb.org/t/p/original/abc123.jpg',
+    ]);
+    expect(tmdbImageMirrors('https://tmdb.org/t/p/w780/abc123.jpg'), [
+      'https://image.tmdb.org/t/p/w780/abc123.jpg',
+      'https://tmdb-image.nocorp.space/t/p/w780/abc123.jpg',
+      'https://tmdb.org/t/p/w780/abc123.jpg',
+    ]);
+    expect(tmdbImageMirrors('https://example.com/abc.jpg'), isEmpty);
+  });
+
   test('诊断文案：污染 / 正常 / 已走代理', () {
     final poisoned = describeTmdbDns(
       addresses: ['157.240.12.35', '2a03:2880:f126:83:face:b00c:0:25de'],

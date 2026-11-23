@@ -196,42 +196,79 @@ Offset? _immersiveRestorePosition;
 bool _immersiveRestoreMaximized = false;
 bool _immersiveWasFullScreen = false;
 bool _immersiveActive = false;
+bool _immersiveRestored = false;
+int _immersiveGeneration = 0;
 
 /// 进入沉浸观影：独占全屏，并记住原来的窗口状态，退出时还原。
 Future<void> enterImmersiveFullscreen() async {
   if (!_isDesktopWindow || _immersiveActive) return;
   _immersiveActive = true;
+  _immersiveRestored = false;
+  final generation = ++_immersiveGeneration;
   try {
     _immersiveWasFullScreen = await windowManager.isFullScreen();
     _immersiveRestoreMaximized = await windowManager.isMaximized();
     _immersiveRestoreSize = await windowManager.getSize();
     _immersiveRestorePosition = await windowManager.getPosition();
-    if (!_immersiveWasFullScreen) await setWindowFullscreen(true);
+    // 读取窗口状态期间用户可能已经退出沉浸模式；不要再进全屏。
+    if (generation != _immersiveGeneration) return;
+    if (!_immersiveWasFullScreen) {
+      await setWindowFullscreen(true);
+      AppLog.i('window', '进入沉浸模式：窗口已切到全屏');
+    }
   } catch (_) {
-    _immersiveActive = false;
+    if (generation == _immersiveGeneration) _immersiveActive = false;
   }
 }
 
-/// 退出沉浸观影：还原进入前的窗口大小、位置与最大化状态。
+/// 退出沉浸观影：无论进入前是否已是全屏、当前内部标志是否还在，都强制
+/// 退出全屏并还原窗口。
+///
+/// Windows 上 `window_manager` 在无边框状态下可能出现内部全屏标志与真实
+/// 窗口状态不一致；如果只按 `_immersiveActive` / `_immersiveWasFullScreen`
+/// 判断，退出沉浸模式后窗口会一直停在全屏尺寸。
 Future<void> exitImmersiveFullscreen() async {
-  if (!_isDesktopWindow || !_immersiveActive) return;
+  if (!_isDesktopWindow || _immersiveRestored) return;
+  // 同一轮沉浸会话只还原一次；设置开关、外壳 dispose、AppShell 兜底
+  // 可能同时/先后触发，重复 setSize/center 会把刚还原的窗口又挪走。
+  _immersiveRestored = true;
+  ++_immersiveGeneration;
   _immersiveActive = false;
+  final savedSize = _immersiveRestoreSize;
+  final savedPosition = _immersiveRestorePosition;
+  final wasMaximized = _immersiveRestoreMaximized;
+  final wasFullScreen = _immersiveWasFullScreen;
+  _immersiveRestoreSize = null;
+  _immersiveRestorePosition = null;
+  _immersiveRestoreMaximized = false;
+  _immersiveWasFullScreen = false;
   try {
-    if (!_immersiveWasFullScreen) {
+    // 只有插件内部确实处于全屏时才调用 setFullScreen(false)：
+    // window_manager 的 Windows 实现在从未全屏过时会用零值恢复窗口尺寸，
+    // 直接调用会把窗口缩到 0×0。内部标志为 false 但窗口仍是大尺寸时，
+    // 下面直接 setSize / setPosition 也能还原。
+    if (await windowManager.isFullScreen()) {
       await setWindowFullscreen(false);
-      final size = _immersiveRestoreSize;
-      final position = _immersiveRestorePosition;
-      if (size != null) await windowManager.setSize(size);
-      if (position != null) await windowManager.setPosition(position);
-      if (_immersiveRestoreMaximized) await windowManager.maximize();
     }
-  } catch (_) {
+    // 退出全屏后窗口可能仍处于最大化状态，先还原再设回进入前的尺寸，
+    // 否则 Windows 会忽略 setSize，看起来仍是「锁死全屏」。
+    if (await windowManager.isMaximized()) {
+      await windowManager.unmaximize();
+    }
+    // 进入前本来就是全屏时，保存的尺寸就是屏幕大小；退回默认窗口，
+    // 避免「退出沉浸但窗口仍是全屏大小」。
+    final size = wasFullScreen ? await _defaultWindowSize() : savedSize;
+    if (size != null) await windowManager.setSize(size);
+    if (savedPosition != null) {
+      await windowManager.setPosition(savedPosition);
+    } else {
+      await windowManager.center();
+    }
+    if (wasMaximized) await windowManager.maximize();
+    AppLog.i('window', '退出沉浸模式：已退出全屏并恢复窗口');
+  } catch (e) {
     // 还原失败不阻断切回普通界面
-  } finally {
-    _immersiveRestoreSize = null;
-    _immersiveRestorePosition = null;
-    _immersiveRestoreMaximized = false;
-    _immersiveWasFullScreen = false;
+    AppLog.w('window', '退出沉浸模式还原窗口失败：$e');
   }
 }
 

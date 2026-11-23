@@ -10,6 +10,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 桌面版 Spider 运行器 —— 等效 DexClassLoader 的宿主侧。
@@ -84,6 +90,10 @@ public class SpiderHost {
   }
 
   public static void main(String[] args) {
+    // 站源载荷（尤其加固壳）可能自己调用 System.exit 杀死宿主。
+    // 在加载任何 spider jar 之前安装守卫：宿主自己的退出照常放行，
+    // 载荷发起的退出只让本次 RPC 失败，进程继续服务后续请求。
+    ExitGuard.install();
     ensureHostProxy();
     // ★ stdout 专供「结果/信封」：蜘蛛自己的 System.out.println 会与结果/信封共用同一管道，
     //   打印碎片（不带换行的半行）+ 信封 → 整行 JSON 解析失败 → 常驻池侧挂起到超时
@@ -133,6 +143,104 @@ public class SpiderHost {
       code = 1;
     }
     System.exit(code);
+  }
+
+  /**
+   * 拦截站源载荷自己发起的 {@link System#exit(int)}。
+   *
+   * <p>加固壳/转换 jar 里偶有 {@code System.exit(1)}（或第三方库的退出调用）。
+   * 进程一死，常驻池里的 Cookie、解包产物和取流地址全部丢失，用户侧表现为
+   * 「详情/播放突然失败，重开又要重新初始化」。这里用只关心退出的
+   * SecurityManager：宿主类加载器发起的退出放行，载荷类加载器发起的退出
+   * 记录调用栈并抛 SecurityException，让本次 RPC 失败但宿主继续活着。
+   *
+   * <p>JDK 17+ 需要 {@code -Djava.security.manager=allow}（见 Dart 侧
+   * {@code jar_spider.dart} 的 JVM 参数）。安装失败只记一行日志，不影响启动。
+   * {@code Runtime.halt()} 不受 SecurityManager 管辖，拦不住。
+   */
+  @SuppressWarnings("removal")
+  static final class ExitGuard {
+    private static volatile boolean installed;
+
+    private ExitGuard() {
+    }
+
+    static void install() {
+      if (installed) return;
+      try {
+        if (System.getSecurityManager() != null) {
+          installed = true;
+          return;
+        }
+        System.setSecurityManager(new Guard());
+        installed = true;
+        System.err.println("[ExitGuard] installed");
+      } catch (Throwable t) {
+        System.err.println("[ExitGuard] install skipped: " + t);
+      }
+    }
+
+    static final class Guard extends SecurityManager {
+      @Override public void checkPermission(java.security.Permission permission) {
+        // 只关心退出；其它权限一律放行，避免打断载荷的反射/文件访问。
+      }
+
+      @Override public void checkPermission(java.security.Permission permission, Object context) {
+      }
+
+      @Override public void checkExit(int status) {
+        Class<?>[] context = getClassContext();
+        Class<?> caller = callerClassOfExit(context);
+        if (isHost(caller)) return;
+        String name = caller == null ? "" : caller.getName();
+        report(status, name, context);
+        throw new SecurityException(
+            "站源载荷请求退出 JVM（exit=" + status + "，来源 " + name + "），已被拦截");
+      }
+    }
+
+    /** 跳过 JDK 与守卫自身，返回真正发起退出的类。 */
+    static Class<?> callerClassOfExit(Class<?>[] context) {
+      if (context == null) return null;
+      for (Class<?> frame : context) {
+        if (frame == null) continue;
+        String name = frame.getName();
+        if (name.startsWith("java.lang.") || name.startsWith("java.security.")) continue;
+        if (name.startsWith("SpiderHost$ExitGuard") || name.equals("SpiderHost")) continue;
+        return frame;
+      }
+      return null;
+    }
+
+    /**
+     * 宿主判定看类加载器，不看包名：载荷壳类可能伪装成
+     * {@code com.github.catvod.*}，按前缀放行会漏判。
+     */
+    static boolean isHost(Class<?> caller) {
+      if (caller == null) return true;
+      ClassLoader own = ExitGuard.class.getClassLoader();
+      ClassLoader loader = caller.getClassLoader();
+      if (loader == null) return own == null;
+      return loader == own;
+    }
+
+    private static void report(int status, String caller, Class<?>[] context) {
+      try {
+        System.err.println("[ExitGuard] blocked System.exit(" + status + ") from " + caller
+            + " thread=" + Thread.currentThread().getName());
+        int printed = 0;
+        for (Class<?> frame : context) {
+          if (frame == null) continue;
+          String name = frame.getName();
+          if (name.startsWith("java.lang.") || name.startsWith("java.security.")) continue;
+          System.err.println("[ExitGuard]   at " + name);
+          if (++printed >= 8) break;
+        }
+        System.err.flush();
+      } catch (Throwable ignored) {
+        // 日志失败不能影响拦截本身。
+      }
+    }
   }
 
   /**
@@ -471,16 +579,272 @@ public class SpiderHost {
       catch (Throwable ig) { System.err.println("[InitOrigin.init] " + ig); }
     } catch (ClassNotFoundException ig) { }
 
-    // fty 壳 Rc 加密分支开关：merge.cn.yq 默认推翻为 true（HideUtils 占位）
+    // ★★ 2026-11-13（实测根因修复，勿回退）★★
+    //   fty 系加固壳的四个加解密站点全部由 `merge.uA.yq`（public static boolean，默认 false）门控：
+    //     ME.B (String)   @26  yq? HideUtils.encrypt      : InitOrigin.i 反射 encrypt
+    //     ME.Gc(int[])    @13  yq? HideUtils.calcResult   : InitOrigin.i 反射 calcResult
+    //     ME.KJ (String)  @26  yq? HideUtils.decrypt      : InitOrigin.i 反射 decrypt
+    //     ME.n  (String)  @13  yq? HideUtils.tingMd5      : InitOrigin.i 反射 native_ting_md5
+    //   `InitOrigin.i` 是 public static Class<?>，全 jar 只有 `InitOrigin.setClass` 一处 putstatic，
+    //   而 setClass **零调用者** → i 恒为 null → 四个站点的反射端 NPE，且异常被吞成 ""
+    //   → playerContent 拿不到解密后的 sToken → 播放永久卡住 / 解析失败。
+    //   历史写法翻的是 `merge.cn.yq`，那是 `public static final merge.cn yq`（Runnable 单例），
+    //   不是 boolean，`getType()==boolean.class` 恒假 → 静默 no-op（本行就是那个 bug）。
+    //   这里翻对的字段；fty 之外（wex 系没有 merge.*）ClassNotFoundException 静默跳过。
     try {
-      Class<?> cnCls = Class.forName("com.github.catvod.spider.merge.cn", true, cl);
-      try {
-        java.lang.reflect.Field yqF = cnCls.getField("yq");
-        if (yqF.getType() == boolean.class) yqF.setBoolean(null, true);
-      } catch (Throwable ig) { }
-    } catch (ClassNotFoundException ig) { }
+      Class<?> uaCls = Class.forName("com.github.catvod.spider.merge.uA", true, cl);
+      java.lang.reflect.Field yqF = uaCls.getField("yq");
+      if (yqF.getType() == boolean.class) {
+        yqF.setBoolean(null, true);
+        System.err.println("[ShellShim] 已强制 com.github.catvod.spider.merge.uA.yq=true（B/Gc/KJ/n 改走 HideUtils 分支）");
+      } else {
+        System.err.println("[ShellShim] merge.uA.yq 不是 boolean（" + yqF.getType().getName() + "），跳过");
+      }
+    } catch (ClassNotFoundException ig) {
+      // 非 fty 系载荷（wex 等），正常
+    } catch (Throwable ig) {
+      System.err.println("[ShellShim] 设置 merge.uA.yq 失败: " + ig);
+    }
+
+    // ★ 同一门控的另一半：`yq=true` 只是把四个站点从「反射 InitOrigin.i」切到 HideUtils，
+    //   但要走通仍需 HideUtils 在类路径上。壳 jar 里不带 HideUtils（它由 native 侧提供），
+    //   桌面版由 stubs.jar 的纯 Java 版补齐（encrypt/decrypt/calcResult/tingMd5，其中
+    //   tingMd5 对应第 4 个站点的 native_ting_md5）。探测一下，缺失时明确报出来，
+    //   避免再出现「NPE 被吞成空串、日志零线索」的静默失败。
+    try {
+      Class<?> hu = Class.forName("com.github.catvod.spider.HideUtils", true, cl);
+      String[] need = {"encrypt", "decrypt", "calcResult", "tingMd5"};
+      Class<?>[] sig = {String.class, String.class, int[].class, String.class};
+      StringBuilder miss = new StringBuilder();
+      for (int i = 0; i < need.length; i++) {
+        try { hu.getDeclaredMethod(need[i], sig[i]); }
+        catch (NoSuchMethodException e) { if (miss.length() > 0) miss.append(','); miss.append(need[i]); }
+      }
+      if (miss.length() > 0) System.err.println("[ShellShim] HideUtils 缺方法: " + miss);
+    } catch (ClassNotFoundException ig) {
+      System.err.println("[ShellShim] 类路径上没有 HideUtils —— merge.uA.yq=true 后四个站点会 NoClassDefFoundError");
+    } catch (Throwable ig) { }
+
+    // ★★ 2026-11-13（实测根因修复，勿回退）★★
+    //   wex / AiNew* 系载荷的站点基址不走配置里的 api，而是 init() 里：
+    //       merge.y0.e.J("wogg")                     → 读 <spiderCacheDir>/files/AiWex/siteconfig 的域名列表
+    //       merge.y0.e.A(list, headers, 6000, sel)   → **并发竞速，谁先返回谁当选**
+    //       i.a → putfield a:Ljava/lang/String       → 基址
+    //   `A(...)` 只看「有没有响应」，**完全不校验 HTTP 状态码**。于是：
+    //       https://www.wogg.net/        → 403，252ms（最快）→ 当选 → 下面按 403 页面解析
+    //       https://woggpan.888484.xyz/  → 200，529KB，含 module-item（唯一可用）→ 落选
+    //   homeContent 无 try/catch，选择器
+    //       div.module-list.module-lines-list > div  → .module-item
+    //   在 403 页面上匹配 0 条 → `list:[]`（7 个 class 是写死的，故只见分类不见内容）。
+    //   桌面端实测：把 wogg 收敛成唯一可用域名后 len 11024 → 42518、items 0 → 120。
+    //   注意 siteconfig 会被载荷自行用远端配置覆写（连只读属性都清），uA.yq 那条修复
+    //   碰不到这里，所以修复必须落在「载荷读取它之前」：预检每个候选域名，只保留
+    //   返回 2xx 且页面里确实有列表容器的，写回 siteconfig。全部不可用时原样不动。
+    sanitizeVendorHosts(app);
 
     return new Env(cl, app);
+  }
+
+  /**
+   * 把 `<spiderCacheDir>/files/AiWex/siteconfig` 里各厂商的域名列表收敛成**实测可用**的子集。
+   *
+   * 为什么必须做：载荷的基址选择是纯竞速（见上），一个 403 的旧域名只要响应够快就会
+   * 盖掉健康域名，导致「分类有、内容空」或「能显示、播不了」。竞速本身在载荷里，
+   * 桌面端改不了；能改的是喂给它的候选集。
+   *
+   * 判定：并发 HEAD/GET 每个域名，2 秒超时；2xx 且正文里出现 `module-item`
+   * （首页列表容器）/ `module-item-pic` / `voddetail` 任一，才算可用。
+   * 保底：若某厂商一个都不过，则该厂商的列表原样保留（绝不把候选清空 → 悬空指针）。
+   */
+  private static void sanitizeVendorHosts(android.content.Context app) {
+    StringBuilder trace = new StringBuilder();
+    try {
+      // 基址真源就是 setupEnv 上面用的那个系统属性（-Dtvbox.spiderCacheDir），
+      // 不依赖 Context.getBaseDir 是否存在（桌面桩里没有 getter）。
+      String dir = System.getProperty("tvbox.spiderCacheDir");
+      if (dir == null || dir.trim().isEmpty()) return;
+      File base = new File(dir.trim());
+
+      File cfg = new File(new File(base, "files/AiWex"), "siteconfig");
+      if (!cfg.isFile() || cfg.length() <= 0 || cfg.length() > 512 * 1024) return;
+
+      String text = new String(java.nio.file.Files.readAllBytes(cfg.toPath()),
+          java.nio.charset.StandardCharsets.UTF_8).trim();
+      if (text.isEmpty() || text.charAt(0) != '{') return;
+
+      org.json.JSONObject root = new org.json.JSONObject(text);
+      java.util.Iterator<String> keys = root.keys();
+      List<String> names = new ArrayList<String>();
+      while (keys.hasNext()) names.add(keys.next());
+
+      // 收集所有需要探测的 (vendor, 候选列表)，**跨厂商一次性并发**。
+      // 这里绝不能按厂商串行：每次 setupEnv 的耗时直接算在 home/detail 的调用超时里，
+      // 串行 × N 个厂商会把调用拖过超时（实测：16:11 home 直接返回 error，无结果）。
+      List<String> vendors = new ArrayList<String>();
+      List<List<String>> groups = new ArrayList<List<String>>();
+      List<String> all = new ArrayList<String>();
+      for (String vendor : names) {
+        org.json.JSONArray arr = root.optJSONArray(vendor);
+        if (arr == null || arr.length() <= 1) continue;   // 单域名无从优选，跳过
+        List<String> cands = new ArrayList<String>();
+        for (int i = 0; i < arr.length(); i++) {
+          String u = arr.optString(i, "").trim();
+          if (!u.isEmpty()) cands.add(u);
+        }
+        if (cands.size() <= 1) continue;
+        vendors.add(vendor);
+        groups.add(cands);
+        all.addAll(cands);
+      }
+      if (vendors.isEmpty()) return;
+
+      // 预算 2.5s 总闸：探测只是"锦上添花"，宁可本轮不收敛，也不能拖慢/拖死载荷初始化。
+      long t0 = System.currentTimeMillis();
+      Map<String, Boolean> verdict = probeHosts(all, 2500);
+      long used = System.currentTimeMillis() - t0;
+      trace.append("cands=").append(all.size())
+          .append(" probed=").append(verdict.size())
+          .append(" used=").append(used).append("ms")
+          .append(" proxy=").append(proxyDesc()).append('\n');
+      System.err.println("[HostFix] cands=" + all.size() + " probed=" + verdict.size()
+          + " used=" + used + "ms proxy=" + proxyDesc());
+      for (String u : all) {
+        Boolean v = verdict.get(u);
+        String line = (v == null ? "SKIP " : (v.booleanValue() ? "OK   " : "DEAD ")) + u;
+        trace.append(line).append('\n');
+        System.err.println("[HostFix]   " + line);
+      }
+
+      int changed = 0;
+      StringBuilder log = new StringBuilder();
+      for (int gi = 0; gi < vendors.size(); gi++) {
+        List<String> cands = groups.get(gi);
+        List<String> ok = new ArrayList<String>();
+        for (String u : cands) if (Boolean.TRUE.equals(verdict.get(u))) ok.add(u);
+        if (ok.isEmpty() || ok.size() == cands.size()) continue;
+
+        org.json.JSONArray kept = new org.json.JSONArray();
+        for (String u : ok) kept.put(u);
+        root.put(vendors.get(gi), kept);
+        changed++;
+        log.append(' ').append(vendors.get(gi)).append(": ")
+            .append(cands.size()).append("->").append(ok.size());
+      }
+
+      if (changed == 0) { dumpTrace(base, trace); return; }
+      java.nio.file.Files.write(cfg.toPath(),
+          root.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      System.err.println("[HostFix] siteconfig 基址预检收敛" + changed + "个厂商:" + log);
+      dumpTrace(base, trace.append(" => changed=").append(changed).append(log));
+    } catch (Throwable ig) {
+      System.err.println("[HostFix] siteconfig 预检跳过: " + ig);
+      java.io.StringWriter sw = new java.io.StringWriter();
+      ig.printStackTrace(new java.io.PrintWriter(sw));
+      System.err.println(sw.toString());
+      try {
+        String dir = System.getProperty("tvbox.spiderCacheDir");
+        if (dir != null) dumpTrace(new File(dir.trim()),
+            trace.append(" EX ").append(ig).append('\n').append(sw.toString()));
+      } catch (Throwable ig2) { }
+    }
+  }
+
+  /**
+   * 探针/宿主两条链路的 stderr 都可能被上层截断（App 侧只保留最后 60 行且不入日志），
+   * 因此把判定明细落盘，位置固定在 spiderCacheDir 下，便于事后核对。
+   */
+  private static void dumpTrace(File base, CharSequence text) {
+    try {
+      File out = new File(base, "hostfix.trace");
+      java.nio.file.Files.write(out.toPath(),
+          text.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    } catch (Throwable ig) { }
+  }
+
+  /** 当前生效的代理描述，用于日志里对齐"探测和载荷是否同路"。 */
+  private static String proxyDesc() {
+    String ph = System.getProperty("https.proxyHost", System.getProperty("http.proxyHost"));
+    String pp = System.getProperty("https.proxyPort", System.getProperty("http.proxyPort"));
+    return (ph == null || ph.isEmpty()) ? "none" : (ph + ":" + pp);
+  }
+
+  /** 并发探测候选基址，返回 url → 是否可用。总耗时受 budgetMs 硬性约束。 */
+  private static Map<String, Boolean> probeHosts(List<String> cands, long budgetMs) {
+    final Map<String, Boolean> verdict = new HashMap<String, Boolean>();
+    if (cands.isEmpty()) return verdict;
+    ExecutorService pool = Executors.newFixedThreadPool(Math.min(12, cands.size()));
+    final long deadline = System.currentTimeMillis() + budgetMs;
+    try {
+      Map<String, Future<Boolean>> fs = new LinkedHashMap<String, Future<Boolean>>();
+      for (final String u : cands) {
+        fs.put(u, pool.submit(new Callable<Boolean>() {
+          public Boolean call() { return Boolean.valueOf(hostAlive(u)); }
+        }));
+      }
+      for (Map.Entry<String, Future<Boolean>> e : fs.entrySet()) {
+        long left = deadline - System.currentTimeMillis();
+        Boolean v;
+        try {
+          v = e.getValue().get(Math.max(1, left), TimeUnit.MILLISECONDS);
+        } catch (Throwable ig) {
+          v = null;      // 超时/异常 → 与"未探测"同义，不做判定（保守：保留候选）
+        }
+        if (v != null) verdict.put(e.getKey(), v);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+    return verdict;
+  }
+
+  /** 2xx 且正文含首页列表容器标记 → 该基址能真正解析出条目。 */
+  private static boolean hostAlive(String url) {
+    java.net.HttpURLConnection c = null;
+    try {
+      java.net.URL u = new URL(url);
+      // 必须和载荷同路：载荷走 App 注入的 -Dhttp(s).proxyHost/Port（Dart 侧代理桥），
+      // HttpURLConnection 默认只认 http.proxyHost，HTTPS 得显式给 Proxy，
+      // 否则探测走直连、载荷走代理，两边结论相反（www.wogg.net 直连 200 / 代理 403）。
+      java.net.Proxy proxy = java.net.Proxy.NO_PROXY;
+      String ph = System.getProperty("https.proxyHost", System.getProperty("http.proxyHost"));
+      String pp = System.getProperty("https.proxyPort", System.getProperty("http.proxyPort"));
+      if (ph != null && !ph.isEmpty() && pp != null && !pp.isEmpty()) {
+        try {
+          proxy = new java.net.Proxy(java.net.Proxy.Type.HTTP,
+              new java.net.InetSocketAddress(ph, Integer.parseInt(pp.trim())));
+        } catch (Throwable ig) { proxy = java.net.Proxy.NO_PROXY; }
+      }
+      c = (java.net.HttpURLConnection) u.openConnection(proxy);
+      c.setConnectTimeout(1200);
+      c.setReadTimeout(1600);
+      c.setInstanceFollowRedirects(true);
+      c.setRequestProperty("User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              + "Chrome/140.0.0.0 Safari/537.36");
+      c.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8");
+      int code = c.getResponseCode();
+      if (code < 200 || code >= 300) return false;
+      java.io.InputStream in = c.getInputStream();
+      try {
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(1 << 16);
+        byte[] buf = new byte[8192];
+        int n, total = 0;
+        while ((n = in.read(buf)) > 0) {
+          bos.write(buf, 0, n);
+          total += n;
+          if (total > 512 * 1024) break;      // 首页足够判断，不必读全
+        }
+        String html = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        return html.contains("module-item") || html.contains("voddetail")
+            || html.contains("module-lines-list");
+      } finally {
+        try { in.close(); } catch (Throwable ig) { }
+      }
+    } catch (Throwable ig) {
+      return false;
+    } finally {
+      if (c != null) try { c.disconnect(); } catch (Throwable ig) { }
+    }
   }
 
   /**
@@ -621,6 +985,99 @@ public class SpiderHost {
     return result == null ? "" : result;
   }
 
+  /**
+   * 加固壳的「网盘登录闸门」绕过。
+   *
+   * fty 系壳（WoGGGuard / Pan）的 `Cloud_quark.playerContent` 一进来先判断
+   * 「这次的线路名是否与我上次记录的相同」：不同就调 `N0.Gd()` 校验登录态。
+   * `N0.Gd()` 内部是 `SystemClock.sleep` 轮询 —— 它等的是**手机 App 扫码授权**，
+   * 桌面端没有这条授权链，于是主线程永久 sleep（实测 jstack 11 分钟不动）。
+   *
+   * `playerContent` 开头的门控（反编译确认，字节码 0-24）：
+   *   0: getstatic Cloud_quark.tF:Z   → 3: ifne 56   ← tF 为 true 直接跳过校验
+   *   6: N0.F5 → isEmpty?             → 15: ifne 56  ← 账号为空也跳过
+   *  18: N0.Gd()                       ← 否则调登录校验（sleep 轮询）
+   *
+   * 所以真正管用的是 **`Cloud_quark.tF`（public static boolean）**，把它置 true，
+   * 整段校验连读都不用读。顺带把线路名 `Cloud_quark.N` / `QB.G4` 对齐到本次 flag，
+   * 免得后面 80-103 那段「线路变了」又触发一次 `Gd()`。
+   *
+   * 写不进去（别的壳、字段被改名）就算了：该方法所有异常静默，绝不影响正常调用。
+   */
+  private static void skipDriveLoginGuard(Object sp, String flag) {
+    try {
+      // ★ 关键：真实实现（WoGG）与 `Cloud_quark` 在**不同的 ClassLoader** 里 ——
+      //   WoGG 来自 converted jar，Cloud_quark 来自 `-Dtvbox.shellShimClasses` 指向的
+      //   payload jar（由 shell-shim 的 DexNative 自己建 URLClassLoader）。
+      //   只用 sp.getClass().getClassLoader() 会 ClassNotFound（实测静默失败、tF 从未置位）。
+      //   所以这里把候选加载器都试一遍：sp 自己的 → 线程上下文 → DexNative.loader（反射取）。
+      java.util.List<ClassLoader> loaders = new ArrayList<ClassLoader>();
+      try { loaders.add(sp.getClass().getClassLoader()); } catch (Throwable ig) { }
+      try {
+        ClassLoader tc = Thread.currentThread().getContextClassLoader();
+        if (tc != null) loaders.add(tc);
+      } catch (Throwable ig) { }
+      try {
+        Class<?> dn = Class.forName("com.github.catvod.spider.DexNative", false,
+            SpiderHost.class.getClassLoader());
+        java.lang.reflect.Field lf = dn.getDeclaredField("loader");
+        lf.setAccessible(true);
+        Object l = lf.get(null);
+        if (l instanceof ClassLoader) loaders.add((ClassLoader) l);
+      } catch (Throwable ig) { }
+
+      boolean flipped = false;
+      // ① 主开关：Cloud_quark.tF = true
+      String[] guardClasses = {"com.github.catvod.spider.Cloud_quark", "com.github.catvod.spider.Cloud_uc", "com.github.catvod.spider.Cloud_ucpan", "com.github.catvod.spider.Cloud_baidu", "com.github.catvod.spider.Cloud_115", "com.github.catvod.spider.Cloud_ali", "com.github.catvod.spider.Cloud_thunder", "com.github.catvod.spider.Cloud_guangya"};
+      for (String clsName : guardClasses) {
+      for (ClassLoader cl : loaders) {
+        if (cl == null) continue;
+        try {
+          Class<?> cq = Class.forName(clsName, true, cl);
+          java.lang.reflect.Field f = cq.getDeclaredField("tF");
+          if (f.getType() != boolean.class) continue;
+          f.setAccessible(true);
+          f.setBoolean(null, true);
+          if (f.getBoolean(null)) { flipped = true; break; }
+        } catch (Throwable ig) {
+          // 该加载器看不到 Cloud_quark（不是这个壳 / 不是 quark 系）—— 换下一个
+        }
+      }
+      }
+      if (flag == null || flag.isEmpty()) {
+        if (flipped) System.err.println("[LoginGuard] 已置 tF=true（跳过网盘登录校验）");
+        return;
+      }
+      // ② 线路名对齐：Cloud_quark.N / merge.QB.G4（同样跨加载器试）
+      String[] owners = {
+          "com.github.catvod.spider.Cloud_quark",
+          "com.github.catvod.spider.merge.QB",
+        "com.github.catvod.spider.Cloud_uc",
+        "com.github.catvod.spider.Cloud_ucpan",
+        "com.github.catvod.spider.Cloud_baidu",
+      };
+      String[] fields = {"N", "G4", "N", "N", "N"};
+      for (int i = 0; i < owners.length; i++) {
+        for (ClassLoader cl : loaders) {
+          if (cl == null) continue;
+          try {
+            Class<?> c = Class.forName(owners[i], true, cl);
+            java.lang.reflect.Field f = c.getDeclaredField(fields[i]);
+            if (f.getType() != String.class) continue;
+            f.setAccessible(true);
+            f.set(null, flag);
+            break;
+          } catch (Throwable ig) {
+            // 换下一个加载器
+          }
+        }
+      }
+      if (flipped) System.err.println("[LoginGuard] 已跳过网盘登录校验 flag=" + flag);
+    } catch (Throwable ig) {
+      // 任何反射问题都不影响正常取链
+    }
+  }
+
   /** 方法分发（一次性/常驻共用）。rest[0]=ext(init 已消费)，real args 从 rest[1:] 取值。 */
   private static String dispatchMethod(Object sp, String method, String[] rest) throws Exception {
     String[] r = rest.length > 0 ? Arrays.copyOfRange(rest, 1, rest.length) : new String[0];
@@ -648,8 +1105,10 @@ public class SpiderHost {
           .invoke(sp, r.length > 0 ? r[0] : "", r.length > 1 ? r[1] : "1", true, extend);
     }
     if ("detailContent".equals(method)) {
+      String rawId = r.length > 0 ? r[0] : "";
+      java.util.List<String> ids = (r.length > 1) ? Arrays.asList(r) : (rawId.contains("$$$") || rawId.contains("://") || rawId.startsWith("{")) ? java.util.Collections.singletonList(rawId) : Arrays.asList(rawId.split(","));
       return (String) sp.getClass().getMethod("detailContent", List.class)
-          .invoke(sp, Arrays.asList((r.length > 0 ? r[0] : "").split(",")));
+          .invoke(sp, ids);
     }
     if ("searchContent".equals(method)) {
       String wd = r.length > 0 ? r[0] : "";
@@ -665,8 +1124,11 @@ public class SpiderHost {
       if (r.length > 2 && r[2] != null && !r[2].isEmpty()) {
         for (String v : r[2].split(",")) if (!v.trim().isEmpty()) vips.add(v.trim());
       }
+      final String flag = r.length > 0 ? r[0] : "";
+      final String playId = r.length > 1 ? r[1] : "";
+      skipDriveLoginGuard(sp, flag);
       return (String) sp.getClass().getMethod("playerContent", String.class, String.class, List.class)
-          .invoke(sp, r.length > 0 ? r[0] : "", r.length > 1 ? r[1] : "", vips);
+          .invoke(sp, flag, playId, vips);
     }
     if ("liveContent".equals(method)) {
       return (String) sp.getClass().getMethod("liveContent", String.class).invoke(sp, r.length > 0 ? r[0] : "");

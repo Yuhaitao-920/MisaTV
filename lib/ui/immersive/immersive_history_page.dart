@@ -66,7 +66,7 @@ class ImmersiveHistoryPage extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 16),
                     gridDelegate:
                         SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 336,
+                          maxCrossAxisExtent: m.posterMaxExtent,
                           mainAxisExtent: m.cardExtent,
                           crossAxisSpacing: 18,
                           mainAxisSpacing: 22,

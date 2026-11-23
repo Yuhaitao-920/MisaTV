@@ -16,6 +16,7 @@ import '../movie_parser.dart';
 import '../play_result_parser.dart';
 import '../drive/drive_ext.dart';
 import 'js_spider_worker.dart';
+import 'js_asset_key.dart';
 
 /// TVBox JS 蜘蛛（type=3，api 以 .js 结尾）的宿主。
 ///
@@ -328,6 +329,27 @@ class JsSpiderService {
     if (site.api.startsWith('file://')) {
       text = await File(filePathOf(site.api.split('?').first)).readAsString();
       text = _validateScript(text, site.api);
+    } else if (bundleAssetKeyOf(site.api) != null) {
+      // ★ `assets://` 与 `clan://localhost/` 指向**应用内置**的脚本，不是网络地址。
+      //   这类源（CatVod 离线包里的 hipy_js 系列最常见）以前被直接丢给
+      //   `_httpGet`，而 Dart 的 HttpClient 不认这个 scheme：
+      //
+      //     Invalid argument(s): Unsupported scheme 'assets' in URI
+      //
+      //   结果是整个源 8 毫秒就失败，用户只看到「首页加载失败」。
+      //
+      //   现在先读打包资产；资产里没有就报一句人话，不再让 Uri 解析异常
+      //   直接冒到界面上。
+      final key = bundleAssetKeyOf(site.api)!;
+      try {
+        text = _validateScript(await rootBundle.loadString(key), site.api);
+      } catch (_) {
+        throw Exception(
+          '这个源要读取应用内置的脚本 $key，但安装包里没有它。'
+          '（`.api` 属于 CatVod 离线包的 assets:// 写法，'
+          '本应用不随包分发第三方脚本；换用 http(s) 的源即可。）',
+        );
+      }
     } else {
       final cacheFile = await _scriptCacheFile(site.api);
       text = '';
@@ -502,3 +524,4 @@ class _JsWorkerHandle {
   Future<void>? starting;
   final Set<String> readySites = {};
 }
+

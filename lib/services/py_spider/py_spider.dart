@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/logging/app_log.dart';
-import '../../core/net/proxy_runtime.dart';
 import '../../core/net/url_utils.dart';
+import '../../core/platform/process_job.dart';
 import '../../core/utils/file_url.dart';
 import '../../models/site_config.dart';
 import '../../models/vod.dart';
@@ -41,9 +42,22 @@ class SpiderProxyResult {
   }
 }
 
+/// 一次性 / 常驻调用共用的准备结果。
+///
+/// Android 走 Chaquopy 进程内调用，没有可执行文件，[exe] 为空。
+typedef _PyReady = ({
+  Directory dir,
+  String exe,
+  File script,
+  String cls,
+  String ext,
+});
+
 /// TVBox Python 蜘蛛（type=3，api 以 .py 结尾）。
 ///
-/// 脚本下载到本地缓存，然后交给随包 runner.py + 按需安装的嵌入式 Python 执行。
+/// 脚本下载到本地缓存：
+/// - Windows：交给随包 runner.py + 按需下载的嵌入式 Python 进程执行；
+/// - Android：交给 Chaquopy 内置的 CPython，在应用进程内执行同一份 runner.py。
 class PySpiderService {
   PySpiderService({PyRuntime? runtime, this.driveTokens})
     : _runtimeOverride = runtime;
@@ -53,9 +67,14 @@ class PySpiderService {
   final Map<String, String> Function()? driveTokens;
   final Map<String, File> _scripts = {};
 
-  /// 播放期常驻的 Python 进程（`runner.py --hold`）：脚本自带的本机取流服务是
+  /// Android 端进程内 Python 宿主（Chaquopy，见 PythonHostPlugin.kt）。
+  static const _androidChannel = MethodChannel('com.kniephos.kniephos/python');
+
+  static bool get _isAndroid => Platform.isAndroid;
+
+  /// 播放期常驻的 Python 进程 / 实例（`runner.py --hold`）：脚本自带的本机取流服务是
   /// 进程内 daemon 线程，一次性进程拿到地址就退出会让播放器直接连接失败。
-  _PyPlayHost? _playHost;
+  _PyHost? _playHost;
 
   Future<CmsResult> home(SourceBean site) async {
     final text = await _invoke(site, 'homeContent', const []);
@@ -163,11 +182,20 @@ class PySpiderService {
     return result;
   }
 
-  /// 应用退出：直接结束常驻取流进程，不等脚本自己收尾。
+  /// 应用退出：直接结束常驻取流进程 / 实例，不等脚本自己收尾。
   Future<void> shutdown() async {
     final host = _playHost;
     _playHost = null;
     await host?.killNow();
+    if (_isAndroid) {
+      try {
+        await _androidChannel
+            .invokeMethod('releaseAll')
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // 通道已销毁（应用退出最后阶段）或 Python 卡住时忽略
+      }
+    }
   }
 
   /// 播放地址是否指向 PY 脚本自己起的本机取流服务。
@@ -324,8 +352,7 @@ class PySpiderService {
   }
 
   /// 运行时 / 脚本 / 类名等公共准备（一次性调用与常驻取流共用）。
-  Future<({Directory dir, String exe, File script, String cls, String ext})>
-  _prepare(SourceBean site) async {
+  Future<_PyReady> _prepare(SourceBean site) async {
     if (!await runtime.installed()) {
       final result = await RuntimeInstallPrompt.instance.ensure(
         RuntimeExtension.python,
@@ -342,22 +369,23 @@ class PySpiderService {
     }
     final dir = await runtime.directory();
     final script = await _scriptFile(site);
+    final cls = _className(site.api);
+    final ext = enrichSpiderExt(site.ext, driveTokens?.call() ?? const {});
+    if (_isAndroid) {
+      // Chaquopy 内置解释器：没有 python.exe，runnerDir 由 Kotlin 侧加进 sys.path。
+      return (dir: dir, exe: '', script: script, cls: cls, ext: ext);
+    }
     final exe = p.join(dir.path, 'python.exe');
     if (!File(exe).existsSync()) {
       throw SourceException('Python 运行时缺少 python.exe，请在设置中重新安装');
     }
-    return (
-      dir: dir,
-      exe: exe,
-      script: script,
-      cls: _className(site.api),
-      ext: enrichSpiderExt(site.ext, driveTokens?.call() ?? const {}),
-    );
+    return (dir: dir, exe: exe, script: script, cls: cls, ext: ext);
   }
 
   Map<String, String> _environment() => {
+    // 直连模式：不再注入 ProxyRuntime.pythonEnv（HTTP_PROXY 等一律不设），
+    // Python 蜘蛛直接出网，与 Win-box 行为一致。
     ...Platform.environment,
-    ...ProxyRuntime.instance.pythonEnv,
     'PYTHONIOENCODING': 'utf-8',
     'PYTHONUTF8': '1',
   };
@@ -368,6 +396,14 @@ class PySpiderService {
     List<String> args,
   ) async {
     final ready = await _prepare(site);
+    if (_isAndroid) {
+      return _invokeAndroid(
+        ready,
+        method,
+        args,
+        Duration(seconds: site.timeout + 30),
+      );
+    }
     final arguments = <String>[
       '-X',
       'utf8',
@@ -404,6 +440,75 @@ class PySpiderService {
     }
   }
 
+  /// Android：调用 Chaquopy 进程内 runner（返回值是 runner.py 的统一信封）。
+  Future<String> _invokeAndroid(
+    _PyReady ready,
+    String method,
+    List<String> args,
+    Duration timeout,
+  ) => _androidInvoke('call', {
+    'runnerDir': ready.dir.path,
+    'script': ready.script.path,
+    'className': ready.cls,
+    'method': method,
+    'ext': ready.ext,
+    'argsJson': jsonEncode(args),
+  }, timeout: timeout);
+
+  /// Android：常驻一次播放调用。实例留在 Python 侧，脚本的本机取流线程继续活着。
+  Future<String> _invokeHoldAndroid(
+    SourceBean site,
+    _PyReady ready,
+    String method,
+    List<String> args,
+  ) async {
+    final key = '${site.key}\u0000${site.api}';
+    final text = await _androidInvoke('hold', {
+      'key': key,
+      'runnerDir': ready.dir.path,
+      'script': ready.script.path,
+      'className': ready.cls,
+      'method': method,
+      'ext': ready.ext,
+      'argsJson': jsonEncode(args),
+    }, timeout: Duration(seconds: site.timeout + 30));
+    _playHost = _PyAndroidPlayHost(key, text);
+    AppLog.i('py', '--hold 就绪（Android）method=$method key=${site.key}');
+    return text;
+  }
+
+  Future<String> _androidInvoke(
+    String method,
+    Map<String, Object?> args, {
+    required Duration timeout,
+  }) async {
+    try {
+      final raw = await _androidChannel
+          .invokeMethod<String>(method, args)
+          .timeout(timeout);
+      if (raw == null || raw.trim().isEmpty) {
+        throw SourceException('Python 运行时没有返回结果');
+      }
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(raw);
+      } catch (_) {
+        throw SourceException('Python 运行时返回格式错误');
+      }
+      if (decoded is! Map || decoded['ok'] != true) {
+        final error = decoded is Map ? '${decoded['error'] ?? ''}' : '';
+        throw SourceException(_errorText('', error));
+      }
+      return '${decoded['data'] ?? ''}';
+    } on TimeoutException {
+      throw SourceException('PY 蜘蛛执行超时（$method）');
+    } on MissingPluginException {
+      throw SourceException('Python 运行时未初始化（Android 内置运行库缺失）');
+    } on PlatformException catch (e) {
+      throw SourceException(_errorText('', e.message ?? e.code));
+    }
+  }
+
   /// 常驻取流：`runner.py --hold` 返回一次结果后继续活着，供脚本内建的本机流服务取流。
   Future<String> _invokeHold(
     SourceBean site,
@@ -411,6 +516,7 @@ class PySpiderService {
     List<String> args,
   ) async {
     final ready = await _prepare(site);
+    if (_isAndroid) return _invokeHoldAndroid(site, ready, method, args);
     final host = await _PyPlayHost.start(
       exe: ready.exe,
       argv: [
@@ -484,11 +590,18 @@ class PySpiderService {
   }
 }
 
+/// 常驻播放宿主：Windows 是外部 Python 进程，Android 是 Chaquopy 进程内实例。
+abstract class _PyHost {
+  Future<String> firstResult(Duration timeout);
+  Future<void> close();
+  Future<void> killNow();
+}
+
 /// `runner.py --hold` 的常驻进程：先取一次结果，之后保持 Python 存活。
 ///
 /// 与 JAR 的 `SpiderHost --hold` 同理：脚本把播放地址指向自己起的本机取流服务，
 /// 进程一退端口就失效；宿主写 `quit` 或关闭 stdin 后进程自行结束。
-class _PyPlayHost {
+class _PyPlayHost implements _PyHost {
   _PyPlayHost._(this.process, this._stdin, this._stdout, this._stderr);
 
   final Process process;
@@ -525,10 +638,13 @@ class _PyPlayHost {
       if (host._errors.length > 40) host._errors.removeAt(0);
       host._errors.add(line);
     }, onError: (Object _) {});
+    // 监听器挂好后再收养，避免 MethodChannel 调用期间管道数据积压。
+    await ProcessJob.adopt(process.pid);
     return host;
   }
 
   /// 读第一行结果（`runner.py --hold` 先打印结果，再挂住等 stdin）。
+  @override
   Future<String> firstResult(Duration timeout) async {
     try {
       final line = await _stdout.first.timeout(timeout);
@@ -543,6 +659,7 @@ class _PyPlayHost {
   }
 
   /// 播放结束 / 换集：让 Python 自行退出（写 quit → stdin 读完即结束）。
+  @override
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
@@ -561,6 +678,7 @@ class _PyPlayHost {
   }
 
   /// 应用退出：不留给脚本收尾的时间，直接结束进程。
+  @override
   Future<void> killNow() async {
     if (_closed) return;
     _closed = true;
@@ -568,5 +686,38 @@ class _PyPlayHost {
       process.kill();
     } catch (_) {}
     await _errSub?.cancel();
+  }
+}
+
+/// Android 常驻播放：结果已经由 `hold` 调用返回，宿主只需记住 key。
+///
+/// 释放时让 Python 侧丢弃蜘蛛实例（并尽量调 destroy）；脚本自己的取流线程
+/// 与 Chaquopy 解释器同在一个应用进程里，不能像 Windows 那样靠杀进程回收。
+class _PyAndroidPlayHost implements _PyHost {
+  _PyAndroidPlayHost(this.key, this._result);
+
+  final String key;
+  final String _result;
+  bool _released = false;
+
+  @override
+  Future<String> firstResult(Duration timeout) async => _result;
+
+  @override
+  Future<void> close() => _release();
+
+  @override
+  Future<void> killNow() => _release();
+
+  Future<void> _release() async {
+    if (_released) return;
+    _released = true;
+    try {
+      await PySpiderService._androidChannel
+          .invokeMethod('release', {'key': key})
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // 通道已销毁（应用退出最后阶段）或 Python 卡住时忽略
+    }
   }
 }

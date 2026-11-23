@@ -116,8 +116,9 @@ Future<List<SubtitleCandidate>> searchCustomSubtitleApi(
 Future<SubtitleFile> downloadCustomSubtitleApi(
   SubtitleHttp http,
   CustomSubtitleApi api,
-  SubtitleCandidate candidate,
-) async {
+  SubtitleCandidate candidate, {
+  void Function(List<SubtitleChoice> choices)? onChoices,
+}) async {
   final url = candidate.downloadUrl.trim().isEmpty
       ? customSubtitleUrl(api.urlTemplate, SubtitleQuery(title: candidate.title))
       : candidate.downloadUrl;
@@ -128,12 +129,16 @@ Future<SubtitleFile> downloadCustomSubtitleApi(
   final name = candidate.title.trim().isEmpty ? api.name : candidate.title.trim();
   final ext = candidate.format.trim().isEmpty ? _formatOfUrl(url) : candidate.format.trim();
   try {
-    return subtitleFromBytes(
+    return await subtitleFromBytesAsync(
       bytes,
       fileName: ext.isEmpty ? name : '$name.$ext',
       videoName: candidate.videoName,
       ep: candidate.episodeHint,
+      pickFirst: false, // 包里多条时抛 SubtitleChoicesException 让用户选
+      onChoices: onChoices,
     );
+  } on SubtitleChoicesException {
+    rethrow;
   } on SubtitleException {
     rethrow;
   } catch (e) {

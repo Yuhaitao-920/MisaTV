@@ -867,13 +867,12 @@ class HeroFontService extends ChangeNotifier {
     void addWithMirrors(String value) {
       final url = value.trim();
       if (url.isEmpty) return;
-      final github = url.startsWith('https://github.com/') ||
+      final github =
+          url.startsWith('https://github.com/') ||
           url.startsWith('http://github.com/') ||
           url.startsWith('https://raw.githubusercontent.com/');
       if (github) {
-        add('https://ghfast.top/$url');
         add('https://gh-proxy.com/$url');
-        add('https://ghproxy.net/$url');
       }
       add(url);
     }
@@ -914,9 +913,8 @@ class HeroFontService extends ChangeNotifier {
         '/v',
         'ProxyEnable',
       ]);
-      final match = RegExp(
-        r'ProxyEnable\s+REG_DWORD\s+0x([0-9a-fA-F]+)',
-      ).firstMatch(enable.stdout.toString());
+      final match = RegExp(r'ProxyEnable\s+REG_DWORD\s+0x([0-9a-fA-F]+)')
+          .firstMatch(enable.stdout.toString());
       if (match == null || int.tryParse(match.group(1)!, radix: 16) != 1) {
         return null;
       }
@@ -926,9 +924,10 @@ class HeroFontService extends ChangeNotifier {
         '/v',
         'ProxyServer',
       ]);
-      final value = RegExp(
-        r'ProxyServer\s+REG_SZ\s+(.+)',
-      ).firstMatch(server.stdout.toString())?.group(1)?.trim();
+      final value = RegExp(r'ProxyServer\s+REG_SZ\s+(.+)')
+          .firstMatch(server.stdout.toString())
+          ?.group(1)
+          ?.trim();
       if (value == null || value.isEmpty) return null;
       return _cachedProxy = _proxyDirective(value);
     } catch (_) {

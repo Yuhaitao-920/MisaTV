@@ -300,6 +300,7 @@ Future<SubtitleFile> fetchSubtitleCat(
   SubtitleHttp http,
   SubtitleCandidate candidate, {
   String ep = '',
+  void Function(List<SubtitleChoice> choices)? onChoices,
 }) async {
   final detailUrl = candidate.downloadUrl.isNotEmpty
       ? candidate.downloadUrl
@@ -323,12 +324,16 @@ Future<SubtitleFile> fetchSubtitleCat(
       ? candidate.videoName
       : candidate.subname;
   try {
-    return subtitleFromBytes(
+    return await subtitleFromBytesAsync(
       buf,
       fileName: catFileNameFromUrl(picked.url),
       videoName: videoName,
       ep: ep.isNotEmpty ? ep : candidate.episodeHint,
+      pickFirst: false, // 包里多条时抛 SubtitleChoicesException 让用户选
+      onChoices: onChoices,
     );
+  } on SubtitleChoicesException {
+    rethrow;
   } on SubtitleException {
     rethrow;
   } catch (e) {

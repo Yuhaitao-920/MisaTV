@@ -22,6 +22,7 @@ import 'services/cms_source.dart';
 import 'services/fonts/hero_fonts.dart';
 import 'services/jar_spider_service.dart';
 import 'services/js_spider_service.dart';
+import 'services/live/tvbus.dart';
 import 'services/live_service.dart';
 import 'services/local_store.dart';
 import 'services/player/external_playlist.dart';
@@ -34,6 +35,7 @@ import 'services/source_service.dart';
 import 'services/support_dir_migration.dart';
 import 'services/torrent/torrent_play.dart';
 import 'state/app_state.dart';
+import 'services/subtitle/subtitle_package_store.dart';
 
 void main(List<String> args) {
   runZonedGuarded(() => _bootstrap(args), (error, stack) {
@@ -99,6 +101,9 @@ Future<void> _bootstrap(List<String> args) async {
     supportPath = await enablePortableAppData();
     supportPath ??= (await getApplicationSupportDirectory()).path;
     await migrateLegacySupportDir(supportPath);
+    // 字幕包缓存落盘目录：解过的 RAR/ZIP 记下来，重启后同一个字幕包
+    // 不用重新下载（一次 100KB~1MB，来回重下很浪费）。
+    configurePackageStore(supportPath);
   }
   await AppLog.init(supportDir: supportPath);
   FlutterError.onError = (details) {
@@ -229,6 +234,7 @@ Future<void> _bootstrap(List<String> args) async {
       if (bossKey != null) await step('tray', bossKey.shutdown);
       // 再关独立播放器窗口：它有自己的 JVM/中继，必须在进程退出前收尾。
       await step('close-player-windows', closeAllStandalonePlayerWindows);
+      await step('tvbus', TvBusService.instance.shutdown);
       await step('spiders', sourceService.shutdown);
       try {
         state.watchParty.leave();

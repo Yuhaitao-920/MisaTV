@@ -6,6 +6,16 @@
 -keepnames class com.github.catvod.crawler.**
 -keep class com.kniephos.kniephos.SpiderHostPlugin { *; }
 -keepnames class com.kniephos.kniephos.SpiderHostPlugin
+-keep class com.kniephos.kniephos.PythonHostPlugin { *; }
+-keepnames class com.kniephos.kniephos.PythonHostPlugin
+-keep class com.kniephos.kniephos.TvBusPlugin { *; }
+-keepnames class com.kniephos.kniephos.TvBusPlugin
+# TVBus 的 Go .so 按 JNI 符号名反射查找 Java_com_tvbus_engine_TVCore_*，
+# 类名/方法名被 R8 改掉会直接 UnsatisfiedLinkError。
+-keep class com.tvbus.engine.** { *; }
+-keepclasseswithmembernames class com.tvbus.engine.** { native <methods>; }
+# TVBus core.pkg/sign 的 PackageManager 影子类（FongMi hook AAR）。
+-keep class com.fongmi.hook.** { *; }
 
 # 壳入口 / 宿主类的名字是以字符串常量写在插件里的（Class.forName），
 # R8 不会去改写外部 jar 里的类名，这里不做 -adaptclassstrings，保持原样即可。

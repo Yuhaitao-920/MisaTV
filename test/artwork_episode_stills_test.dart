@@ -271,7 +271,207 @@ void main() {
   });
 
   group('封面来源仲裁', () {
-    test('首选源拿到够用的横图就返回，不再等其它来源', () async {
+    test('沉浸模式：TMDB 优先，并用英文原名匹配', () async {
+      final queries = <String>[];
+      final client = MockClient((request) async {
+        final path = request.url.path;
+        if (path.contains('/3/search/multi')) {
+          final query = request.url.queryParameters['query'] ?? '';
+          queries.add(query);
+          if (query == 'Test Show') {
+            return http.Response(
+              jsonEncode({
+                'results': [
+                  {
+                    'media_type': 'tv',
+                    'id': 42,
+                    'name': '测试剧',
+                    'original_name': 'Test Show',
+                    'first_air_date': '2023-05-01',
+                    'backdrop_path': '/b.jpg',
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'results': []}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.endsWith('/3/tv/42/images')) {
+          return http.Response(
+            jsonEncode({
+              'backdrops': [
+                {
+                  'file_path': '/b.jpg',
+                  'width': 1920,
+                  'height': 1080,
+                  'iso_639_1': null,
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        // 其它来源保持慢响应：旧逻辑会等它们，TMDB 优先时不应等待。
+        await Future<void>.delayed(const Duration(seconds: 3));
+        return http.Response('{}', 404);
+      });
+      final service = ArtworkService(
+        AppHttp(client: client),
+        () => const PlayerSettings(
+          tmdbApiKey: '0123456789abcdef0123456789abcdef',
+        ),
+      );
+      final started = DateTime.now();
+      final url = await service.backdrop(
+        '测试剧',
+        year: '2023',
+        altTitle: 'Test Show',
+      );
+      expect(url, contains('image.tmdb.org'));
+      expect(url, contains('b.jpg'));
+      expect(queries, contains('Test Show'));
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 2)),
+        reason: 'TMDB 已有 1920 宽横图，不应等豆瓣 / IMDb 慢来源',
+      );
+    });
+
+    test('沉浸模式：TMDB 只有原名 / xx 语言横图时也能匹配', () async {
+      final client = MockClient((request) async {
+        final path = request.url.path;
+        if (path.contains('/3/search/multi')) {
+          // 中文查询返回英文原名条目；年份唯一对得上，应按强候选接受。
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'media_type': 'movie',
+                  'id': 1306820,
+                  'title': 'Mad Dance Office',
+                  'original_title': 'Mad Dance Office',
+                  'release_date': '2026-03-04',
+                  'popularity': 12.3,
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.endsWith('/3/movie/1306820/images')) {
+          return http.Response(
+            jsonEncode({
+              'backdrops': [
+                {
+                  'file_path': '/dance.jpg',
+                  'width': 1438,
+                  'height': 809,
+                  'iso_639_1': 'xx',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        await Future<void>.delayed(const Duration(seconds: 3));
+        return http.Response('{}', 404);
+      });
+      final service = ArtworkService(
+        AppHttp(client: client),
+        () => const PlayerSettings(
+          tmdbApiKey: '0123456789abcdef0123456789abcdef',
+        ),
+      );
+      final url = await service.backdrop(
+        '疯狂舞蹈办公室',
+        year: '2026',
+      );
+      expect(url, contains('image.tmdb.org'));
+      expect(url, contains('dance.jpg'));
+    });
+
+    test('沉浸模式：没有横图时用 TMDB 分集剧照兜底', () async {
+      final client = MockClient((request) async {
+        final path = request.url.path;
+        if (path.contains('/3/search/multi')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'media_type': 'tv',
+                  'id': 42,
+                  'name': '测试剧',
+                  'original_name': 'Test Show',
+                  'first_air_date': '2023-05-01',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.endsWith('/3/tv/42/images')) {
+          return http.Response(
+            jsonEncode({'backdrops': []}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.endsWith('/3/tv/42')) {
+          return http.Response(
+            jsonEncode({
+              'seasons': [
+                {
+                  'season_number': 1,
+                  'episode_count': 2,
+                  'air_date': '2023-05-01',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.endsWith('/3/tv/42/season/1')) {
+          return http.Response(
+            jsonEncode({
+              'episodes': [
+                {'episode_number': 1, 'still_path': '/s.jpg'},
+                {'episode_number': 2, 'still_path': '/t.jpg'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        await Future<void>.delayed(const Duration(seconds: 3));
+        return http.Response('{}', 404);
+      });
+      final service = ArtworkService(
+        AppHttp(client: client),
+        () => const PlayerSettings(
+          tmdbApiKey: '0123456789abcdef0123456789abcdef',
+        ),
+      );
+      final url = await service.backdrop(
+        '测试剧',
+        year: '2023',
+        altTitle: 'Test Show',
+      );
+      expect(url, contains('image.tmdb.org'));
+      expect(url, contains('s.jpg'));
+    });
+
+    test('豆瓣预告封面优先于剧照', () async {
       final client = MockClient((request) async {
         final path = request.url.path;
         if (path.contains('subject_suggest')) {
@@ -286,6 +486,21 @@ void main() {
                 'img': '',
               },
             ]),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (path.contains('/trailers')) {
+          return http.Response(
+            jsonEncode({
+              'trailers': [
+                {
+                  'title': '正式预告',
+                  'cover_url':
+                      'https://img3.doubanio.com/view/photo/l/public/cover.jpg',
+                },
+              ],
+            }),
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -309,22 +524,16 @@ void main() {
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
         }
-        // 模拟 IMDb / TVmaze 慢响应：旧逻辑会等它返回后才用豆瓣图。
-        await Future<void>.delayed(const Duration(seconds: 3));
         return http.Response('{}', 404);
       });
       final service = ArtworkService(
         AppHttp(client: client),
         () => const PlayerSettings(),
       );
-      final started = DateTime.now();
       final url = await service.backdrop('漫长的季节', year: '2023');
-      expect(url, contains('p1.jpg'));
-      expect(
-        DateTime.now().difference(started),
-        lessThan(const Duration(seconds: 2)),
-        reason: '豆瓣 1280 宽已经够用，不应等慢来源',
-      );
+      // 预告片封面是「封面」，1280 剧照只是兜底；有封面时不能先取剧照。
+      expect(url, contains('cover.jpg'));
+      expect(url, isNot(contains('p1.jpg')));
     });
   });
 

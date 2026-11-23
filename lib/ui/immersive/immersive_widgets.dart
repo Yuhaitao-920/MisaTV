@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/vod.dart';
+import '../../services/discover/cover_images.dart';
 import '../../services/fonts/hero_fonts.dart';
 import '../pages/detail_page.dart';
 import '../widgets/mouse_drag_scroll.dart';
@@ -160,6 +161,117 @@ class _ImmersiveFocusableState extends State<ImmersiveFocusable> {
 ImageProvider immersiveCoverProvider(String url, int decodeWidth) =>
     ResizeImage(NetworkImage(url), width: decodeWidth);
 
+/// 只在图片实际是横图时才显示：封面来源偶尔会把竖版海报标成 16:9，
+/// 直接铺到 Hero / 卡片上就是「竖版异形图」。
+///
+/// 解码后的宽高才是可信的；比例不足时整块留空，让下面的渐变兜底。
+class _AspectSafeImage extends StatefulWidget {
+  const _AspectSafeImage({
+    required this.image,
+    this.fit = BoxFit.cover,
+    this.filterQuality = FilterQuality.medium,
+    this.onResolved,
+  });
+
+  final ImageProvider image;
+  final BoxFit fit;
+  final FilterQuality filterQuality;
+
+  /// 解码完成后的结果：true = 横图已显示，false = 比例不合格 / 加载失败。
+  final ValueChanged<bool>? onResolved;
+
+  /// 低于这个宽高比的图片一律不显示（竖版海报 / 4:3 截图）。
+  static const double minRatio = 1.4;
+
+  @override
+  State<_AspectSafeImage> createState() => _AspectSafeImageState();
+}
+
+class _AspectSafeImageState extends State<_AspectSafeImage> {
+  bool? _accepted;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AspectSafeImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.image != widget.image) {
+      // 新图解析可能是同步命中缓存；放到帧后再 setState，避免在 build 中标记脏。
+      _detach();
+      _accepted = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _resolve();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _detach();
+    super.dispose();
+  }
+
+  void _detach() {
+    final stream = _stream;
+    final listener = _listener;
+    if (stream != null && listener != null) stream.removeListener(listener);
+    _stream = null;
+    _listener = null;
+  }
+
+  void _resolve() {
+    _detach();
+    _accepted = null;
+    try {
+      final stream = widget.image.resolve(const ImageConfiguration());
+      _stream = stream;
+      late final ImageStreamListener listener;
+      listener = ImageStreamListener(
+        (info, _) {
+          final ratio = info.image.height <= 0
+              ? 0.0
+              : info.image.width / info.image.height;
+          stream.removeListener(listener);
+          if (mounted) {
+            final accepted = ratio >= _AspectSafeImage.minRatio;
+            setState(() => _accepted = accepted);
+            widget.onResolved?.call(accepted);
+          }
+        },
+        onError: (Object _, StackTrace? _) {
+          stream.removeListener(listener);
+          if (mounted) {
+            setState(() => _accepted = false);
+            widget.onResolved?.call(false);
+          }
+        },
+      );
+      _listener = listener;
+      stream.addListener(listener);
+    } catch (_) {
+      _accepted = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_accepted != true) return const SizedBox.shrink();
+    return Image(
+      image: widget.image,
+      fit: widget.fit,
+      filterQuality: widget.filterQuality,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+    );
+  }
+}
+
 /// 横图封面：先显示源里的竖版图，随后用豆瓣 / TMDB / IMDb 的横图替换。
 class ImmersiveBackdrop extends StatefulWidget {
   const ImmersiveBackdrop({
@@ -171,6 +283,7 @@ class ImmersiveBackdrop extends StatefulWidget {
     this.scrim = false,
     this.placeholderTitle = '',
     this.artworkTitle = '',
+    this.altTitle = '',
   });
 
   final String title;
@@ -189,6 +302,9 @@ class ImmersiveBackdrop extends StatefulWidget {
   /// 封面匹配使用的剧名；为空时用 [title]。
   final String artworkTitle;
 
+  /// 元数据里的英文 / 日文原名：TMDB 条目只有原名时用它补匹配。
+  final String altTitle;
+
   @override
   State<ImmersiveBackdrop> createState() => _ImmersiveBackdropState();
 }
@@ -196,6 +312,10 @@ class ImmersiveBackdrop extends StatefulWidget {
 class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
   Future<String?>? _future;
   String _key = '';
+
+  /// 竖版源海报会被 [_AspectSafeImage] 拦掉；只有真正显示了横图时才隐藏
+  /// 占位片名，避免卡片上「模糊海报 + 片名」叠在一起。
+  final ValueNotifier<bool> _fallbackVisible = ValueNotifier<bool>(false);
 
   @override
   void didChangeDependencies() {
@@ -206,18 +326,34 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
   @override
   void didUpdateWidget(covariant ImmersiveBackdrop oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.fallback != widget.fallback) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fallbackVisible.value = false;
+      });
+    }
     _ensure();
+  }
+
+  @override
+  void dispose() {
+    _fallbackVisible.dispose();
+    super.dispose();
   }
 
   void _ensure() {
     final artwork = widget.artworkTitle.trim().isNotEmpty
         ? widget.artworkTitle.trim()
         : widget.title;
-    final key = '$artwork|${widget.year}';
+    final altTitle = widget.altTitle.trim();
+    final key = '$artwork|${widget.year}|$altTitle';
     if (key == _key) return;
     _key = key;
-    _future = AppScope.of(context).artworkService
-        .backdrop(artwork, year: widget.year);
+    // 固定 TMDB 优先：先高分辨率横图，再剧照，最后走其它来源兜底。
+    _future = AppScope.of(context).artworkService.backdrop(
+      artwork,
+      year: widget.year,
+      altTitle: altTitle,
+    );
   }
 
   @override
@@ -259,19 +395,12 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
                   imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
                   child: Opacity(
                     opacity: 0.62,
-                    child: Image.network(
-                      fallback,
+                    child: _AspectSafeImage(
+                      image: ResizeImage(NetworkImage(fallback), width: 420),
                       fit: BoxFit.cover,
-                      cacheWidth: 420,
                       filterQuality: FilterQuality.none,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                      frameBuilder: (context, child, frame, sync) {
-                        if (sync) return child;
-                        return AnimatedOpacity(
-                          opacity: frame == null ? 0 : 1,
-                          duration: const Duration(milliseconds: 240),
-                          child: child,
-                        );
+                      onResolved: (accepted) {
+                        _fallbackVisible.value = accepted;
                       },
                     ),
                   ),
@@ -293,23 +422,29 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
                   ),
                 ),
               ),
-            if (placeholder.isNotEmpty && fallback.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    widget.placeholderTitle,
-                    textAlign: TextAlign.center,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.36),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
+            if (placeholder.isNotEmpty)
+              ValueListenableBuilder<bool>(
+                valueListenable: _fallbackVisible,
+                builder: (context, visible, _) {
+                  if (visible) return const SizedBox.shrink();
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        widget.placeholderTitle,
+                        textAlign: TextAlign.center,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.36),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             FutureBuilder<String?>(
               future: _future,
@@ -318,21 +453,10 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
                 if (url == null || url.isEmpty) {
                   return const SizedBox.shrink();
                 }
-                return Image(
+                return _AspectSafeImage(
                   image: immersiveCoverProvider(url, decodeWidth),
                   fit: widget.fit,
                   filterQuality: FilterQuality.medium,
-                  gaplessPlayback: true,
-                  frameBuilder: (context, child, frame, sync) {
-                    if (sync) return child;
-                    return AnimatedOpacity(
-                      opacity: frame == null ? 0 : 1,
-                      duration: const Duration(milliseconds: 240),
-                      curve: Curves.easeOut,
-                      child: child,
-                    );
-                  },
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 );
               },
             ),
@@ -355,6 +479,64 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
 }
 
 /// TV 风格的横版卡片（16:9 为主），悬停放大 + 描边。
+/// 沉浸卡片的默认竖版封面：直接用资源站给的封面，不再逐卡补横图。
+class _ImmersivePoster extends StatelessWidget {
+  const _ImmersivePoster({
+    required this.url,
+    required this.title,
+    this.headers = const <String, String>{},
+  });
+
+  final String url;
+  final String title;
+  final Map<String, String> headers;
+
+  @override
+  Widget build(BuildContext context) {
+    final display = doubanImageDisplayUrl(url);
+    if (display.isEmpty) return _placeholder(context);
+    return Image.network(
+      display,
+      fit: BoxFit.cover,
+      headers: headers.isEmpty ? null : headers,
+      cacheWidth: 420,
+      filterQuality: FilterQuality.medium,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => _placeholder(context),
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : _placeholder(context),
+    );
+  }
+
+  Widget _placeholder(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent = theme.colorScheme.primary;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.32),
+            accent.withValues(alpha: 0.12),
+            theme.colorScheme.secondary.withValues(alpha: 0.20),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          title.trim().isEmpty ? '?' : title.trim().characters.first,
+          style: TextStyle(
+            fontSize: 34,
+            fontWeight: FontWeight.w800,
+            color: Colors.white.withValues(alpha: 0.75),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ImmersiveCard extends StatefulWidget {
   const ImmersiveCard({
     super.key,
@@ -362,12 +544,12 @@ class ImmersiveCard extends StatefulWidget {
     this.year = '',
     this.subtitle = '',
     this.fallback = '',
+    this.imageHeaders = const <String, String>{},
     this.badge = '',
     required this.onTap,
     this.width = 300,
     this.showText = true,
     this.progress = 0,
-    this.artworkTitle = '',
     this.focusNode,
     this.onFocus,
     this.autofocus = false,
@@ -379,13 +561,11 @@ class ImmersiveCard extends StatefulWidget {
   final String year;
   final String subtitle;
   final String fallback;
+  final Map<String, String> imageHeaders;
   final String badge;
   final VoidCallback onTap;
   final double width;
   final bool showText;
-
-  /// 封面匹配使用的剧名；为空时由 [ImmersiveBackdrop] 用 [title] 归一。
-  final String artworkTitle;
 
   /// 0~1 的观看进度；0 不绘制。
   final double progress;
@@ -456,18 +636,31 @@ class _ImmersiveCardState extends State<ImmersiveCard> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: AspectRatio(
-                    aspectRatio: 16 / 9,
+                    // 沉浸货架 / 搜索 / 历史 / 收藏统一用竖版海报，
+                    // 只有 Hero 与详情页背景才走横图补图逻辑。
+                    aspectRatio: 2 / 3,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        ImmersiveBackdrop(
+                        _ImmersivePoster(
+                          url: widget.fallback,
+                          headers: widget.imageHeaders,
                           title: widget.title,
-                          year: widget.year,
-                          fallback: widget.fallback,
-                          scrim: widget.showText,
-                          placeholderTitle: widget.showText ? '' : widget.title,
-                          artworkTitle: widget.artworkTitle,
                         ),
+                        if (widget.showText)
+                          const DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Color(0xB3000000),
+                                ],
+                                stops: [0.55, 1],
+                              ),
+                            ),
+                          ),
                         if (widget.badge.isNotEmpty)
                           Positioned(
                             left: 10,
@@ -868,7 +1061,11 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
         if (item.title.trim().isEmpty) continue;
         // 已解析 / 正在解析的会命中缓存或 inflight，不会重复请求。
         unawaited(() async {
-          final url = await artwork.backdrop(item.title, year: item.year);
+          final url = await artwork.backdrop(
+            item.title,
+            year: item.year,
+            altTitle: item.originalTitle,
+          );
           if (!mounted || url == null || url.isEmpty) return;
           // 光解析地址还不够：这里把图片本身也拉进 Flutter 的 ImageCache，
           // 轮播切过去时不用再等下载 + 解码。
@@ -958,6 +1155,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                       ImmersiveBackdrop(
                         title: item.title,
                         year: item.year,
+                        altTitle: item.originalTitle,
                         fallback: item.fallback,
                       ),
                       const DecoratedBox(
@@ -991,6 +1189,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                         child: TitleTint(
                           title: item.title,
                           year: item.year,
+                          altTitle: item.originalTitle,
                           fallbackUrl: item.fallback,
                           builder: (context, tint) => ListenableBuilder(
                             listenable: HeroFontService.instance,
@@ -1007,16 +1206,24 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                                 countries: item.countries,
                                 fallback: item.subtitle,
                               );
-                              final heroTextMaxWidth = m.compact
+                              final heroTextMaxWidth = m.compact || m.short
                                   ? MediaQuery.sizeOf(context).width -
                                       m.heroInset * 2
                                   : double.infinity;
+                              // 横屏手机：竖排标题与右侧信息并排，标题不能占满整行。
+                              final verticalTitleWidth = m.short
+                                  ? heroTextMaxWidth * 0.58
+                                  : heroTextMaxWidth;
                               final info = _HeroInfoColumn(
                                 item: item,
                                 compact: plan.vertical,
                                 descriptionWidth: plan.vertical
-                                    ? (m.compact ? heroTextMaxWidth : 560)
-                                    : (m.compact ? heroTextMaxWidth : 760),
+                                    ? (m.short
+                                          ? heroTextMaxWidth * 0.36
+                                          : (m.compact ? heroTextMaxWidth : 560))
+                                    : (m.compact || m.short
+                                          ? heroTextMaxWidth
+                                          : 760),
                               );
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1029,11 +1236,13 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                                       children: [
                                         DesignedTitle(
                                           plan: plan,
-                                          maxWidth: heroTextMaxWidth,
-                                          maxHeight: widget.height - 220,
+                                          maxWidth: verticalTitleWidth,
+                                          maxHeight: (widget.height - 220)
+                                              .clamp(80.0, double.infinity)
+                                              .toDouble(),
                                           overline: tagline,
                                         ),
-                                        const SizedBox(width: 26),
+                                        SizedBox(width: m.short ? 16 : 26),
                                         Flexible(child: info),
                                       ],
                                     )
@@ -1041,7 +1250,9 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                                     DesignedTitle(
                                       plan: plan,
                                       maxWidth: heroTextMaxWidth,
-                                      maxHeight: widget.height - 220,
+                                      maxHeight: (widget.height - 220)
+                                          .clamp(80.0, double.infinity)
+                                          .toDouble(),
                                       overline: tagline,
                                     ),
                                     info,
@@ -1059,8 +1270,8 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
             ),
             if (items.length > 1)
               Positioned(
-                right: m.compact ? 14 : 56,
-                bottom: m.compact ? 12 : 58,
+                right: m.compact || m.short ? 16 : 56,
+                bottom: m.compact || m.short ? 16 : 58,
                 child: Row(
                   children: [
                     for (var i = 0; i < items.length; i++)

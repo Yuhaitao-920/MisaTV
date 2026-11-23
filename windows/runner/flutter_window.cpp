@@ -1,9 +1,20 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <vector>
 
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
 #include "flutter/generated_plugin_registrant.h"
+#include "process_job.h"
+
+namespace {
+
+// Child windows (standalone player) run on separate engines, so each one
+// needs its own process-job channel. The handlers must outlive the engines.
+std::vector<std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>>
+    g_child_process_job_channels;
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -26,6 +37,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  process_job_channel_ =
+      RegisterProcessJobChannel(flutter_controller_->engine()->messenger());
   // Child windows (standalone player) own a separate Flutter engine: desktop
   // plugins must be registered per engine, otherwise fvp / window_manager /
   // video output are unavailable in the child window.
@@ -34,6 +47,8 @@ bool FlutterWindow::OnCreate() {
         reinterpret_cast<flutter::FlutterViewController*>(controller);
     auto* registry = flutter_view_controller->engine();
     RegisterPlugins(registry);
+    g_child_process_job_channels.push_back(
+        RegisterProcessJobChannel(registry->messenger()));
   });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

@@ -106,6 +106,26 @@ double scoreEntry(String name, int size, [PickOptions opts = const PickOptions()
     }
   }
 
+  // ★ 语言优先级：中文 > 双语 > 英文 > 其他。
+  //
+  //   实测 assrt id=733904（人性本兽）包内 4 条，旧打分把 SDH 排第一
+  //   （它体积最大 → 同分时按长度排序），自动挂上的是英文字幕，而用户
+  //   要的是简中。这里按文件名里的语种标记给分，让中文优先。
+  //   SDH 明确降权 —— 它是听障版，带音效描述，多数人不要。
+  final lower = name.toLowerCase();
+  if (RegExp(r'简中|简體|简体|chs|zh[-_.]?cn|\.chi|中文').hasMatch(lower)) {
+    score += 26;
+  } else if (RegExp(r'繁中|繁體|繁体|cht|zh[-_.]?tw|\.chtc?').hasMatch(lower)) {
+    score += 20;
+  } else if (RegExp(r'双语|雙語|中英|bilingual').hasMatch(lower)) {
+    score += 16;
+  } else if (RegExp(r'chs&eng|简英|简繁').hasMatch(lower)) {
+    score += 22;
+  } else if (RegExp(r'eng|english|\.en\b').hasMatch(lower)) {
+    score += 4;
+  }
+  if (RegExp(r'sdh|听障|聽障|hearing').hasMatch(lower)) score -= 12;
+
   final wantEp = opts.ep.replaceAll(RegExp(r'[^0-9]'), '');
   final gotEp = epOf(name);
   if (wantEp.isNotEmpty && gotEp.isNotEmpty) {

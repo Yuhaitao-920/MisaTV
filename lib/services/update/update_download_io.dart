@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/logging/app_log.dart';
+import '../../core/net/github_proxy.dart';
 import 'update_service.dart';
 
 class UpdateDownloadCancelled implements Exception {
@@ -20,8 +21,9 @@ class UpdateDownloader {
     required void Function(int received, int total) onProgress,
     bool Function()? isCancelled,
   }) async {
-    final url = release.downloadUrl.trim();
-    if (url.isEmpty) throw StateError('该版本没有可直下的安装包');
+    final raw = release.downloadUrl.trim();
+    if (raw.isEmpty) throw StateError('该版本没有可直下的安装包');
+    final url = ghProxyUrl(raw);
     final dir = await _downloadDir();
     final name = _safeName(release.assetName, release.version);
     final target = File(p.join(dir.path, name));

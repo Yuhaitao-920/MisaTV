@@ -38,6 +38,7 @@ class JarSpiderAndroidService extends JarSpiderService {
   });
 
   static const _channel = MethodChannel('com.kniephos.kniephos/spider');
+    List<String> _lastInvokeDebug = const [];
 
   /// 已加载到插件侧的蜘蛛（按 jar 指纹 + 类名 复用，避免重复加载）。
   final Map<String, _LoadedSpider> _loaded = {};
@@ -231,7 +232,7 @@ class JarSpiderAndroidService extends JarSpiderService {
   Future<_LoadedSpider> _ensureLoaded(SourceBean site) async {
     final raw = await _acquireJar(site);
     final className = _className(site);
-    final cacheKey = '${p.basenameWithoutExtension(raw.path)}|$className';
+    final cacheKey = '${p.basenameWithoutExtension(raw.path)}|${site.key}|$className';
     final spiderDir = await _spiderCacheDir();
 
     final stamp = _currentStamp();
@@ -262,6 +263,7 @@ class JarSpiderAndroidService extends JarSpiderService {
         'className': className,
         'ext': ext,
         'cacheDir': spiderDir,
+        'instanceKey': cacheKey,
       },
     );
     final ok = reply?['ok'] == true;
@@ -287,7 +289,7 @@ class JarSpiderAndroidService extends JarSpiderService {
   }
 
   Future<String> _invoke(SourceBean site, String method, List<String> args) async {
-    await _ensureLoaded(site);
+    final loaded = await _ensureLoaded(site);
     final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'invoke',
       {
@@ -295,6 +297,7 @@ class JarSpiderAndroidService extends JarSpiderService {
         'args': args,
         // 插件侧按类名保存多个蜘蛛实例，避免同时加载多个源时互相覆盖。
         'className': _className(site),
+        'instanceKey': loaded.key,
       },
     );
     final ok = reply?['ok'] == true;
@@ -302,6 +305,8 @@ class JarSpiderAndroidService extends JarSpiderService {
       throw SourceException(reply?['error'] ?? '蜘蛛调用失败：$method');
     }
     final data = (reply?['data'] as String?) ?? '';
+    final rawDebug = reply?['debug'];
+    _lastInvokeDebug = rawDebug is List ? rawDebug.map((e) => '$e').where((e) => e.trim().isNotEmpty).toList() : const [];
     return data;
   }
 
@@ -314,7 +319,7 @@ class JarSpiderAndroidService extends JarSpiderService {
     // 只接管 /proxy 路由（对齐桌面端 spider_host.rewriteLocalProxy）：加固壳自己会
     // 起本地 HTTP 取流服务处理 /chunk 多线程分片下载，必须保持原样由壳本地服务器响应；
     // 若改写到进程内代理端口（只认 /proxy），播放器会拿到错误响应而 Source error。
-    if (uri.path == '/proxy' || uri.path.startsWith('/proxy/')) {
+    if (uri.path == '/proxy') {
       return uri.replace(host: '127.0.0.1', port: proxyPort).toString();
     }
     return url;
@@ -383,7 +388,12 @@ class JarSpiderAndroidService extends JarSpiderService {
     final text = await _invoke(site, 'detailContent', [id]);
     if (text.trim().isEmpty) return null;
     final body = MovieParser.parseJson(text);
-    return MovieParser.toDetail(body.movie, site.key);
+    final detail = MovieParser.toDetail(body.movie, site.key);
+    if (detail == null || detail.episodes.isEmpty) {
+      final preview = text.length > 1200 ? text.substring(0, 1200) : text;
+      AppLog.i('jar', 'detailContent 空剧集 site=${site.key} len=${text.length} raw=$preview');
+    }
+    return detail;
   }
 
   @override
@@ -425,8 +435,8 @@ class JarSpiderAndroidService extends JarSpiderService {
       if (provider != null) {
         await refreshDriveSession?.call(provider);
         await resetDriveState();
-        loaded = await _ensureLoaded(site);
         await _syncCreds(site);
+        loaded = await _ensureLoaded(site);
         final retried = await _invoke(site, 'playerContent', [
           flag,
           id,
@@ -440,7 +450,7 @@ class JarSpiderAndroidService extends JarSpiderService {
     }
 
     if (result.url.isNotEmpty && result.url.contains('127.0.0.1')) {
-      final url = _rewriteLocalProxy(result.url, loaded.proxyPort);
+      final url = _rewriteLocalProxy(result.url, loaded.proxyPort); if (url.contains(':5266')) { final target = Uri.tryParse(url)?.queryParameters['url'] ?? ''; final targetUri = Uri.tryParse(target); AppLog.i('jar', '5266 proxy target empty=${target.isEmpty} len=${target.length} scheme=${targetUri?.scheme ?? ''} host=${targetUri?.host ?? ''} path=${targetUri?.path ?? ''}'); }
       result = PlayResult(
         url: url,
         parse: result.parse,
@@ -450,7 +460,12 @@ class JarSpiderAndroidService extends JarSpiderService {
         message: result.message,
       );
     }
-    return result;
+
+    final u = Uri.tryParse(result.url);
+    AppLog.i('jar', 'playerContent flag=$flag urlEmpty=${result.url.isEmpty} scheme=${u?.scheme ?? ''} host=${u?.host ?? ''} port=${u?.port ?? 0} path=${u?.path ?? ''} msg=${result.message}');
+    if ((result.url.isEmpty || (result.url.contains(':5266') && (u?.queryParameters['url'] ?? '').isEmpty)) && _lastInvokeDebug.isNotEmpty) {
+      for (final line in _lastInvokeDebug) { AppLog.i('jar', 'spiderDebug $line'); } }
+        return result;
   }
 
   /// 豆瓣一类源偶发返回空 body（源站 15s 超时 / 限流），加固壳会直接
@@ -492,6 +507,8 @@ class JarSpiderAndroidService extends JarSpiderService {
     if (flag.contains('百度') || lower.contains('baidu')) return 'baidu';
     if (lower.contains('115')) return '115';
     if (flag.contains('哔哩') || lower.contains('bili')) return 'bili';
+    if (flag.contains('迅雷') || lower.contains('xunlei') || lower.contains('thunder')) return 'thunder';
+    if (flag.contains('光鸭') || flag.contains('光雅') || lower.contains('guangya')) return 'guangya';
     return null;
   }
 

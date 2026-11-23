@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
+import '../../core/platform/window_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/runtime_extension.dart';
 import '../pages/favorites_page.dart';
@@ -25,6 +26,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
   int _index = 0;
   bool _eulaScheduled = false;
+  bool _wasImmersive = false;
   int _handledSearchSeq = 0;
   final GlobalKey<SettingsPageState> _settingsKey =
       GlobalKey<SettingsPageState>();
@@ -176,11 +178,24 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    // 兜底：无论从设置开关、返回键还是别处改动 immersiveMode，
+    // 退出沉浸布局时都确保窗口已退出全屏并还原尺寸。
+    final immersive = app.playerSettings.immersiveMode;
+    if (_wasImmersive && !immersive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(exitImmersiveFullscreen());
+      });
+    }
+    _wasImmersive = immersive;
     // 详情页点演员 / 推荐条目 → 切到搜索页并执行一次全源搜索。
     if (app.pendingSearchSeq != _handledSearchSeq) {
       _handledSearchSeq = app.pendingSearchSeq;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _select(1);
+        if (!mounted) return;
+        // 详情页 / 播放页压在上面时，搜索已经在后台跑起来了，
+        // 但用户看到的仍是旧页面；先退回根路由，搜索页才真正可见。
+        appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+        _select(1);
       });
     }
     if (!app.eulaAccepted && !_eulaScheduled) {

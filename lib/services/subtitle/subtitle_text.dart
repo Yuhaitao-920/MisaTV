@@ -1,12 +1,15 @@
 /// 纯 Dart 字幕解析：SRT / WebVTT / ASS(SSA) → 统一 cue 列表。
 ///
 /// 逐函数移植自旧版 `src/engine/subtitle/parseSubtitle.ts`，
-/// 并保留 `SubtitleText.Decode` 的编码探测口径（严格 UTF-8 成功即 UTF-8，否则 GB18030 兜底）。
+/// 并保留 `SubtitleText.decode` 的编码探测顺序（BOM、严格 UTF-8、GBK）。
 library;
 
 import 'dart:convert';
 
-import 'package:gbk_codec/gbk_codec.dart';
+// 用 charset 的常量映射 GBK 解码器，而不是 gbk_codec：后者的 `gbk_bytes` 是顶层
+// final，首次使用时才用 24000+ 条条目现场构造映射表，初始化一旦失败会直接打掉
+// 整个 isolate（表现为整批用例 did not complete），在并发/低内存环境偶发。
+import 'package:charset/charset.dart' show gbk;
 
 /// 单条字幕。
 class SubtitleCue {
@@ -191,7 +194,7 @@ String cuesToSrt(List<SubtitleCue> cues) {
   return out.join('\r\n');
 }
 
-/// 字幕文本解码：BOM 优先；严格 UTF-8 成功即 UTF-8，否则 GB18030 兜底。
+/// 字幕文本解码：BOM 优先；严格 UTF-8 成功即 UTF-8，否则 GBK 兜底。
 class SubtitleText {
   const SubtitleText._();
 
@@ -208,10 +211,10 @@ class SubtitleText {
     try {
       return utf8.decode(bytes);
     } on FormatException {
-      // 严格 UTF-8 失败 → GB18030 兜底（GBK 为其子集）。
+      // 严格 UTF-8 失败 → 尝试旧字幕常用的 GBK 编码。
     }
     try {
-      return gbk_bytes.decode(bytes);
+      return gbk.decode(bytes);
     } catch (_) {
       return utf8.decode(bytes, allowMalformed: true);
     }

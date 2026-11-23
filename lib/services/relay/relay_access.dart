@@ -27,6 +27,26 @@ class RelayAccessPolicy {
         (secFetchMode?.trim().isNotEmpty ?? false);
   }
 
+  /// 播放器请求本机中继时，去掉会触发「浏览器请求」判定的头。
+  ///
+  /// 蜘蛛会把上游站点需要的 `Origin` / `Sec-Fetch-*` 一起塞进播放头；
+  /// fvp / 外部播放器只是原样发送，并不代表它真是浏览器。中继的
+  /// `/play`、`/proxy` 本来就不使用请求里的 `Origin` 去上游（上游头由
+  /// URL 里的 `hk` / `ck` 或壳 JVM 自己补），所以交给播放器前直接移除，
+  /// 既避免误触 403，也不放开真正的浏览器跨站访问。
+  static Map<String, String> withoutBrowserHeaders(
+    Map<String, String> headers,
+  ) {
+    if (headers.isEmpty) return headers;
+    final out = <String, String>{};
+    for (final entry in headers.entries) {
+      final key = entry.key.toLowerCase();
+      if (key == 'origin' || key.startsWith('sec-fetch-')) continue;
+      out[entry.key] = entry.value;
+    }
+    return out;
+  }
+
   /// 常量时间比较令牌，避免通过响应时间逐字符猜出令牌。
   static bool tokenMatches(String expected, String? provided) {
     final want = expected.trim();

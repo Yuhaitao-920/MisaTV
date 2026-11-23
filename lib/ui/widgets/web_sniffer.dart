@@ -90,6 +90,7 @@ class _SniffDialogState extends State<_SniffDialog> {
   Timer? _poll;
   bool _done = false;
   bool _scanning = false;
+  bool _showWeb = false;
   String _status = '正在打开解析页…';
   String _best = '';
   int _bestRank = 0;
@@ -99,6 +100,8 @@ class _SniffDialogState extends State<_SniffDialog> {
   String _lastHoppedFrame = '';
   int _loadLogs = 0;
   final Stopwatch _elapsed = Stopwatch();
+  DateTime? _deadlineAt;
+  Duration _pausedRemaining = Duration.zero;
   late final Map<String, String> _requestHeaders;
 
   String get _userAgent => _requestHeaders['User-Agent'] ?? _desktopUserAgent;
@@ -110,9 +113,74 @@ class _SniffDialogState extends State<_SniffDialog> {
     _elapsed.start();
     _requestHeaders = {...widget.headers};
     _requestHeaders.putIfAbsent('User-Agent', () => _desktopUserAgent);
-    _deadline = Timer(widget.timeout, () {
-      unawaited(_finish('超时 ${widget.timeout.inSeconds}s'));
+    _startDeadline(widget.timeout);
+  }
+
+  void _startDeadline(Duration duration) {
+    _deadline?.cancel();
+    final safe = duration <= Duration.zero
+        ? const Duration(seconds: 1)
+        : duration;
+    _deadlineAt = DateTime.now().add(safe);
+    _deadline = Timer(safe, () {
+      unawaited(_finish('超时 ${safe.inSeconds}s'));
     });
+  }
+
+  Duration get _remaining {
+    final at = _deadlineAt;
+    if (at == null) return _pausedRemaining;
+    final left = at.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// 显示网页时暂停自动关闭：用户可能正在点「已满 18 岁」「Agree TOS」，
+  /// 15 秒的固定窗口会在操作途中把嗅探关掉。
+  void _pauseDeadline() {
+    _pausedRemaining = _remaining;
+    _deadline?.cancel();
+    _deadline = null;
+    _deadlineAt = null;
+  }
+
+  void _resumeDeadline({Duration extra = Duration.zero}) {
+    final remaining =
+        (_deadlineAt == null ? _pausedRemaining : _remaining) + extra;
+    _pausedRemaining = Duration.zero;
+    _startDeadline(remaining <= Duration.zero ? widget.timeout : remaining);
+  }
+
+  void _extendTimeout([Duration extra = const Duration(seconds: 30)]) {
+    if (_showWeb) {
+      _pausedRemaining += extra;
+    } else {
+      _startDeadline(_remaining + extra);
+    }
+    if (mounted) {
+      setState(() => _status = '已延长 ${extra.inSeconds} 秒，继续嗅探…');
+    }
+    AppLog.i(
+      'sniff',
+      '延长超时 ${extra.inSeconds}s'
+          '${_showWeb ? '（网页可见，自动关闭已暂停）' : '，剩余 ${_remaining.inSeconds}s'}',
+    );
+  }
+
+  void _toggleWeb() {
+    final show = !_showWeb;
+    if (show) {
+      _pauseDeadline();
+    } else {
+      _resumeDeadline(extra: const Duration(seconds: 30));
+    }
+    setState(() {
+      _showWeb = show;
+      _status = show ? '网页已打开，可手动完成页面上的确认' : '继续嗅探中…';
+    });
+    AppLog.i(
+      'sniff',
+      show ? '显示网页（暂停自动关闭）' : '隐藏网页（延长 30 秒）',
+    );
   }
 
   @override
@@ -366,12 +434,21 @@ class _SniffDialogState extends State<_SniffDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final screen = MediaQuery.of(context).size;
+    // 显示网页时把面板放大到可操作尺寸；clamp 兜住小屏。
+    final panelWidth = _showWeb
+        ? (screen.width - 80).clamp(360.0, 960.0).toDouble()
+        : 340.0;
+    final contentWidth = panelWidth - 44;
+    final webHeight = _showWeb
+        ? (screen.height - 260).clamp(240.0, 600.0).toDouble()
+        : contentWidth * 9 / 16;
     return Center(
       child: Material(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         child: SizedBox(
-          width: 340,
+          width: panelWidth,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
             child: Column(
@@ -393,11 +470,16 @@ class _SniffDialogState extends State<_SniffDialog> {
                 // 之前用 2x2 的隐藏 WebView，很多播放器 JS 拿不到有效视口，
                 // 不会发起清单请求。这里给一个正常的 16:9 视口，并用不透明
                 // 遮罩盖住页面内容（广告多，不适合直接展示）。
+                //
+                // 但部分站点的播放页要求先点「已满 18 岁」「Agree TOS」，
+                // 隐藏状态下用户没法操作，只能等满 15 秒超时。所以提供
+                // 「显示网页」：放大面板并拿掉遮罩，让页面可以正常点击；
+                // 显示期间暂停自动关闭，隐藏后额外补 30 秒。
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(
-                    width: 296,
-                    height: 167,
+                    width: contentWidth,
+                    height: webHeight,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -468,38 +550,79 @@ class _SniffDialogState extends State<_SniffDialog> {
                             }
                           },
                         ),
-                        Positioned.fill(
-                          child: ColoredBox(
-                            color: theme.colorScheme.surface,
-                            child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                child: Text(
-                                  _status,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.76),
-                                    height: 1.5,
+                        if (!_showWeb)
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: theme.colorScheme.surface,
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  child: Text(
+                                    _status,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.76),
+                                      height: 1.5,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
                 ),
+                if (_showWeb) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _status,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.72,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 4),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => unawaited(_finish('用户取消')),
-                    child: const Text('取消'),
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 2,
+                    children: [
+                      TextButton(
+                        onPressed: _toggleWeb,
+                        child: Text(_showWeb ? '隐藏网页' : '显示网页'),
+                      ),
+                      TextButton(
+                        onPressed: () => _extendTimeout(),
+                        child: const Text('延长 30 秒'),
+                      ),
+                      TextButton(
+                        onPressed: () => unawaited(_finish('用户取消')),
+                        child: const Text('取消'),
+                      ),
+                    ],
                   ),
                 ),
               ],

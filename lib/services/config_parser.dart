@@ -503,6 +503,7 @@ class ConfigParser {
                   )
                 : null,
             ua: safeString(o, 'ua'),
+            core: LiveBean.coreOf(o['core']),
           ),
         );
       } catch (_) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -57,6 +58,33 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     (icon: Icons.settings_rounded, label: '设置'),
   ];
 
+  /// 桌面 / 电视是全屏窗口；安卓手机额外强制横屏，退出时恢复。
+  static bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  bool _landscapeApplied = false;
+
+  void _applyImmersiveOrientation() {
+    if (!_isAndroid) return;
+    _landscapeApplied = true;
+    unawaited(
+      SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+  }
+
+  void _restoreOrientation() {
+    if (!_landscapeApplied) return;
+    _landscapeApplied = false;
+    unawaited(
+      SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]),
+    );
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +92,8 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     immersiveBackRequests.addListener(_onBackRequest);
     // 沉浸观影 = 独占全屏；退出该模式时还原原来的窗口大小与位置。
     unawaited(enterImmersiveFullscreen());
+    // 安卓手机：沉浸观影必须横屏，否则大屏布局在竖屏里会被挤变形。
+    _applyImmersiveOrientation();
     // 沉浸模式的初始焦点放在当前 Tab 上：可见、可立刻用方向键进入内容。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _tabNodes[0].requestFocus();
@@ -86,8 +116,19 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     RuntimeInstallPrompt.instance.onReveal = null;
     RuntimeInstallPrompt.instance.hostContext = null;
     _clock?.cancel();
+    _restoreOrientation();
     unawaited(exitImmersiveFullscreen());
     super.dispose();
+  }
+
+  /// 退出沉浸观影：先还原窗口，再切换布局，避免 Windows 残留全屏。
+  Future<void> _exitImmersive() async {
+    await exitImmersiveFullscreen();
+    if (!mounted) return;
+    final app = AppScope.of(context);
+    await app.setPlayerSettings(
+      app.playerSettings.copyWith(immersiveMode: false),
+    );
   }
 
   /// 返回键在根页面：有二级页面时已经由全局 Navigator pop，
@@ -105,12 +146,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     final last = _lastRootBackAt;
     if (last != null && now.difference(last) < const Duration(seconds: 2)) {
       _lastRootBackAt = null;
-      final app = AppScope.of(context);
-      unawaited(
-        app.setPlayerSettings(
-          app.playerSettings.copyWith(immersiveMode: false),
-        ),
-      );
+      unawaited(_exitImmersive());
       return;
     }
     _lastRootBackAt = now;
@@ -215,7 +251,11 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
     if (app.pendingSearchSeq != _handledSearchSeq) {
       _handledSearchSeq = app.pendingSearchSeq;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _select(1);
+        if (!mounted) return;
+        // 沉浸详情页压在上面时，搜索结果虽然已经在后台返回，
+        // 但用户仍停在详情页；先回到根路由再切到搜索 Tab。
+        appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+        _select(1);
       });
     }
 
@@ -293,11 +333,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
                                 metrics: ImmersiveMetrics.of(context),
                                 tabNodes: _tabNodes,
                                 onSelect: _select,
-                                onExit: () => app.setPlayerSettings(
-                                  app.playerSettings.copyWith(
-                                    immersiveMode: false,
-                                  ),
-                                ),
+                                onExit: () => unawaited(_exitImmersive()),
                               ),
                             ),
                           ),
@@ -337,15 +373,16 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final compact = metrics.compact;
+    // 手机（竖屏或横屏）都用紧凑顶栏：6 个 Tab + 退出键在小屏上放不下品牌行。
+    final compact = metrics.chromeCompact;
     return IgnorePointer(
       ignoring: false,
       child: Container(
         height: metrics.topBarHeight,
         padding: EdgeInsets.only(
-          left: compact ? 14 : 28,
-          right: compact ? 14 : 28,
-          top: compact ? metrics.topPadding : 0,
+          left: metrics.chromeGutter,
+          right: metrics.chromeGutter,
+          top: metrics.topPadding,
         ),
         decoration: const BoxDecoration(
           gradient: LinearGradient(

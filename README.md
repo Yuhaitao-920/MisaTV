@@ -68,7 +68,7 @@ Flutter 重写，单进程、无账号、无遥测，数据只保存在本机。
 - [X] 订阅维护：启动后台静默回源、手动刷新、墓碑（删掉的源不复活）、本地新增源保留、批量删除、体检后一键删失败源、站点字段编辑
 - [X] 本地包改写：`clan://localhost`、`assets://`、`pkg://`、相对 `./` 与 `ext` 内文件
 - [X] 点播：CMS type 0（XML）/ type 1、4（JSON），分类、筛选、详情、线路与选集、分页
-- [X] 三类蜘蛛：`.js`（QuickJS，内置 ESM→CJS、`pdfh` / cheerio / CryptoJS）、`.py`（按需下载嵌入式 Python 3.11）、`jar` / DEX（按需下载 JRE 17 + dex2jar）
+- [X] 三类蜘蛛：`.js`（QuickJS，内置 ESM→CJS、`pdfh` / cheerio / CryptoJS）、`.py`（Windows 按需下载嵌入式 Python 3.11；Android 随 APK 内置 CPython 3.12）、`jar` / DEX（按需下载 JRE 17 + dex2jar）
 - [X] 加固壳源（Guard / DexNative）：首次用 unidbg ARM 桥解包并缓存，之后走纯 Java shell-shim 快路径
 - [X] 聚合搜索：多源并发流式返回，CMS / JS / PY / JAR 各自独立并发，按名称 + 年份去重并标注来源
 - [X] 发现与详情：豆瓣元数据补全（封面 / 简介 / 评分 / 演职员 / 相关推荐 / 影评），封面兜底与本地 `/img` 中继
@@ -79,6 +79,7 @@ Flutter 重写，单进程、无账号、无遥测，数据只保存在本机。
 - [X] 网盘：夸克 / UC / 百度网页扫码登录（WebView2），115 / 哔哩手动粘贴 Cookie，Cookie 注入 jar 系蜘蛛，夸克 `/member` 会话刷新；哔哩 Cookie 为可选增强，不配也能播 360P / 480P
 - [X] 磁力（BT）：内置 aria2c sidecar，边下边播、按体积与集名选片、`/bt` piece 门控
 - [X] 直播：TXT / M3U / JSON 订阅与 type=3 直播蜘蛛，分组与多线路、EPG（节目单 / 当前下一档 / 直播回看）、导出 TXT / M3U
+- [X] TVBus P2P 直播（Android）：按直播源 `core.so` 下载 Go 引擎并播放 `tvbus://` 频道；Java 包装随 APK，Go 引擎不随包
 - [X] 自定义直播 UA：可设全局默认，也可只对某个直播接口生效（按地址片段 / 正则匹配），列表与频道流都带上
 - [X] WebDAV 只读直连（OpenList / AList / Nextcloud / 群晖 / 坚果云）
 - [X] 内容过滤（R18 屏蔽，关闭需密码）、备份导出 / 导入、收藏 / 历史 / 搜索历史
@@ -129,6 +130,14 @@ A: 弹幕接口普遍较慢且有抖动。程序会优先试同集，未命中�
 
 A: 本项目未插入任何广告。广告来自你导入的视频源或网盘里的文件本身。设置 → 播放里的「m3u8 去广告」只对点播清单做启发式清洗（默认关闭，删太多或清洗后不可播会自动回退原文）。
 
+#### Q: Yaozhi MPV 有新版本会强制更新吗？
+
+A: 不会。设置 → 运行时组件里的 Yaozhi MPV 项会静默检查仓库最新 release；只有远端版本更高时才显示「更新」按钮，不弹窗、不强制，点一下才会重新下载整合包。下载/解压失败会保留旧版本。
+
+#### Q: 支持库和软件更新走什么下载线路？
+
+A: GitHub 上的支持库资产（Yaozhi MPV、JRE/dex2jar、沉浸标题字体）与软件更新统一优先走 `https://gh-proxy.com/` 加速，直连只作兜底；非 GitHub 镜像（华为云、清华、PyPI、Maven）保持原样。
+
 </details>
 
 <details>
@@ -157,7 +166,7 @@ flutter pub get
 flutter analyze
 flutter test                 # 纯逻辑单测，不依赖真实源站
 flutter run -d windows       # 需要 Visual Studio 的 C++ 桌面开发工具链
-flutter run -d android
+flutter run -d android       # 64 位设备 / 模拟器；构建机需要 Python 3.12（Chaquopy）
 flutter run -d chrome
 ```
 
@@ -226,7 +235,7 @@ test/         纯逻辑单测（配置解析、影片解析、中继、去广告
 
 感谢 [QuantumTV](https://github.com/Geon97/QuantumTV) —— 体量与功能边界的参考，成人源判定与过滤思路来自它。
 
-感谢 [fvp](https://pub.dev/packages/fvp) / [mdk-sdk](https://github.com/wang-bin/mdk-sdk)（播放内核）、[mpv-Yaozhi](https://github.com/Yaozhil/mpv-Yaozhi)（可选外部播放器）、[aria2](https://github.com/aria2/aria2)（磁力 BT）、[dex2jar](https://github.com/pxb1988/dex2jar)（jar 蜘蛛运行时转换）、[unidbg](https://github.com/zhkl0228/unidbg)（加固壳 ARM 桥）。
+感谢 [fvp](https://pub.dev/packages/fvp) / [mdk-sdk](https://github.com/wang-bin/mdk-sdk)（播放内核）、[mpv-Yaozhi](https://github.com/Yaozhil/mpv-Yaozhi)（可选外部播放器）、[aria2](https://github.com/aria2/aria2)（磁力 BT）、[dex2jar](https://github.com/pxb1988/dex2jar)（jar 蜘蛛运行时转换）、[unidbg](https://github.com/zhkl0228/unidbg)（加固壳 ARM 桥）、[FongMi/TV](https://github.com/FongMi/TV)（TVBus Go P2P 直播的 Java 包装与独立运行时思路）。
 
 感谢豆瓣（元数据与封面）、[SubtitleCat](https://www.subtitlecat.com/) 与 assrt（字幕）、[Hitokoto](https://hitokoto.cn/)（影视台词）等公开服务。
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../core/app_version.dart';
 import '../../core/logging/app_log.dart';
 import '../../core/net/app_http.dart';
+import '../../core/net/github_proxy.dart';
 
 /// 一次 GitHub release 的解析结果。
 class AppRelease {
@@ -33,8 +34,9 @@ class AppRelease {
   final String assetDigest;
   final String publishedAt;
 
-  /// 实际要打开的下载地址。
-  String get openUrl => downloadUrl.isNotEmpty ? downloadUrl : htmlUrl;
+  /// 实际要打开的下载地址：GitHub 资产统一走 gh-proxy 加速。
+  String get openUrl =>
+      downloadUrl.isNotEmpty ? ghProxyUrl(downloadUrl) : htmlUrl;
 }
 
 /// 调试用：`--dart-define=MISA_UPDATE_REPO=owner/name` 可以把检查更新指向别的仓库
@@ -66,18 +68,22 @@ class UpdateService {
   };
 
   Future<Object?> _getJson(String url) async {
-    try {
-      final response = await http.getText(
-        url,
-        headers: _headers,
-        timeout: const Duration(seconds: 12),
-      );
-      if (response.statusCode != 200) return null;
-      return jsonDecode(response.body);
-    } catch (e) {
-      AppLog.w('update', '请求失败（$url）：$e');
-      return null;
+    // gh-proxy 优先，直连作为兜底；GitHub API 在国内直连经常超时。
+    for (final candidate in ghProxyCandidates(url)) {
+      try {
+        final response = await http.getText(
+          candidate,
+          headers: _headers,
+          timeout: const Duration(seconds: 12),
+        );
+        if (response.statusCode != 200) continue;
+        return jsonDecode(response.body);
+      } catch (e) {
+        AppLog.w('update', '请求失败（$candidate）：$e');
+      }
     }
+    AppLog.w('update', '请求失败（$url）：gh-proxy / 直连均不可用');
+    return null;
   }
 
   /// 取「最新版本」：先看 release，其次 release 列表，最后退回 tag。

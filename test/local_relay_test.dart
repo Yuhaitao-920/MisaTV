@@ -404,16 +404,36 @@ void main() {
 
   test('/play 只对网盘线路夹取 Range，普通线路原样透传', () async {
     final target = 'http://127.0.0.1:${upstream.port}/range-echo';
+    // 首段（bytes=0-）夹到 8MB：播放器拿到第一批数据就要 seek 到文件尾读
+    // moov/Cues，首段越小出画面越快（详见 relay_range_clamp_test）。
     final clamped = await fetch(
       relay.playUrl(target, provider: 'quark'),
       headers: const {'Range': 'bytes=0-'},
     );
-    expect(utf8.decode(clamped.bytes), 'range:bytes=0-33554431');
+    expect(utf8.decode(clamped.bytes), 'range:bytes=0-8388607');
+    // 续请求（start>0）仍用 32MB：那时已经在连续拉流，跨度大才有吞吐优势。
+    final resumed = await fetch(
+      relay.playUrl(target, provider: 'quark'),
+      headers: const {'Range': 'bytes=33554432-'},
+    );
+    expect(utf8.decode(resumed.bytes), 'range:bytes=33554432-67108863');
     final plain = await fetch(
       relay.playUrl(target, provider: 'bili'),
       headers: const {'Range': 'bytes=0-'},
     );
     expect(utf8.decode(plain.bytes), 'range:bytes=0-');
+  });
+
+  test('/play 网盘线路「没有 Range」时合成首段，普通线路照旧不带', () async {
+    final target = 'http://127.0.0.1:${upstream.port}/range-echo';
+    // ★ 没有 Range 时上游会回 200 + 整个文件：网盘 CDN 上既是最慢档
+    //   （0.1 MB/s），响应里也没有 Content-Range，播放器无法 seek 到 mkv
+    //   尾部的 Cues/moov → 大文件永远没有首帧（5.7GB 实测卡死 129 秒）。
+    final synthesized = await fetch(relay.playUrl(target, provider: 'quark'));
+    expect(utf8.decode(synthesized.bytes), 'range:bytes=0-8388607');
+    // 普通线路不合成：HLS / 直链没有这个需求，凭空加 Range 反而可能被拒。
+    final plain = await fetch(relay.playUrl(target, provider: 'bili'));
+    expect(utf8.decode(plain.bytes), 'range:');
   });
 
   test('/play 请求头换成短 token，URL 不带 Cookie 明文', () async {

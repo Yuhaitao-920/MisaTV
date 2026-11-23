@@ -15,12 +15,16 @@ class TitleTint extends StatefulWidget {
     super.key,
     required this.title,
     this.year = '',
+    this.altTitle = '',
     this.fallbackUrl = '',
     required this.builder,
   });
 
   final String title;
   final String year;
+
+  /// 元数据里的英文 / 日文原名，与封面共用同一套 TMDB 匹配。
+  final String altTitle;
 
   /// 横图不可用时（例如只有竖版封面）用来取色的兜底图片。
   final String fallbackUrl;
@@ -46,19 +50,25 @@ class _TitleTintState extends State<TitleTint> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.title != widget.title ||
         oldWidget.year != widget.year ||
+        oldWidget.altTitle != widget.altTitle ||
         oldWidget.fallbackUrl != widget.fallbackUrl) {
       unawaited(_load());
     }
   }
 
   Future<void> _load() async {
-    final key = '${widget.title}|${widget.year}|${widget.fallbackUrl}';
+    final key =
+        '${widget.title}|${widget.year}|${widget.altTitle}|${widget.fallbackUrl}';
     if (key == _key) return;
     _key = key;
     final seq = ++_seq;
     _tint = null;
     final service = AppScope.of(context).artworkService;
-    final backdrop = await service.backdrop(widget.title, year: widget.year);
+    final backdrop = await service.backdrop(
+      widget.title,
+      year: widget.year,
+      altTitle: widget.altTitle,
+    );
     if (!mounted || seq != _seq) return;
     Color? tint;
     if (backdrop != null && backdrop.isNotEmpty) {

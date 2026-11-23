@@ -1,0 +1,94 @@
+name: Build macOS APP
+
+# 与 build-android.yml 保持一致：不在 push 时自动构建（macOS runner 计费倍率高，
+# 而且 macOS 版目前是首次适配，频率不需要那么高）。手动触发或发 Release 时出包。
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS release
+    # 固定 macos-latest（当前为 Apple Silicon / arm64）。Flutter 没有官方的
+    # universal2 开关，产物是 arm64 单架构；Intel Mac 需 Rosetta 或另建一份 x64。
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # 与 Windows 工作流锁同一版本，避免两端产物行为不一致。
+          flutter-version: 3.47.9
+          cache: true
+
+      - name: 环境信息
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version || true
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 静态分析
+        run: flutter analyze
+
+      - name: 单元测试
+        # 与 Windows 工作流一致：整套测试偶发被整体中止，用重试吸收，
+        # 连试 3 次仍失败才是真实失败。
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "--- 第 $attempt 次尝试"
+            if flutter test --reporter compact --concurrency=1; then exit 0; fi
+            echo "::warning::第 $attempt 次测试失败，重试"
+          done
+          echo "::error::连续 3 次测试失败"
+          exit 1
+
+      - name: 构建 macOS Release
+        run: flutter build macos --release
+
+      - name: 打包 .app
+        run: |
+          set -euo pipefail
+          APP="build/macos/Build/Products/Release/kniephos.app"
+          test -d "$APP"
+          # 用 ditto 而不是 zip：它会保留 .app 里的符号链接、可执行位与扩展属性，
+          # 用 zip -r 打出来的包解压后常因权限丢失而「已损坏无法打开」。
+          ditto -c -k --sequesterRsrc --keepParent "$APP" MisaTV-macos-arm64.zip
+          ls -lh MisaTV-macos-arm64.zip
+          echo "--- 包内顶层 ---"
+          unzip -l MisaTV-macos-arm64.zip | head -8
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MisaTV-macos-arm64
+          path: MisaTV-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 挂到 Release 资产
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            MisaTV-macos-arm64.zip --clobber
+
+      - name: 失败时打印诊断
+        if: failure()
+        run: |
+          flutter doctor -v || true
+          ls -la build/macos/Build/Products/Release 2>/dev/null || true

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- MisaTV 全部内容来自网络：源站接口、封面、字幕、EPG、中继拉流。
+	     沙盒下不开这项，进程连 DNS 都发不出去，表现为「所有源都空白」。 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- 本地中继 127.0.0.1:9978、局域网服务、DLNA 投屏都要监听端口。 -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- 订阅导入、本地媒体导入、备份导出走系统文件选择器。 -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+</dict>
+</plist>

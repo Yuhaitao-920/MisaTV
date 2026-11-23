@@ -27,6 +27,34 @@ void main() {
     });
   });
 
+  group('withoutBrowserHeaders', () {
+    test('去掉 Origin / Sec-Fetch-*，保留 UA 与 Referer', () {
+      final out = RelayAccessPolicy.withoutBrowserHeaders({
+        'Origin': 'https://pan.baidu.com',
+        'Sec-Fetch-Site': 'cross-site',
+        'sec-fetch-mode': 'no-cors',
+        'User-Agent': 'netdisk;P2SP',
+        'Referer': 'https://pan.baidu.com/',
+      });
+      expect(out, {
+        'User-Agent': 'netdisk;P2SP',
+        'Referer': 'https://pan.baidu.com/',
+      });
+      expect(
+        RelayAccessPolicy.isBrowserRequest(
+          origin: out['Origin'],
+          secFetchSite: out['Sec-Fetch-Site'],
+          secFetchMode: out['sec-fetch-mode'],
+        ),
+        isFalse,
+      );
+    });
+
+    test('空请求头原样返回', () {
+      expect(RelayAccessPolicy.withoutBrowserHeaders(const {}), isEmpty);
+    });
+  });
+
   group('tokenMatches', () {
     test('长度 / 内容完全一致才通过', () {
       expect(RelayAccessPolicy.tokenMatches('abc123', 'abc123'), isTrue);

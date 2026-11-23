@@ -13,6 +13,7 @@ import '../widgets/import_sheet.dart';
 import '../widgets/poster_card.dart';
 import '../widgets/source_variants_sheet.dart';
 import 'detail_page.dart';
+import 'folder_page.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -149,6 +150,10 @@ class _SearchPageState extends State<SearchPage> {
       currentSourceKey: item.sourceKey,
       onOpen: (picked) {
         if (!mounted) return;
+        if (picked.isFolder) {
+          openFolderBrowse(context, picked);
+          return;
+        }
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => DetailPage(item: picked)),
         );
@@ -519,6 +524,7 @@ class _SearchPageState extends State<SearchPage> {
       done: progress.done,
       total: progress.total,
       finished: progress.finished,
+      timedOut: progress.timedOut,
       sourceItems: {
         for (final entry in progress.sourceItems.entries)
           entry.key: keep(entry.value),
@@ -854,6 +860,7 @@ class _SearchPageState extends State<SearchPage> {
                         return PosterCard(
                           item: item,
                           showSource: true,
+                          badge: item.isFolder ? '分类' : '',
                           onSecondaryLongPress: () =>
                               app.requestSearch(item.name),
                           onShowSources: item.sameFromOtherSources > 0
@@ -861,6 +868,12 @@ class _SearchPageState extends State<SearchPage> {
                               : null,
                           onTap: () {
                             _hideSourceOverlay();
+                            // 网盘型加固源（如「观影」）先给云盘目录，逐层
+                            // 展开后才到资源列表，不能直接当详情打开。
+                            if (item.isFolder) {
+                              openFolderBrowse(context, item);
+                              return;
+                            }
                             if (app.isDoubanSourceKey(item.sourceKey)) {
                               app.requestSearch(item.name);
                               return;
@@ -955,7 +968,8 @@ class _ProgressPanel extends StatelessWidget {
                       ? '正在搜索「$keyword」 · ${progress.done}/${progress.total}$filterLabel'
                       : '「$keyword」找到 $visibleCount 条结果$filterLabel'
                             '${progress.filterSummary.isEmpty ? '' : ' · ${progress.filterSummary}'}'
-                            '${hidden > 0 ? ' · 已屏蔽 $hidden 条' : ''}',
+                            '${hidden > 0 ? ' · 已屏蔽 $hidden 条' : ''}'
+                            '${progress.timedOut ? ' · 部分源未返回' : ''}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

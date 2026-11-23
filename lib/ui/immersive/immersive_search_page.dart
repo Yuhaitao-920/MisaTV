@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/vod.dart';
 import '../../state/app_state.dart';
+import 'immersive_category_page.dart';
 import 'immersive_metrics.dart';
 import 'immersive_widgets.dart';
 
@@ -140,6 +141,28 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
         );
   }
 
+  /// `vod_tag=folder` 条目：进入它的分类页逐层展开，而不是打开详情。
+  void _openFolder(VodItem item) {
+    final app = AppScope.of(context);
+    final site =
+        app.siteByKey(item.sourceKey) ??
+        (item.sourceKey.isEmpty ? app.activeSite : null);
+    if (site == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('找不到该目录所属的站点，请重新选择或导入源')),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ImmersiveCategoryPage(
+          site: site,
+          sortClass: SortClass(id: item.id, name: item.name),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -249,6 +272,25 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
     if (_keyword.isEmpty) {
       return _historyOrHint(app, theme);
     }
+    // 搜索刚发起时首个源还没返回，_progress 仍是 null；此时不能再返回空
+    // GridView，否则整页看起来「点了没反应」。
+    if (_items.isEmpty && _searching) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: theme.colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(
+              '正在搜索「$_keyword」…',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.58),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (_items.isEmpty && !_searching) {
       return Center(
         child: ImmersiveEmpty(
@@ -260,7 +302,7 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 16),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 336,
+        maxCrossAxisExtent: m.posterMaxExtent,
         mainAxisExtent: m.cardExtent,
         crossAxisSpacing: 18,
         mainAxisSpacing: 22,
@@ -272,23 +314,22 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
           focusNode: index == 0 ? _firstResultFocus : null,
           title: item.name,
           year: item.year,
-          // 搜索结果很多是长标题的视频/切片；封面按用户搜索的剧名匹配，
-          // 而不是拿整条资源名去撞元数据。
-          artworkTitle:
-              _keyword.isNotEmpty &&
-                  item.name.toLowerCase().contains(_keyword.toLowerCase())
-              ? _keyword
-              : '',
           subtitle: item.remarks.isEmpty
               ? item.sourceName
               : '${item.sourceName} · ${item.remarks}',
           fallback: item.cleanPic,
-          badge: item.sameFromOtherSources > 0
-              ? '${item.sameFromOtherSources + 1} 源'
-              : '',
+          imageHeaders: item.picHeaders,
+          badge: item.isFolder
+              ? '分类'
+              : (item.sameFromOtherSources > 0
+                    ? '${item.sameFromOtherSources + 1} 源'
+                    : ''),
+          // 竖版海报 + 片名放在图下，和小窗口列表一致。
           showText: false,
           width: double.infinity,
-          onTap: () => openImmersiveItem(context, item),
+          onTap: () => item.isFolder
+              ? _openFolder(item)
+              : openImmersiveItem(context, item),
         );
       },
     );

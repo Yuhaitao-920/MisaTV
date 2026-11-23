@@ -49,7 +49,6 @@ void main() {
         'defaultPlayer': 'custom:D:\\Tools\\vlc.exe',
         'immersiveMode': true,
         'popOutPlayer': true,
-        'artworkPriority': 'tmdb',
         'tmdbApiKey': 'tmdb-key',
         'bossKey': 'alt+q',
       });
@@ -60,7 +59,6 @@ void main() {
       expect(settings.magnetDownloadDir, r'D:\BT下载');
       expect(settings.immersiveMode, isTrue);
       expect(settings.popOutPlayer, isTrue);
-      expect(settings.artworkPriority, 'tmdb');
       expect(settings.tmdbApiKey, 'tmdb-key');
       expect(settings.bossKey, 'alt+q');
       // 默认不占用任何全局热键：只有用户显式选择才生效。
@@ -88,14 +86,8 @@ void main() {
         reason: '清空令牌不能把旧值留下',
       );
       expect(PlayerSettings.fromJson({}).tmdbReadToken, isEmpty);
-      expect(normalizeArtworkPriority('IMDB'), 'imdb');
       expect(PlayerSettings.fromJson({}).immersiveMode, isFalse);
       expect(PlayerSettings.fromJson({}).popOutPlayer, isFalse);
-      expect(PlayerSettings.fromJson({}).artworkPriority, 'douban');
-      expect(
-        PlayerSettings.fromJson({'artworkPriority': 'bogus'}).artworkPriority,
-        'douban',
-      );
       expect(PlayerSettings.fromJson({}).autoSwitchLine, isFalse);
       expect(PlayerSettings.fromJson({}).magnetDownloadDir, isEmpty);
       expect(settings.defaultPlayer, r'custom:D:\Tools\vlc.exe');

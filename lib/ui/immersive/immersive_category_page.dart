@@ -110,11 +110,11 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
           slivers: [
             SliverToBoxAdapter(
               child: Container(
-                height: m.compact ? m.topPadding + 56 : 72,
+                height: m.chromeCompact ? m.topPadding + 56 : 72,
                 padding: EdgeInsets.only(
                   left: horizontal,
                   right: horizontal,
-                  top: m.compact ? m.topPadding : 0,
+                  top: m.chromeCompact ? m.topPadding : 0,
                 ),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -141,7 +141,7 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    if (!m.compact) ...[
+                    if (!m.chromeCompact) ...[
                       const SizedBox(width: 12),
                       Flexible(
                         child: Text(
@@ -210,7 +210,7 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                 padding: EdgeInsets.fromLTRB(horizontal, 18, horizontal, 48),
                 sliver: SliverGrid(
                   gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 360,
+                    maxCrossAxisExtent: m.posterMaxExtent,
                     mainAxisExtent: m.categoryCardExtent,
                     crossAxisSpacing: 20,
                     mainAxisSpacing: 22,
@@ -227,6 +227,7 @@ class _ImmersiveCategoryPageState extends State<ImmersiveCategoryPage> {
                           ? widget.site.displayName
                           : item.remarks,
                       fallback: item.cleanPic,
+                      imageHeaders: item.picHeaders,
                       badge: item.isFolder ? '分类' : '',
                       showText: false,
                       width: double.infinity,

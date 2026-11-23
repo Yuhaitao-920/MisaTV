@@ -2,6 +2,108 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../core/platform/process_job.dart';
+
+/// 折叠 JVM stderr 里的 Java 堆栈，并给重复异常降频。
+///
+/// 加固载荷里大量 `catch (Exception e) { e.printStackTrace(); }`，一条异常
+/// 会刷 15–25 行；这些异常通常已被载荷自己捕获，数据不受影响。这里只压缩
+/// 诊断显示（`errorTail`），首行与次数仍保留，不影响归因。
+class JvmStderrFilter {
+  JvmStderrFilter({this.spamThreshold = 20});
+
+  final int spamThreshold;
+
+  /// 异常首行 → 次数。首行常带 URL / id，按上限淘汰，淘汰只会让计数重来。
+  final Map<String, int> _counts = <String, int>{};
+  static const int _maxHeaders = 256;
+
+  String? _header;
+  int _frames = 0;
+  String? _lastMeaningful;
+
+  /// 最近一条有意义的 stderr（堆栈场景取首行）。
+  String? get lastMeaningfulLine => _lastMeaningful;
+
+  /// 喂入一行，返回需要保留的行（0 行 = 被折叠）。
+  List<String> feed(String line) {
+    if (_isJvmNoise(line)) return const <String>[];
+    if (_header != null) {
+      if (_isContinuation(line)) {
+        _frames++;
+        return const <String>[];
+      }
+      final closed = _closeBlock();
+      return <String>[...closed, ...feed(line)];
+    }
+    if (_isHeader(line)) {
+      _header = line;
+      _frames = 0;
+      _lastMeaningful = line;
+      return const <String>[];
+    }
+    _lastMeaningful = line;
+    return <String>[line];
+  }
+
+  /// 流结束（子进程退出）时冲掉未闭合的堆栈块。
+  List<String> flush() => _header == null ? const <String>[] : _closeBlock();
+
+  List<String> _closeBlock() {
+    final header = _header!;
+    final frames = _frames;
+    _header = null;
+    _frames = 0;
+
+    final nth = (_counts[header] ?? 0) + 1;
+    if (_counts.length >= _maxHeaders && !_counts.containsKey(header)) {
+      _counts.remove(_counts.keys.first);
+    }
+    _counts[header] = nth;
+    if (nth > spamThreshold && nth % spamThreshold != 0) {
+      return const <String>[];
+    }
+
+    final buffer = StringBuffer(header);
+    final details = <String>[
+      if (frames > 0) '堆栈 $frames 行已折叠',
+      if (nth > 1) '同类第 $nth 次',
+    ];
+    if (details.isNotEmpty) buffer.write('（${details.join('；')}）');
+    return <String>[buffer.toString()];
+  }
+
+  static final RegExp _headerPattern = RegExp(
+    r'^(?:Caused by:\s*)?(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*(?:Exception|Error)(?::.*)?$',
+  );
+  static final RegExp _threadHeaderPattern = RegExp(
+    r'^Exception in thread "[^"]*"\s+(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*(?:Exception|Error)(?::.*)?$',
+  );
+  static final RegExp _framePattern = RegExp(r'^\s+at\s+\S');
+  static final RegExp _morePattern = RegExp(r'^\s*\.\.\.\s+\d+\s+more\s*$');
+  static final RegExp _causePattern = RegExp(r'^\s*Caused by:\s*\S');
+  static final RegExp _suppressedPattern = RegExp(r'^\s*Suppressed:\s*\S');
+
+  static bool _isHeader(String line) =>
+      _headerPattern.hasMatch(line) || _threadHeaderPattern.hasMatch(line);
+
+  static bool _isContinuation(String line) =>
+      _framePattern.hasMatch(line) ||
+      _morePattern.hasMatch(line) ||
+      _causePattern.hasMatch(line) ||
+      _suppressedPattern.hasMatch(line);
+
+  /// JVM 自身的启动告警（`-noverify` 弃用、SecurityManager 弃用），
+  /// 与站源无关，不进入 errorTail。
+  static bool _isJvmNoise(String line) =>
+      line.startsWith('OpenJDK 64-Bit Server VM warning') ||
+      line.contains('-noverify were deprecated') ||
+      line.startsWith('WARNING: System::setSecurityManager') ||
+      line.startsWith(
+        'WARNING: Please consider reporting this to the maintainers',
+      );
+}
+
 /// 常驻取流进程：跑**一次**蜘蛛调用后不退出，把壳内的取流服务/宿主代理留在内存里。
 ///
 /// 为什么必须常驻：加固壳源的 `playerContent` 返回的播放地址是**本机、且指向该 JVM**的：
@@ -21,6 +123,7 @@ class JarSpiderHost {
   final Stream<String> _stderr;
 
   final List<String> _errors = [];
+  final JvmStderrFilter _stderrFilter = JvmStderrFilter();
   StreamSubscription<String>? _errSub;
   bool _closed = false;
   bool _exited = false;
@@ -54,10 +157,20 @@ class JarSpiderHost {
     host._errSub = host._stderr.listen((line) {
       final actual = hostProxyPortOf(line);
       if (actual != null) host.proxyPort = actual;
-      if (host._errors.length > 60) host._errors.removeAt(0);
-      host._errors.add(line);
+      for (final out in host._stderrFilter.feed(line)) {
+        if (host._errors.length > 60) host._errors.removeAt(0);
+        host._errors.add(out);
+      }
     }, onError: (Object _) {});
-    unawaited(process.exitCode.then((_) => host._exited = true, onError: (Object _) {}));
+    unawaited(process.exitCode.then((_) {
+      host._exited = true;
+      for (final out in host._stderrFilter.flush()) {
+        if (host._errors.length > 60) host._errors.removeAt(0);
+        host._errors.add(out);
+      }
+    }, onError: (Object _) {}));
+    // 监听器挂好后再收养：MethodChannel 调用期间 JVM 可能已经在写启动日志。
+    await ProcessJob.adopt(process.pid);
     return host;
   }
 
@@ -163,6 +276,7 @@ class JarServeHost {
 
   final Map<String, Completer<ServeReply>> _pending = {};
   final List<String> _errors = [];
+  final JvmStderrFilter _stderrFilter = JvmStderrFilter();
   StreamSubscription<String>? _outSub;
   StreamSubscription<String>? _errSub;
   int _seq = 0;
@@ -174,6 +288,13 @@ class JarServeHost {
 
   /// 已发出但尚未收到应答的请求数（含排队中的）。
   int inflight = 0;
+
+  /// 其中属于聚合搜索的请求数。打开详情 / 播放时会优先结束这些请求，
+  /// 让交互操作不再排在后台搜索后面。
+  int searchInflight = 0;
+
+  /// 最近一次成功应答时间：空闲较久后复用前先做一次轻量健康检查。
+  DateTime lastUsedAt = DateTime.now();
 
   bool get alive => !_closed && !_exited;
   int get pid => _process.pid;
@@ -194,13 +315,21 @@ class JarServeHost {
     host._errSub = host._stderr.listen((line) {
       final actual = hostProxyPortOf(line);
       if (actual != null) host.proxyPort = actual;
-      if (host._errors.length > 60) host._errors.removeAt(0);
-      host._errors.add(line);
+      for (final out in host._stderrFilter.feed(line)) {
+        if (host._errors.length > 60) host._errors.removeAt(0);
+        host._errors.add(out);
+      }
     }, onError: (Object _) {});
     unawaited(process.exitCode.then((_) {
       host._exited = true;
+      for (final out in host._stderrFilter.flush()) {
+        if (host._errors.length > 60) host._errors.removeAt(0);
+        host._errors.add(out);
+      }
       host._failAll('常驻蜘蛛进程已退出');
     }, onError: (Object _) {}));
+    // 监听器挂好后再收养：MethodChannel 调用期间 JVM 可能已经在写启动日志。
+    await ProcessJob.adopt(process.pid);
     return host;
   }
 
@@ -233,7 +362,9 @@ class JarServeHost {
         } catch (_) {}
         throw ServeHostException('常驻蜘蛛进程已断开');
       }
-      return await completer.future.timeout(timeout);
+      final reply = await completer.future.timeout(timeout);
+      lastUsedAt = DateTime.now();
+      return reply;
     } on TimeoutException {
       // 主线程被卡死的蜘蛛不会自行恢复：直接结束这个 host，后续请求换新进程。
       unawaited(killNow());
@@ -241,6 +372,23 @@ class JarServeHost {
     } finally {
       _pending.remove(id);
       inflight--;
+    }
+  }
+
+  /// 轻量健康检查：`__ping__` 在 SpiderHost 里不加载蜘蛛类，只确认进程与
+  /// stdin/stdout 管道仍然可用。失败返回 false（超时路径会顺带 kill 本 host）。
+  Future<bool> ping({Duration timeout = const Duration(seconds: 2)}) async {
+    if (!alive) return false;
+    try {
+      final reply = await call(
+        className: '__ping__',
+        method: '__ping__',
+        args: const [],
+        timeout: timeout,
+      );
+      return reply.ok;
+    } catch (_) {
+      return false;
     }
   }
 

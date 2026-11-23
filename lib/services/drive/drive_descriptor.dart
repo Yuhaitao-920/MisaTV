@@ -74,11 +74,19 @@ const _nestedShortKeyMap = <String, Map<String, String>>{
     'e': 'name',
   },
   // wex 系壳（9280 那套）的百度分享用的是另一套短键，实测样本：
-  //   {"a":"271762599896626"(uk),"b":"01 4K.mkv"(name),"c":"3576627086"(shareId),
+  //   {"a":"271762599896626","b":"01 4K.mkv"(name),"c":"3576627086",
   //    "d":"10420030909"(fs_id),"e":"vlOn10c2…"(seKey),"f":"wogg"(壳名),
   //    "g":"STOKEN=…; BDUSS=…; BDCLND=…"(预授权 Cookie)}
-  // 补齐映射后 `extractBaiduSharedFile` 能直接命中 → 走 `_directFile` 免转存签名取链，
-  // 跳过 init→verify→分享页 那三次 HTTPS 往返（实测这段占了取链耗时的绝大部分）。
+  //
+  // ★ a / c 谁是 shareId 谁是 uk，两种壳的说法互相矛盾：
+  //   · 这条真机样本按「a=uk, c=shareId」记录；
+  //   · 但 11-14 18:12 的一条成功直链是 `fid=3576627086-250528-…`，
+  //     百度 dlink 的 `fid` 首段是文件所有者的 uk —— 指向 `c` 才是 uk；
+  //   · 11-17 失败那次（errno=-7）的描述符是
+  //     `{"a":"582004336478962","c":"1100435471011",…}`，`c` 是 13 位 1100 前缀，
+  //     与其它成功直链的 uk 段同型，同样指向 `c` 是 uk。
+  //   单看数字长度分不出来（10/13/15 位都出现过），所以这里保留下面的映射作为
+  //   **第一次猜测**，由 `_trySharedDirectLink` 的换序重试兜底，两种壳都能命中。
   'baidu': <String, String>{
     'a': 'uk',
     'b': 'name',

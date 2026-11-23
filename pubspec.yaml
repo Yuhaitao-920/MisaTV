@@ -1,7 +1,7 @@
 name: kniephos
 description: "MisaTV — 轻量、本地优先的 TVBox 客户端（Flutter 重构）"
 publish_to: 'none'
-version: 1.1.0+12
+version: 1.3.0+14
 
 environment:
   # 放宽到 3.13.0：Flutter 3.47.0 自带 Dart 3.13.0，与 3.13.7 仅差补丁版，
@@ -24,6 +24,8 @@ dependencies:
   window_manager: ^0.5.2
   url_launcher: ^6.3.3
   gbk_codec: ^0.4.0
+  # 字幕解码用：常量映射 GBK 解码器，替代 gbk_codec 那套惰性构造的重量级映射表。
+  charset: ^2.0.1
   video_player: ^2.14.1
   fvp: ^0.39.1
   # 内嵌 libmpv 播放器：media_kit 以预编译 .so 分发 libmpv，零本地 NDK 工具链。
@@ -35,6 +37,10 @@ dependencies:
   crypto: ^3.0.8
   path: ^1.9.1
   archive: ^4.0.7
+
+  # 纯 Dart 的 RAR / 7z 解包（assrt 字幕大量以 .rar 发布）。
+  # archive 包只支持 zip/gz，这三个格式原本直接抛「请手动解压」。
+  koni_archive: ^0.9.0
   flutter_inappwebview: ^6.1.5
   pointycastle: ^4.0.0
   file_selector: ^1.1.0
@@ -55,18 +61,16 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   fonts:
+    # 只随包 3 个字重：5 个字重会让 APK 多背约 10 MB（每个 TTF 压缩后约 5.2 MB）。
+    # Demibold / Heavy 仍保留在仓库里，需要时把对应 asset 两行加回来即可。
     - family: MiSans
       fonts:
         - asset: assets/fonts/MiSans-Regular.ttf
           weight: 400
         - asset: assets/fonts/MiSans-Medium.ttf
           weight: 500
-        - asset: assets/fonts/MiSans-Demibold.ttf
-          weight: 600
         - asset: assets/fonts/MiSans-Bold.ttf
           weight: 700
-        - asset: assets/fonts/MiSans-Heavy.ttf
-          weight: 800
   assets:
     - assets/images/
     - assets/js_lib/

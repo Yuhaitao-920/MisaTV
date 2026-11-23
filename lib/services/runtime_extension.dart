@@ -25,8 +25,11 @@ extension RuntimeExtensionInfo on RuntimeExtension {
       '该源是加固壳，首次使用需要「加固壳支持」（约 39 MB）。\n\n'
           '点击「下载」会自动打开设置页并开始安装，完成后回到这里重试即可。',
     RuntimeExtension.python =>
-      '该源是 PY 蜘蛛，需要 Python 运行时（约 20 MB）。\n\n'
-          '点击「下载」会自动打开设置页并开始安装，完成后回到这里重试即可。',
+      defaultTargetPlatform == TargetPlatform.android
+          ? '该源是 PY 蜘蛛，Python 运行时随 APK 内置，无需下载。\n\n'
+                '若提示运行时缺失，请重新安装应用后重试。'
+          : '该源是 PY 蜘蛛，需要 Python 运行时（约 20 MB）。\n\n'
+                '点击「下载」会自动打开设置页并开始安装，完成后回到这里重试即可。',
   };
 
   IconData get icon => switch (this) {
@@ -35,9 +38,15 @@ extension RuntimeExtensionInfo on RuntimeExtension {
     RuntimeExtension.python => Icons.terminal_rounded,
   };
 
-  /// 这些运行时只在 Windows 桌面端提供（设置页的入口也只在 Windows 显示）。
-  bool get supported =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  /// Python 运行时在 Windows（按需下载）与 Android（Chaquopy 内置）可用；
+  /// JVM / 加固壳仍然只在桌面端提供（Android 走 ART / DexClassLoader）。
+  bool get supported => switch (this) {
+    RuntimeExtension.python =>
+      !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.windows ||
+              defaultTargetPlatform == TargetPlatform.android),
+    _ => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows,
+  };
 
   Future<bool> installed() async {
     if (!supported) return false;
@@ -63,7 +72,11 @@ extension RuntimePromptResultMessage on RuntimePromptResult {
     RuntimePromptResult.ready => '',
     RuntimePromptResult.downloading => '正在下载${kind.title}，完成后重试即可',
     RuntimePromptResult.canceled => '已取消下载${kind.title}，该源暂不可用',
-    RuntimePromptResult.unavailable => '需要${kind.title}，请到设置 → 播放中下载后重试',
+    RuntimePromptResult.unavailable =>
+      kind == RuntimeExtension.python &&
+              defaultTargetPlatform == TargetPlatform.android
+          ? 'Python 运行时随 APK 内置，请重新安装应用后重试'
+          : '需要${kind.title}，请到设置 → 播放中下载后重试',
   };
 }
 

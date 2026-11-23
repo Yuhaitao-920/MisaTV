@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/platform/process_job.dart';
 import '../../models/download_task.dart';
 import 'magnet.dart';
 
@@ -205,6 +206,8 @@ class Aria2Sidecar {
         }
       }, onError: (Object _) {});
       proc.stdout.drain<void>();
+      // 监听器挂好后再收养：Windows 上应用崩溃时不会留下孤儿 aria2c。
+      await ProcessJob.adopt(proc.pid);
       proc.exitCode.then((code) {
         _log('BT 引擎退出（code=$code）');
         if (_proc == proc) {

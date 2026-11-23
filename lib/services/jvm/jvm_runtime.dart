@@ -5,9 +5,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
+
+import '../bundled_runtime.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/logging/app_log.dart';
 import '../../core/net/download_mirrors.dart';
+import '../../core/net/runtime_fetch.dart';
 import '../../core/platform/archive_extract.dart';
 
 /// JVM 运行时安装进度。
@@ -43,25 +47,18 @@ class JvmRuntime {
   }
 
   /// JRE 压缩包；解压后取「含 bin/java.exe」的那层目录。
-  /// 多个镜像 + GitHub 加速代理，下载前并发测速取最快（国内直连 GitHub 常超时）。
+  /// 多个镜像：非 GitHub 镜像保留，GitHub 资产统一走 gh-proxy。
   static const _jreUrls = <String>[
     'https://mirrors.huaweicloud.com/openjdk/17.0.2/openjdk-17.0.2_windows-x64_bin.zip',
     'https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jre/x64/windows/'
         'OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip',
-    'https://ghfast.top/https://github.com/adoptium/temurin17-binaries/releases/download/'
-        'jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip',
     'https://gh-proxy.com/https://github.com/adoptium/temurin17-binaries/releases/download/'
-        'jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip',
-    'https://github.com/adoptium/temurin17-binaries/releases/download/'
         'jdk-17.0.20.1%2B1/OpenJDK17U-jre_x64_windows_hotspot_17.0.20.1_1.zip',
   ];
 
-  /// dex2jar 整合包；解压后取 lib 目录下的 jar。
+  /// dex2jar 整合包；GitHub 资产统一走 gh-proxy。
   static const _dexToolsUrls = <String>[
-    'https://ghfast.top/https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip',
     'https://gh-proxy.com/https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip',
-    'https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip',
-    'https://ghproxy.net/https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip',
   ];
 
   /// Maven 相对路径（阿里云镜像优先，回退 Maven Central）。
@@ -101,11 +98,22 @@ class JvmRuntime {
     // 桌面版 GoProxy 影子类：加固壳的 ARM Go 取流 .so 在 unidbg 里被跳过，
     // 但壳初始化会等它的 /health。这个 jar 用纯 Java 同端口应答，数据请求本身走 okhttp。
     'assets/jvm/go-proxy-shim.jar': 'shims/go-proxy-shim.jar',
-    // 加固壳的「真实实现」预解包产物（对齐 winbox 的 shell-shim/real/<壳名>.jar）：
+    // 加固壳的真实实现预解包产物（对齐 winbox 的 shell-shim/real/<壳名>.jar）：
     // 拿到对应壳时直接纯 Java 运行，不再依赖 unidbg 模拟器（实测 ftyshinidie 壳
     // 在 x64 上模拟会崩在 toIntPeer(null)）。
+    //
+    // 这两个文件**不随包分发**（见 assets/jvm/shell-real/README.md，版权归各自
+    // 权利人）。它们只在加固壳按需解包后被写入用户目录；这里必须用
+    // [optionalAssets] 标出来，否则 _writeBundled 会 rootBundle.load 一个
+    // 根本不存在的 asset 并抛异常，把整个 JVM / 加固壳安装流程打断。
     'assets/jvm/shell-real/ftyshinidie.jar': 'shell-shim/real/ftyshinidie.jar',
     'assets/jvm/shell-real/foni-spider.jar': 'shell-shim/real/foni-spider.jar',
+  };
+
+  /// 可能缺席的内置资产：不随包分发，只在按需解包成功后出现。
+  static const optionalAssets = <String>{
+    'assets/jvm/shell-real/ftyshinidie.jar',
+    'assets/jvm/shell-real/foni-spider.jar',
   };
 
   final ValueNotifier<JvmProgress?> progress = ValueNotifier(null);
@@ -156,7 +164,7 @@ class JvmRuntime {
 
   /// 内置兼容层版本号：改了 assets/jvm 里的 jar（stubs / shell-shim / SpiderHost…）就 +1。
   /// 已安装目录只有在版本号变化时才整体刷新，避免每次启动都读一遍 5MB 资产。
-  static const _shimsRev = 11;
+  static const _shimsRev = 15;
 
   /// 老安装目录升级：把随包内置的兼容层刷新到当前版本（运行中的 JVM 占用时下次再试）。
   Future<void> ensureShims() async {
@@ -170,11 +178,17 @@ class JvmRuntime {
     }
     var ok = true;
     for (final entry in _bundled.entries) {
+      // 不随包分发的资产永远缺席，不能拿它判定「刷新失败」，否则标记写不上、
+      // 每次启动都会把整套内置 jar 重写一遍。
+      final optional = optionalAssets.contains(entry.key);
       try {
         final file = await _ensureBundled(entry.key, entry.value);
-        if (!file.existsSync()) ok = false;
+        if (!file.existsSync()) {
+          if (optional) continue;
+          ok = false;
+        }
       } catch (_) {
-        ok = false;
+        if (!optional) ok = false;
       }
     }
     if (!ok) return;
@@ -240,15 +254,25 @@ class JvmRuntime {
     }
     final dir = await _dir();
     dir.createSync(recursive: true);
-    final http = HttpClient();
-    http.connectionTimeout = const Duration(seconds: 20);
+    final http = RuntimeFetch.newClient();
+    AppLog.i('jvm', '开始安装 JVM 运行时 $version → ${dir.path}');
     try {
+      // 先试随包运行时（<exe>/runtime/*），命中就只是本地复制，不再下载。
+      // 缺失时仍走原来的下载逻辑，保证旧包/第三方打包也能用。
+      _setProgress('解包随包运行时…', 0.03);
+      if (!File(p.join(dir.path, 'jre', 'bin', 'java.exe')).existsSync()) {
+        BundledRuntime.seed('jre', Directory(p.join(dir.path, 'jre')));
+      }
       if (!File(p.join(dir.path, 'jre', 'bin', 'java.exe')).existsSync()) {
         await _installJre(dir, http);
       }
       if (!File(p.join(dir.path, 'd2j', 'dex-tools-v2.4.jar')).existsSync()) {
+        BundledRuntime.seed('d2j', Directory(p.join(dir.path, 'd2j')));
+      }
+      if (!File(p.join(dir.path, 'd2j', 'dex-tools-v2.4.jar')).existsSync()) {
         await _installDexTools(dir, http);
       }
+      BundledRuntime.seed('libs', Directory(p.join(dir.path, 'libs')));
       await _installLibs(dir, http);
       _setProgress('写入兼容层…', 0.98);
       await _writeBundled(dir);
@@ -257,8 +281,12 @@ class JvmRuntime {
         throw StateError('JVM 运行时安装不完整（缺少 jre 或 dex2jar）');
       }
       _removeOldVersions(dir);
+      AppLog.i('jvm', 'JVM 运行时安装完成');
       _setProgress('JVM 运行时已就绪', 1);
       return dir;
+    } catch (e, s) {
+      AppLog.e('jvm', 'JVM 运行时安装失败', e, s);
+      rethrow;
     } finally {
       http.close(force: true);
       Future<void>.delayed(const Duration(seconds: 4), () {
@@ -294,6 +322,7 @@ class JvmRuntime {
           url,
           tmp,
           (v) => _setProgress('下载 JRE 17（约 42 MB）…', v * 0.45),
+          minBytes: 1024 * 1024,
         );
         final size = tmp.lengthSync();
         if (size < 1024 * 1024) throw StateError('下载内容过小（$size 字节）');
@@ -343,6 +372,7 @@ class JvmRuntime {
           url,
           tmp,
           (v) => _setProgress('下载 dex2jar（约 18 MB）…', 0.5 + v * 0.2),
+          minBytes: 1024 * 1024,
         );
         final size = tmp.lengthSync();
         if (size < 1024 * 1024) throw StateError('下载内容过小（$size 字节）');
@@ -392,20 +422,35 @@ class JvmRuntime {
       final name = rel.split('/').last;
       final file = File(p.join(target.path, name));
       if (file.existsSync() && file.lengthSync() > 1024) continue;
-      _setProgress(
-        '下载依赖库 $index/${_libPaths.length}（$name）…',
-        0.74 + 0.22 * index / _libPaths.length,
-      );
+      // 段内按字节推进，避免 large jar（bcprov 8 MB）期间百分比静止。
+      final base = 0.74 + 0.22 * (index - 1) / _libPaths.length;
+      final span = 0.22 / _libPaths.length;
+      void report(String url, int received, int? total) {
+        final ratio = (total != null && total > 0)
+            ? (received / total).clamp(0.0, 1.0)
+            : 0.0;
+        final kb = (received / 1024).toStringAsFixed(0);
+        final label = total != null && total > 0
+            ? '$kb/${(total / 1024).toStringAsFixed(0)} KB'
+            : '$kb KB';
+        _setProgress(
+          '下载依赖库 $index/${_libPaths.length}（$name · $label）…',
+          base + span * ratio,
+        );
+      }
+
+      _setProgress('下载依赖库 $index/${_libPaths.length}（$name）…', base);
       var lastError = '';
       var ok = false;
-      for (final base in bases) {
+      for (final baseUrl in bases) {
         try {
-          await _download(http, '$base$rel', file, null);
+          await _download(http, '$baseUrl$rel', file, null, onBytes: report);
           if (file.lengthSync() < 1024) throw StateError('文件过小');
           ok = true;
           break;
         } catch (e) {
           lastError = '$e';
+          AppLog.w('jvm', '$name 线路失败，换下一个镜像', e);
         }
       }
       if (!ok) throw StateError('依赖库 $name 下载失败：$lastError');
@@ -414,10 +459,23 @@ class JvmRuntime {
 
   Future<void> _writeBundled(Directory dir) async {
     for (final entry in _bundled.entries) {
-      final data = await rootBundle.load(entry.key);
       final file = File(p.join(dir.path, entry.value));
+      ByteData data;
+      try {
+        data = await rootBundle.load(entry.key);
+      } catch (e) {
+        // 不随包分发的资产（加固壳真实实现）本来就没有，跳过即可；
+        // 其余内置 jar 缺席说明打包漏了，记一条警告但不阻断安装——
+        // 下载 JRE / dex2jar / 18 个依赖 jar 才是这条路的主体。
+        if (optionalAssets.contains(entry.key)) continue;
+        AppLog.w('jvm', '内置资产缺失，已跳过：${entry.key}', e);
+        continue;
+      }
       file.parent.createSync(recursive: true);
-      file.writeAsBytesSync(data.buffer.asUint8List(), flush: true);
+      file.writeAsBytesSync(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        flush: true,
+      );
     }
     File(p.join(dir.path, 'marker.json')).writeAsStringSync(
       jsonEncode({
@@ -477,30 +535,24 @@ class JvmRuntime {
     HttpClient http,
     String url,
     File target,
-    ValueChanged<double>? onProgress,
-  ) async {
-    final req = await http.getUrl(Uri.parse(url));
-    req.headers.set('User-Agent', 'MisaTV/0.1');
-    final res = await req.close();
-    if (res.statusCode != 200) {
-      await res.drain<void>();
-      throw StateError('HTTP ${res.statusCode}：$url');
-    }
-    final total = res.contentLength;
-    target.parent.createSync(recursive: true);
-    final sink = target.openWrite();
-    var received = 0;
-    try {
-      await for (final chunk in res) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (onProgress != null && total > 0) {
+    ValueChanged<double>? onProgress, {
+    int minBytes = 1,
+    void Function(String url, int received, int? total)? onBytes,
+  }) async {
+    await RuntimeFetch.file(
+      http,
+      Uri.parse(url),
+      target,
+      tag: 'jvm',
+      userAgent: 'MisaTV/0.1',
+      minBytes: minBytes,
+      onProgress: (received, total) {
+        if (onProgress != null && total != null && total > 0) {
           onProgress((received / total).clamp(0, 1));
         }
-      }
-    } finally {
-      await sink.close();
-    }
+        onBytes?.call(url, received, total);
+      },
+    );
   }
 
   void _setProgress(String message, double value) {

@@ -99,10 +99,27 @@ class ProxyRuntime {
     _effective = resolved;
     await old?.stop();
     if (resolved != null && resolved.valid) {
-      try {
-        _bridge = await ProxyBridge.start(resolved);
-      } catch (_) {
-        _bridge = null;
+      // ★ 起桥前先探活。
+      //
+      //   Windows 的系统代理开关经常是残留状态：注册表里 ProxyEnable=1，
+      //   但代理客户端（Clash / v2rayN）当天根本没启动，端口上没有监听。
+      //   此时直接起桥，会把**全部出站流量**打进一个死上游 —— 表现是
+      //   整站 502、玩偶那类源的「域名并发竞速」全部落空（每个候选都超时）、
+      //   首页只剩空列表。用户完全看不出是代理的问题。
+      //
+      //   探活失败就保持直连，等 _followRetry 下一轮（20 秒）再试 ——
+      //   用户中途把 Clash 打开也能自动接上。
+      if (await isReachable(resolved.host, resolved.port)) {
+        try {
+          _bridge = await ProxyBridge.start(resolved);
+        } catch (_) {
+          _bridge = null;
+        }
+      } else {
+        AppLog.i(
+          'proxy',
+          '上游 ${resolved.host}:${resolved.port} 探活失败，保持直连',
+        );
       }
     }
     if (_bridge != null) {
@@ -158,9 +175,35 @@ class ProxyRuntime {
         h == '0.0.0.0';
   }
 
+  /// 局域网 / 私有地址：不应丢进远程代理。
+  ///
+  /// WebDAV（NAS / OpenList）、DLNA、Emby 这类目标通常只在局域网可达；
+  /// 用户开启 Clash 的系统代理后，把 192.168.x.x 也发给代理会直接超时，
+  /// 表现就是「同步/媒体库连不上」。这里统一按私有网段直连。
+  static bool isPrivateHost(String host) {
+    final h = host.trim().toLowerCase();
+    if (isLocalHost(h)) return true;
+    if (h.endsWith('.local') || h.endsWith('.lan') || h.endsWith('.home.arpa')) {
+      return true;
+    }
+    // 单段主机名（nas / router）：只可能来自本机 hosts 或局域网 mDNS。
+    if (!h.contains('.')) return true;
+    final match = RegExp(
+      r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$',
+    ).firstMatch(h);
+    if (match == null) return false;
+    final a = int.parse(match.group(1)!);
+    final b = int.parse(match.group(2)!);
+    return a == 10 ||
+        a == 127 ||
+        (a == 192 && b == 168) ||
+        (a == 172 && b >= 16 && b <= 31) ||
+        (a == 169 && b == 254);
+  }
+
   /// 给 `HttpClient.findProxy` 的返回值。
   String proxyFor(Uri uri) {
-    if (!enabled || isLocalHost(uri.host)) return 'DIRECT';
+    if (!enabled || isPrivateHost(uri.host)) return 'DIRECT';
     return 'PROXY 127.0.0.1:$bridgePort';
   }
 
@@ -367,8 +410,21 @@ class ProxyBridge {
   }
 
   void _tunnel(Socket client, _SocketReader clientReader, _Upstream upstream) {
-    var finished = 0;
+    // 两个方向各自泵数据；**任一方向结束就整条隧道拆掉**。
+    //
+    // ★ 不能等两边都结束才关。HTTPS 的实际流程是「客户端发完请求 →
+    //   上游回完响应后自己关连接」，此时客户端方向早就 EOF 过了。等它
+    //   「再结束一次」的话，客户端 Socket 会永远停在半开状态 —— 而 Dart
+    //   的 HttpClient 会把它当成健康的 keep-alive 连接放回连接池，下一次
+    //   请求写进这条死管道后永远等不到响应。
+    //
+    //   实测：运行时组件下载正是这样卡在第二个 wheel（urllib3）上的 ——
+    //   进度条停在那里不动，界面上看不出是下载还是卡死。应用层的任何
+    //   超时都救不了，因为连接看上去是「健康」的。
+    var closed = false;
     void closeAll() {
+      if (closed) return;
+      closed = true;
       try {
         client.destroy();
       } catch (_) {}
@@ -377,21 +433,15 @@ class ProxyBridge {
       } catch (_) {}
     }
 
-    void onDirectionDone() {
-      finished++;
-      if (finished >= 2) closeAll();
-    }
-
-    // 两个方向各自泵数据，任一侧先结束都不动另一侧（见 pipeTo 的注释）。
     unawaited(
-      clientReader
-          .pipeTo(upstream.socket, closeDestination: false)
-          .whenComplete(onDirectionDone),
+      clientReader.pipeTo(upstream.socket, closeDestination: false).whenComplete(
+        closeAll,
+      ),
     );
     unawaited(
-      upstream.reader
-          .pipeTo(client, closeDestination: false)
-          .whenComplete(onDirectionDone),
+      upstream.reader.pipeTo(client, closeDestination: false).whenComplete(
+        closeAll,
+      ),
     );
   }
 
@@ -739,6 +789,12 @@ class _SocketReader {
     if (wake != null && !wake.isCompleted) wake.complete();
   }
 
+  /// 等到下一次「有新数据 / EOF / 错误」。
+  ///
+  /// [_wakeUp] 在没有等待者时会直接丢弃信号（`_wake` 被置空）。因此调用方
+  /// 只能在自己**确实需要更多数据**时才调用这里；缓冲里已有的数据必须先处理。
+  /// `readExact` / `readUntil` 是「不够才等」，没有问题；`pipeTo` 必须按
+  /// 「先取后等」的循环写，否则会丢唤醒（见该方法注释）。
   Future<void> _wait() {
     if (_done) return Future.value();
     final wake = _wake;
@@ -882,22 +938,26 @@ class _SocketReader {
     Socket destination, {
     bool closeDestination = true,
   }) async {
-    if (_buffer.isNotEmpty) {
-      destination.add(Uint8List.fromList(_buffer));
-      _buffer.clear();
-      try {
-        await destination.flush();
-      } catch (_) {}
-    }
-    while (!_done) {
-      await _wait();
+    // ★ 必须先取缓冲、再等下一条数据，顺序不能反。
+    //
+    // `_wakeUp()` 只在恰好有等待者时传递信号：按「等 → 取」写的话，数据若在
+    // `destination.flush()` 期间到达，`_wakeUp()` 会因 `_wake == null` 被丢弃，
+    // 随后的 `_wait()` 又看不到缓冲里已有的这段数据，只能等对端再发下一次 ——
+    // 两边互等，隧道永久停住。HTTPS 的表现就是 CONNECT 回 200 后 TLS 握手卡死。
+    //
+    // 同时这也保证 EOF 前的最后一包不会丢：`while (!_done)` 的老写法在 flush
+    // 期间收到 `onDone` 会直接退出，缓冲里那一段再没机会发出去。
+    while (true) {
       if (_buffer.isNotEmpty) {
         destination.add(Uint8List.fromList(_buffer));
         _buffer.clear();
         try {
           await destination.flush();
         } catch (_) {}
+        continue;
       }
+      if (_done) break;
+      await _wait();
     }
     if (_error != null) {
       try {

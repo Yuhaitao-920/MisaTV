@@ -136,20 +136,10 @@ String _tmdbCredentialLabel(String apiKey, String readToken) {
   return filled ? ' · TMDB 凭据无法识别' : ' · TMDB 未配置';
 }
 
-String _artworkSourceLabel(String raw) =>
-    switch (normalizeArtworkPriority(raw)) {
-      'tmdb' => 'TMDB',
-      'imdb' => 'IMDb',
-      _ => '豆瓣',
-    };
-
 Future<void> _openArtworkSettings(BuildContext context, AppState app) async {
   final result = await showDialog<_ArtworkConfig>(
     context: context,
     builder: (_) => _ArtworkSettingsDialog(
-      initialPriority: normalizeArtworkPriority(
-        app.playerSettings.artworkPriority,
-      ),
       initialKey: app.playerSettings.tmdbApiKey,
       initialToken: app.playerSettings.tmdbReadToken,
     ),
@@ -157,19 +147,17 @@ Future<void> _openArtworkSettings(BuildContext context, AppState app) async {
   if (result == null) return;
   await app.setPlayerSettings(
     app.playerSettings.copyWith(
-      artworkPriority: result.priority,
       tmdbApiKey: result.key,
       tmdbReadToken: result.token,
     ),
   );
   if (context.mounted) {
-    _settingsSnack(context, '封面来源已保存：${_artworkSourceLabel(result.priority)}');
+    _settingsSnack(context, 'TMDB 封面凭据已保存');
   }
 }
 
 class _ArtworkConfig {
-  const _ArtworkConfig(this.priority, this.key, this.token);
-  final String priority;
+  const _ArtworkConfig(this.key, this.token);
 
   /// v3 API Key（走 query）与 v4 Read Access Token（走 Authorization 头）。
   final String key;
@@ -275,12 +263,10 @@ class _BossKeyDialogState extends State<_BossKeyDialog> {
 
 class _ArtworkSettingsDialog extends StatefulWidget {
   const _ArtworkSettingsDialog({
-    required this.initialPriority,
     required this.initialKey,
     this.initialToken = '',
   });
 
-  final String initialPriority;
   final String initialKey;
   final String initialToken;
 
@@ -289,8 +275,6 @@ class _ArtworkSettingsDialog extends StatefulWidget {
 }
 
 class _ArtworkSettingsDialogState extends State<_ArtworkSettingsDialog> {
-  late String _priority = widget.initialPriority;
-
   /// 旧版本只有一个输入框；把粘在里面的令牌摆回令牌框，用户一眼看得懂。
   late final TmdbCredential _initial = TmdbCredential.resolve(
     apiKey: widget.initialKey,
@@ -372,7 +356,7 @@ class _ArtworkSettingsDialogState extends State<_ArtworkSettingsDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('横图封面来源'),
+      title: const Text('TMDB 封面'),
       content: SizedBox(
         width: 660,
         child: SingleChildScrollView(
@@ -380,40 +364,10 @@ class _ArtworkSettingsDialogState extends State<_ArtworkSettingsDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '沉浸观影的海报轮播、详情页背景与卡片都优先使用横图。'
-                '找不到横图时会自动尝试下一个来源，最后回落到源里的竖版海报。',
+                '横图封面固定优先使用 TMDB：先取高分辨率 backdrop，'
+                '没有横图时再用剧照；未配置凭据或 TMDB 未命中时，'
+                '自动回落到豆瓣 / B站 / IMDb / 360。',
                 style: theme.textTheme.bodySmall?.copyWith(height: 1.6),
-              ),
-              const SizedBox(height: 16),
-              Text('优先来源', style: theme.textTheme.labelMedium),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final item in const [
-                    ('douban', '豆瓣'),
-                    ('tmdb', 'TMDB'),
-                    ('imdb', 'IMDb'),
-                  ])
-                    ChoiceChip(
-                      label: Text(item.$2),
-                      selected: _priority == item.$1,
-                      onSelected: (_) => setState(() => _priority = item.$1),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _priority == 'douban'
-                    ? '豆瓣：按片名查条目后取剧情剧照里最宽的一张；无需配置。'
-                    : (_priority == 'tmdb'
-                          ? 'TMDB：优先使用 backdrop 横图；需要 API Key 或 v4 Token，未填写时会自动回落到其它来源。'
-                          : 'IMDb：自动查 IMDb 公开图库的剧照；无需登录，也不会出现“配置完没有封面”。'),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.60),
-                  height: 1.5,
-                ),
               ),
               const SizedBox(height: 16),
               Text('TMDB 凭据（填一个即可）', style: theme.textTheme.labelMedium),
@@ -594,7 +548,6 @@ class _ArtworkSettingsDialogState extends State<_ArtworkSettingsDialog> {
           onPressed: _canSave
               ? () => Navigator.of(context).pop(
                   _ArtworkConfig(
-                    _priority,
                     _keyCredential.kind == TmdbCredentialKind.apiKey
                         ? _keyCredential.value
                         : '',
@@ -715,7 +668,7 @@ String _driveAccountsSubtitle(AppState app) {
           entry.value,
     ];
     return stale.isEmpty
-        ? '未登录 · 点击扫码或粘贴 Cookie 配置夸克 / UC / 百度 / 115 / 哔哩'
+        ? '未登录 · 点击扫码或粘贴 Cookie/Token 配置夸克 / UC / 百度 / 115 / 哔哩 / 迅雷 / 光鸭'
         : '${stale.join(' / ')} 登录已失效，点击重新配置';
   }
   final usernames = [

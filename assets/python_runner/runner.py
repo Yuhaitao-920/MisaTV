@@ -22,12 +22,15 @@ import sys
 import traceback
 import inspect
 import base64
+import threading
 
 # ---- 1. sys.path 注入（必须在 import 第三方库/脚本之前） ----
 def _dir_of(p):
     return os.path.dirname(os.path.abspath(p))
 
-RUNNER_DIR = _dir_of(sys.argv[0])
+# 以 runner.py 自身位置为准：桌面端是 `python runner.py`（argv[0] = 脚本路径），
+# 安卓端是 Chaquopy 从应用私有目录 `import runner`，两种情况下 __file__ 都指向本文件。
+RUNNER_DIR = _dir_of(__file__)
 PY_DIR = RUNNER_DIR  # embed 包：runner.py 与 python.exe 同目录
 # runner 落盘目录即为 embed 根目录（python.exe + python311.zip + Lib/ + base/ 同层），
 # 因此把 PY_DIR 本身加入 sys.path 即可让 `import base.spider`（base/ 子目录）命中；
@@ -234,11 +237,13 @@ def _serialize(result, real_out=_REAL_OUT):
 #   源脚本的 init(ext) 可能要解析配置/建会话，每请求重建会让首次与后续都变慢；
 #   这里缓存实例复用；同一键并发时各自新建（Python 无锁，够用）。
 _INSTANCES = {}
+_INSTANCE_LOCK = threading.Lock()
 
 
-def _acquire(ns, class_name, ext):
-    key = (class_name, ext or '')
-    sp = _INSTANCES.pop(key, None)
+def _acquire(ns, py_path, class_name, ext):
+    key = (os.path.abspath(py_path), class_name, ext or '')
+    with _INSTANCE_LOCK:
+        sp = _INSTANCES.pop(key, None)
     if sp is None:
         sp = _new_instance(ns, class_name)
         try:
@@ -251,9 +256,176 @@ def _acquire(ns, class_name, ext):
 def _release(key, sp, broken):
     if broken:
         return
-    if len(_INSTANCES) > 64:
+    with _INSTANCE_LOCK:
+        if len(_INSTANCES) > 64:
+            _INSTANCES.clear()
+        _INSTANCES[key] = sp
+
+
+# ---- 进程内入口（Android / Chaquopy） ------------------------------------------
+# 与 -serve / --hold 共用 _call_method，但结果通过返回值交给宿主，不写 stdout：
+# 进程内 stdout 是 Logcat，不能当协议通道。异常一律转成 {"ok": false, "error": ...}，
+# 让 Dart 侧继续复用桌面进程版的错误归类逻辑。
+
+_SCRIPT_CACHE = {}
+_SCRIPT_LOCK = threading.Lock()
+_HOLDS = {}
+_HOLD_LOCK = threading.Lock()
+
+
+def _load_script_cached(py_path):
+    """同一脚本按 mtime 缓存编译结果；脚本被替换后清掉旧实例（类还是旧代码）。"""
+    path = os.path.abspath(py_path)
+    mtime = os.path.getmtime(path)
+    with _SCRIPT_LOCK:
+        cached = _SCRIPT_CACHE.get(path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+    ns = _load_script(path)
+    with _SCRIPT_LOCK:
+        _SCRIPT_CACHE[path] = (mtime, ns)
+        with _INSTANCE_LOCK:
+            for key in [k for k in _INSTANCES if k[0] == path]:
+                _INSTANCES.pop(key, None)
+    return ns
+
+
+def _error_text(error):
+    detail = ''.join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+    return '[SpiderRunner.ERROR] %s: %s\n%s' % (
+        type(error).__name__,
+        error,
+        detail,
+    )
+
+
+def _ok(data):
+    return json.dumps({'ok': True, 'data': data}, ensure_ascii=False)
+
+
+def _fail_envelope(error):
+    return json.dumps(
+        {'ok': False, 'error': _error_text(error)},
+        ensure_ascii=False,
+    )
+
+
+def _args_of(args_json):
+    try:
+        args = json.loads(args_json) if args_json else []
+    except (ValueError, TypeError):
+        args = []
+    if not isinstance(args, list):
+        args = [args]
+    return [str(a) for a in args]
+
+
+def inproc_call(script, class_name, method, ext, args_json):
+    """进程内一次性调用：返回 JSON 信封。"""
+    try:
+        path = os.path.abspath(str(script))
+        if not os.path.exists(path):
+            raise SystemExit('pyPath 不存在：%s' % path)
+        ns = _load_script_cached(path)
+        key, sp = _acquire(ns, path, str(class_name), str(ext or ''))
+        broken = False
+        try:
+            data = _serialize_raw(
+                _call_method(sp, str(method), _args_of(args_json))
+            )
+        except BaseException:
+            broken = True
+            raise
+        finally:
+            if broken:
+                # 失败实例不回收：脚本可能已经起了本机取流线程，先尽量关掉。
+                _destroy_instance(sp)
+            else:
+                _release(key, sp, False)
+        return _ok(data)
+    except BaseException as error:
+        return _fail_envelope(error)
+
+
+def inproc_hold(key, script, class_name, method, ext, args_json):
+    """常驻一次播放调用：结果返回后实例留在 _HOLDS，脚本的本机取流线程继续活着。"""
+    try:
+        path = os.path.abspath(str(script))
+        if not os.path.exists(path):
+            raise SystemExit('pyPath 不存在：%s' % path)
+        ns = _load_script_cached(path)
+        sp = _new_instance(ns, str(class_name))
+        try:
+            sp.init(str(ext or ''))
+        except (AttributeError, TypeError):
+            pass
+        try:
+            data = _serialize_raw(
+                _call_method(sp, str(method), _args_of(args_json))
+            )
+        except BaseException:
+            _destroy_instance(sp)
+            raise
+        hold_key = str(key or 'default')
+        with _HOLD_LOCK:
+            old = _HOLDS.pop(hold_key, None)
+            _HOLDS[hold_key] = sp
+        if old is not None:
+            _destroy_instance(old)
+        return _ok(data)
+    except BaseException as error:
+        return _fail_envelope(error)
+
+
+def inproc_held_call(key, method, args_json):
+    with _HOLD_LOCK:
+        sp = _HOLDS.get(str(key or 'default'))
+    if sp is None:
+        return _fail_envelope(RuntimeError('常驻蜘蛛实例不存在或已释放'))
+    try:
+        data = _serialize_raw(_call_method(sp, str(method), _args_of(args_json)))
+        return _ok(data)
+    except BaseException as error:
+        return _fail_envelope(error)
+
+
+def _destroy_instance(sp):
+    for name in ('destroy', 'close'):
+        fn = getattr(sp, name, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                pass
+            return
+
+
+def inproc_release(key):
+    with _HOLD_LOCK:
+        sp = _HOLDS.pop(str(key or 'default'), None)
+    if sp is not None:
+        _destroy_instance(sp)
+    return _ok('')
+
+
+def inproc_release_all():
+    with _HOLD_LOCK:
+        holds = list(_HOLDS.values())
+        _HOLDS.clear()
+    for sp in holds:
+        _destroy_instance(sp)
+    return _ok('')
+
+
+def inproc_reset():
+    inproc_release_all()
+    with _SCRIPT_LOCK:
+        _SCRIPT_CACHE.clear()
+    with _INSTANCE_LOCK:
         _INSTANCES.clear()
-    _INSTANCES[key] = sp
+    return _ok('')
 
 
 def _serve(py_path, class_name):
@@ -288,11 +460,11 @@ def _serve(py_path, class_name):
                 ok = True
                 data = ''
             elif method == '__warm__':
-                key, sp = _acquire(ns, class_name, rest[0] if rest else '')
+                key, sp = _acquire(ns, py_path, class_name, rest[0] if rest else '')
                 _release(key, sp, False)
                 ok = True
             else:
-                key, sp = _acquire(ns, class_name, rest[0] if len(rest) > 0 else '')
+                key, sp = _acquire(ns, py_path, class_name, rest[0] if len(rest) > 0 else '')
                 broken = False
                 try:
                     data = _serialize_raw(_call_method(sp, method, rest[1:] if len(rest) > 1 else []))

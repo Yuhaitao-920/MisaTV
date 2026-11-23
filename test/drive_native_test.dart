@@ -83,14 +83,17 @@ void main() {
       expect(looksLikeUcShare(text), isTrue);
     });
 
-    test('FTY 复合集地址只在 UC 线路解释', () {
+    test('FTY 复合集地址按结构识别，不依赖线路名', () {
       const fid = '0123456789abcdef0123456789abcdef';
       const sid = 'abcdefghij0123456789';
       const text =
           '第6集__$fid+$sid+0123456789abcdef0123456789abcdef';
       expect(extractUcShare(text, flag: 'UC网盘')?.pwdId, sid);
       expect(extractUcShare(text, flag: 'UC')?.fileId, fid);
-      expect(extractUcShare(text, flag: '夸克'), isNull);
+      // 「夸克无限」线路实际会下发 UC 复合串（真机日志），必须照 UC 解析。
+      expect(extractUcShare(text, flag: '夸克无限#2')?.pwdId, sid);
+      expect(looksLikeUcShare(text, flag: '夸克无限#2'), isTrue);
+      expect(looksLikeUcCompound(text), isTrue);
     });
   });
 }

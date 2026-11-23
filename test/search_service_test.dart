@@ -441,6 +441,60 @@ void main() {
     });
   });
 
+  group('搜索轮次预算', () {
+    test('超过预算先收口，保留已返回结果并标记 timedOut', () async {
+      final js = _SlowJsSpider(
+        ['s1', 's2'],
+        delay: const Duration(milliseconds: 300),
+      );
+      final service = SearchService(
+        SourceService(
+          CmsSource(AppHttp()),
+          js,
+          PySpiderService(),
+          JarSpiderService(),
+        ),
+        roundBudget: const Duration(milliseconds: 50),
+      );
+      final sites = [
+        for (final key in ['s1', 's2'])
+          SourceBean(key: key, name: key, type: 3, api: 'https://e.com/$key.js'),
+      ];
+
+      final events = await service.search('片', sites).toList();
+      final last = events.last;
+      expect(last.finished, isTrue);
+      expect(last.timedOut, isTrue);
+      expect(last.items, isEmpty);
+    });
+
+    test('打开详情时取消当前轮次，立即收口', () async {
+      final js = _SlowJsSpider(
+        ['s1', 's2'],
+        delay: const Duration(milliseconds: 300),
+      );
+      final service = SearchService(
+        SourceService(
+          CmsSource(AppHttp()),
+          js,
+          PySpiderService(),
+          JarSpiderService(),
+        ),
+      );
+      final sites = [
+        for (final key in ['s1', 's2'])
+          SourceBean(key: key, name: key, type: 3, api: 'https://e.com/$key.js'),
+      ];
+
+      final future = service.search('片', sites).toList();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      service.cancelActiveRound();
+      final events = await future;
+      expect(events.last.finished, isTrue);
+      expect(events.last.timedOut, isTrue);
+    });
+  });
+
   group('蜘蛛池并发', () {
     test('多个蜘蛛源同时发出，总耗时接近最慢的一个而不是累加', () async {
       const keys = ['s1', 's2', 's3', 's4', 's5'];

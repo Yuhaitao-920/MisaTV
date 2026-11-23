@@ -1128,6 +1128,7 @@ class _LiveEditDialogState extends State<_LiveEditDialog> {
         header: live.header,
         // 用户填了就覆盖订阅自带值；留空则沿用原值。
         ua: _ua.text.trim().isEmpty ? live.ua : _ua.text.trim(),
+        core: live.core,
       ),
     );
   }
@@ -1954,4 +1955,3 @@ class _KindBadge extends StatelessWidget {
     );
   }
 }
-

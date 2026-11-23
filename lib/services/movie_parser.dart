@@ -331,7 +331,17 @@ class MovieParser {
 
   static VodDetail? toDetail(CmsMovie? movie, String sourceKey) {
     if (movie == null || movie.videos.isEmpty) return null;
-    final v = movie.videos.first;
+    // 网盘型加固源会在 detailContent 里直接返回一组 `vod_tag=folder`
+    // 子目录（如「夸克网盘 51」）。它们不是可播条目，不能只取第一条
+    // 当详情，否则页面只剩「暂无选集」。
+    final folders = <VodItem>[
+      for (final item in movie.videos)
+        if (_isFolderTag(item.tag)) toItem(item, sourceKey),
+    ];
+    final playable = movie.videos
+        .where((item) => !_isFolderTag(item.tag))
+        .toList();
+    final v = playable.isNotEmpty ? playable.first : movie.videos.first;
     final flags = <String>[];
     final episodes = <String, List<Episode>>{};
     for (final item in v.urlFlags) {
@@ -353,8 +363,14 @@ class MovieParser {
       remarks: v.note,
       flags: flags,
       episodes: episodes,
+      folders: folders,
       sourceKey: sourceKey,
     );
+  }
+
+  static bool _isFolderTag(String tag) {
+    final value = tag.trim().toLowerCase();
+    return value == '1' || value == 'folder';
   }
 
   static List<Episode> parseEpisodes(String urls) {

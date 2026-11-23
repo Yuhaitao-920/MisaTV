@@ -19,6 +19,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../../core/logging/app_log.dart';
 import 'drive_descriptor.dart';
 import 'quark_session_io.dart' show mergeSetCookies, sanitizeCookie;
 
@@ -353,6 +354,12 @@ String extractBaiduInnerName(String text) {
 /// 百度接口 errno → 人话。
 String baiduErrnoText(int errno) {
   if (errno == -6) return '百度登录态失效，请到「配置→网盘绑定」重新扫码绑定百度';
+  // ★ -7 = 「链接出错了」：分享 id 不存在，或者 shareId / uk 两段弄反了。
+  //   实测对照（同一 cookie、同一签名）：
+  //     shareId=67698425202  uk=1100830236519 → errno=-9（提取码验证失败 → 分享存在）
+  //     shareId=1100830236519 uk=67698425202  → errno=-7（分享不存在）
+  //   所以看到 -7 先怀疑段序，不要当成「分享被删」。
+  if (errno == -7) return '分享参数不匹配（shareId/uk 段序或 seKey 不对）';
   if (errno == -9) return '分享需要提取码（该线路未携带提取码）';
   if (errno == -12 || errno == 200025) return '提取码错误';
   if (errno == 105) return '分享链接不正确';
@@ -487,6 +494,27 @@ Future<NativeDriveLink> _directFile(BaiduSharedFile file, String cookie) {
   return _trySharedDirectLink(file, cookie);
 }
 
+/// 同一份凭据可能把 `shareId` / `uk` 两段装反。
+///
+/// 实测（2026-11-14 ~ 11-17 日志，共 20 次 `errno=-7`）：
+///   · CAT 系壳 `++` 串实测是 `shareId ++ uk …`（shareId=67698425202、
+///     uk=1100830236519，反着填 → -7）；
+///   · 而 wex 系嵌套信封短键是 `a=uk, c=shareId`（实测样本
+///     `a=271762599896626`、`c=3576627086`）。
+/// 两种壳都真实存在，光看位数分不清（都出现过 10/13/15 位）。
+/// 所以两条顺序都试：第一次 -7 就换过来再打一次，只多一个请求。
+List<({String shareId, String uk})> baiduShareIdOrders(
+  String shareId,
+  String uk,
+) {
+  final first = (shareId: shareId, uk: uk);
+  if (shareId == uk) return <({String shareId, String uk})>[first];
+  return <({String shareId, String uk})>[
+    first,
+    (shareId: uk, uk: shareId),
+  ];
+}
+
 /// 只读分享取链：不创建目录、不转存、不登记清理；分享者 fs_id 必须精确命中。
 Future<NativeDriveLink> _trySharedDirectLink(
   BaiduSharedFile file,
@@ -516,13 +544,64 @@ Future<NativeDriveLink> _trySharedDirectLink(
     return NativeDriveLink.failed('百度账号 uid 获取失败');
   }
 
+  // ★ 分享 id / uk 段序两种壳不一致，第一次 -7 就换过来再试一次。
+  String? lastReason;
+  for (final order in baiduShareIdOrders(file.shareId, file.uk)) {
+    final attempt = await _shareListOnce(
+      shareId: order.shareId,
+      uk: order.uk,
+      fsid: file.fsid,
+      sekey: file.sekey,
+      bduss: bduss,
+      uid: uid,
+      cookie: sharedCookie,
+    );
+    if (attempt.link != null) {
+      if (order.shareId != file.shareId) {
+        AppLog.i(
+          'drive',
+          '百度分享参数按 uk/shareId 反序命中：shareId=${order.shareId} uk=${order.uk}',
+        );
+      }
+      return attempt.link!;
+    }
+    lastReason = attempt.reason;
+    // 只有「分享不存在」这一类才值得换序重试；其它错误（限流/风控/过期）换序也没用。
+    if (!attempt.retryable) break;
+  }
+  return NativeDriveLink.failed(lastReason ?? '分享接口未返回有效下载地址');
+}
+
+/// 一次 `share/list` 尝试的结果。
+class _ShareListAttempt {
+  const _ShareListAttempt({this.link, this.reason = '', this.retryable = false});
+
+  final NativeDriveLink? link;
+  final String reason;
+
+  /// 值不值得换另一种段序重试（errno=-7 / 105 = 分享参数不对）。
+  final bool retryable;
+
+  static _ShareListAttempt retry(String reason) =>
+      _ShareListAttempt(reason: reason, retryable: true);
+}
+
+Future<_ShareListAttempt> _shareListOnce({
+  required String shareId,
+  required String uk,
+  required String fsid,
+  required String sekey,
+  required String bduss,
+  required String uid,
+  required String cookie,
+}) async {
   final time = DateTime.now().millisecondsSinceEpoch.toString();
   final uri = Uri.parse('https://pan.baidu.com/share/list').replace(
     queryParameters: <String, String>{
-      'shareid': file.shareId,
-      'uk': file.uk,
-      'fid': file.fsid,
-      'sekey': _rawSekey(file.sekey),
+      'shareid': shareId,
+      'uk': uk,
+      'fid': fsid,
+      'sekey': _rawSekey(sekey),
       'origin': 'dlna',
       'devuid': _shareDevice,
       'clienttype': '1',
@@ -532,31 +611,36 @@ Future<NativeDriveLink> _trySharedDirectLink(
       'rand': baiduShareRand(bduss, uid, time),
     },
   );
-  final result = await _shareGet(uri.toString(), sharedCookie);
+  final result = await _shareGet(uri.toString(), cookie);
   if (result == null) {
-    return NativeDriveLink.failed('签名分享接口不可用（HTTP 异常）');
+    return const _ShareListAttempt(reason: '签名分享接口不可用（HTTP 异常）');
   }
   final errno = _intOrNull(result.json['errno']);
+  if (errno == -7 || errno == 105) {
+    return _ShareListAttempt.retry(
+      '${baiduErrnoText(errno!)}（errno=$errno）',
+    );
+  }
   if (errno != null && errno != 0) {
-    return NativeDriveLink.failed('${baiduErrnoText(errno)}（errno=$errno）');
+    return _ShareListAttempt(reason: '${baiduErrnoText(errno)}（errno=$errno）');
   }
   final exact = <Map<Object?, Object?>>[];
   for (final raw in _listOf(result.json['list'])) {
     final item = _asMap(raw);
     if (item == null) continue;
-    if (_str(item['fs_id']) == file.fsid && _intOrNull(item['isdir']) == 0) {
+    if (_str(item['fs_id']) == fsid && _intOrNull(item['isdir']) == 0) {
       exact.add(item);
     }
   }
   if (errno == null || exact.length != 1) {
-    return NativeDriveLink.failed('分享接口未定位到所选文件');
+    return const _ShareListAttempt(reason: '分享接口未定位到所选文件');
   }
   final dlink = _str(exact.first['dlink']);
   if (!_httpUrlRe.hasMatch(dlink)) {
-    return NativeDriveLink.failed('分享接口未返回有效下载地址');
+    return const _ShareListAttempt(reason: '分享接口未返回有效下载地址');
   }
   final headers = <String, String>{
-    'Cookie': sharedCookie,
+    'Cookie': cookie,
     'User-Agent': _dlUa,
     'Referer': _ref,
   };
@@ -564,9 +648,11 @@ Future<NativeDriveLink> _trySharedDirectLink(
   // 否则播放器只会黑屏，也丢掉回退 jar 的机会。
   final invalid = await _probeSharedDirect(dlink, headers);
   if (invalid != null) {
-    return NativeDriveLink.failed('免转存直链不可用（$invalid）');
+    return _ShareListAttempt(reason: '免转存直链不可用（$invalid）');
   }
-  return NativeDriveLink(ok: true, url: dlink, headers: headers);
+  return _ShareListAttempt(
+    link: NativeDriveLink(ok: true, url: dlink, headers: headers),
+  );
 }
 
 /// Range 预探测（`bytes=0-0`）：必须 206 + `bytes 0-0/<总长>` + 非 text/json/xml。

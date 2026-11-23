@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 class AppTheme {
   /// 标题字体：MiSans（小米 HyperOS 默认字体，免费商用）。
   ///
-  /// 权重按 400/500/600/700/800 五档随包打进 assets，大字号标题观感挺括。
+  /// 随包只带 400/500/700 三个字重（每个 TTF 压缩后约 5.2 MB，5 档会让 APK
+  /// 多背约 10 MB）。代码里写到 600/800 的地方由字体匹配回退到最近字重，
+  /// 不再单独打包 Demibold / Heavy。
   static const String fontFamily = 'MiSans';
 
   /// MiSans 不含 emoji / 部分生僻符号，交给系统字体兜底。

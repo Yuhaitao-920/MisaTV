@@ -6,12 +6,16 @@ import '../models/vod.dart';
 import 'jar_spider/spider_failure.dart';
 import 'matching/search_query.dart';
 import 'matching/title_matching.dart';
+import 'search_round.dart';
 import 'source_circuit_breaker.dart';
 import 'source_service.dart';
 
 class SearchService {
-  SearchService(this.sourceService, {SourceCircuitBreaker? breaker})
-    : breaker = breaker ?? SourceCircuitBreaker();
+  SearchService(
+    this.sourceService, {
+    SourceCircuitBreaker? breaker,
+    this.roundBudget = _defaultRoundBudget,
+  }) : breaker = breaker ?? SourceCircuitBreaker();
   final SourceService sourceService;
 
   /// 源健康度：连续失败按阶梯冷却，成功一次自愈。
@@ -41,11 +45,22 @@ class SearchService {
   static const _cacheTtl = Duration(minutes: 5);
   static const _cacheMax = 300;
 
+  /// 一轮聚合搜索的硬预算：到点先收起界面并作废排队中的 JAR 调用。
+  /// 已返回的结果全部保留；只是不再等剩下的慢源，避免 100 个源排队几分钟。
+  static const _defaultRoundBudget = Duration(seconds: 35);
+  final Duration roundBudget;
+
   /// 同源同关键词的短期结果缓存：搜索页来回切关键词时不必重复打源站。
   final Map<String, _SearchCacheEntry> _cache = {};
 
   /// 搜索代际号：`search()` 每调用一次自增，旧代际的结果一律丢弃。
   int _generation = 0;
+
+  /// 当前这一轮的取消入口。打开详情 / 播放时调用 [cancelActiveRound]，
+  /// 让搜索立刻收口并释放正被搜索占用的 JAR host，避免详情取链排在搜索后面。
+  void Function()? _cancelActiveRound;
+
+  void cancelActiveRound() => _cancelActiveRound?.call();
 
   void clearCache() => _cache.clear();
 
@@ -81,13 +96,18 @@ class SearchService {
     // 而 cancel 回调与在途的源请求不是同步的 —— 旧搜索的 emit 仍可能在
     // 新搜索已经开始之后才到达。用代际号让旧搜索彻底闭嘴，而不是只靠布尔位。
     final generation = ++_generation;
+    _cancelActiveRound = null;
+    sourceService.beginSearchRound(generation);
     var cancelled = false;
     bool stale() => cancelled || generation != _generation;
     var closed = false;
     Timer? emitTimer;
+    Timer? budgetTimer;
     controller.onCancel = () {
       cancelled = true;
       emitTimer?.cancel();
+      budgetTimer?.cancel();
+      sourceService.cancelSearchRound(generation);
     };
     if (query.isEmpty || usable.isEmpty) {
       controller.add(
@@ -156,8 +176,9 @@ class SearchService {
       return [for (final row in ranked) row.item];
     }
 
-    void emit({required bool finished}) {
+    void emit({required bool finished, bool timedOut = false}) {
       if (stale() || closed) return;
+      if (finished) budgetTimer?.cancel();
       controller.add(
         SearchProgress(
           items: snapshot(),
@@ -166,6 +187,7 @@ class SearchService {
           done: done,
           total: usable.length,
           finished: finished,
+          timedOut: timedOut,
           filterSummary: parsed.filterSummary,
         ),
       );
@@ -213,14 +235,17 @@ class SearchService {
               ? (site.timeout + 15).clamp(20, 45)
               : site.timeout + 3;
           try {
-            rawItems = await sourceService
-                .search(site, query)
-                .timeout(Duration(seconds: timeoutSeconds));
+            // 轮次号放进 Zone：JAR 蜘蛛在排队起 JVM 前会比对当前轮次，
+            // 新搜索 / 取消 / 预算到期后旧调用直接退出，不再后台跑几分钟。
+            rawItems = await runZoned(
+              () => sourceService.search(site, query),
+              zoneValues: {searchRoundZoneKey: generation},
+            ).timeout(Duration(seconds: timeoutSeconds));
           } catch (e) {
             // 只有真正打到源站失败才计入健康度；本地处理异常不背这个锅。
             // 已过期 / 被取消的搜索也不能写健康度：它可能属于上一轮用户已放弃
             // 的关键词，污染熔断器会让该源在后续正常搜索里被误判为冷却中。
-            if (!stale()) {
+            if (e is! SearchCancelledException && !stale()) {
               breaker.recordFailure(healthKey, e);
               onHealthChanged?.call();
             }
@@ -279,6 +304,7 @@ class SearchService {
               '${items.isEmpty ? '空' : '${items.length} 条'} ${ms}ms',
         );
       } catch (e) {
+        if (e is SearchCancelledException) return;
         if (stale()) return;
         final ms = DateTime.now().millisecondsSinceEpoch - started;
         // 原始错误常常是英文堆栈或一句「常驻蜘蛛调用失败」，用户看不出该做什么。
@@ -382,6 +408,25 @@ class SearchService {
       final count = pool.length < concurrency ? pool.length : concurrency;
       await Future.wait([for (var i = 0; i < count; i++) worker()]);
     }
+
+    // 硬预算：到点先让界面收口，并作废 JAR 队列里还没开始的调用。
+    // 已返回的结果全部保留，只是不再等剩下的慢源（100 个源排队几分钟的根因）。
+    budgetTimer = Timer(roundBudget, () {
+      if (stale() || closed) return;
+      AppLog.i(
+        'search',
+        '搜索达到 ${roundBudget.inSeconds}s 预算，先收起已返回结果（剩余源不再等待）',
+      );
+      sourceService.cancelSearchRound(generation);
+      emit(finished: true, timedOut: true);
+    });
+
+    _cancelActiveRound = () {
+      if (stale() || closed) return;
+      AppLog.i('search', '打开详情 / 播放，取消本轮剩余搜索');
+      sourceService.cancelSearchRound(generation);
+      emit(finished: true, timedOut: true);
+    };
 
     unawaited(() async {
       // CMS 与蜘蛛**同时**启动。

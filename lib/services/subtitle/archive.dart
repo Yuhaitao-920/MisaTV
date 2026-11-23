@@ -1,10 +1,18 @@
-/// 字幕压缩包解压（zip / gz）。
+/// 字幕压缩包解压（zip / gz / rar / 7z / bz2）。
 ///
 /// 移植自旧版 `src/main/subtitle/archive.ts`。旧版 rar/7z/bz2 依赖 wasm，
-/// Flutter 侧不引入额外依赖，因此这三种格式明确不支持并抛出中文原因。
+/// 早期 Flutter 侧没有可用实现，于是这三种格式明确不支持并抛中文原因 ——
+/// 但 assrt 上大量字幕就是 `.rar`（实测 id=733904「人性本兽 Animals 2026」
+/// 整包是 rar，内含 4 个 srt），「请手动解压」对用户是死路。
+///
+/// 现在 ZIP / GZ 走 `archive` 包（同步），RAR / 7Z / BZ2 走 `koni_archive`
+/// （纯 Dart，无 FFI、无原生依赖，Windows 可用）。
 library;
 
-import 'package:archive/archive.dart';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart' show GZipDecoder, ZipDecoder;
+import 'package:koni_archive/io.dart' as koni;
 
 import 'pick_entry.dart';
 import 'subtitle_models.dart';
@@ -20,7 +28,16 @@ extension ArchiveKindX on ArchiveKind {
     ArchiveKind.bz2 => 'BZ2',
   };
 
-  bool get supported => this == ArchiveKind.zip || this == ArchiveKind.gz;
+  /// 走同步路径（`archive` 包）还是异步路径（`koni_archive`）。
+  ///
+  /// zip / gz 用既有的 `archive` 包（同步、零依赖、已有测试覆盖）。
+  /// rar / 7z / bz2 交给 `koni_archive` —— 纯 Dart 实现，无原生依赖，
+  /// Windows 可用（`rar` / `flutter_rar` / `unrar` 这几个包是 FFI 或
+  /// 平台插件，桌面端拿不到）。
+  bool get supported => true;
+
+  /// 需要 `koni_archive` 异步解包的格式。
+  bool get needsKoni => this != ArchiveKind.zip && this != ArchiveKind.gz;
 }
 
 /// 归档类型识别（魔数；非归档返回 null）。允许短字节数组。
@@ -60,14 +77,18 @@ class ArchiveEntry extends PickableEntry {
 
 /// 解出归档内的全部文件条目（目录项剔除）。
 ///
-/// zip/gz 解不出来时返回空数组（调用方给出可读原因），绝不抛错；
-/// rar/7z/bz2 明确不支持，抛 [SubtitleException]。
+/// zip / gz 走同步路径（`archive` 包）；rar / 7z / bz2 走
+/// [extractArchiveEntriesAsync]（`koni_archive`，纯 Dart）。
+///
+/// **同步入口只处理 zip/gz**。遇到 rar/7z/bz2 会抛 [SubtitleException]，
+/// 提示调用方改用异步版本 —— 这是为了避免为了异步能力把整条字幕链路改成
+/// `Future`（会牵连 5 个调用点和一堆测试）。
 List<ArchiveEntry> extractArchiveEntries(List<int> bytes) {
   final kind = detectArchiveKind(bytes);
   if (kind == null) return const <ArchiveEntry>[];
-  if (!kind.supported) {
+  if (kind.needsKoni) {
     throw SubtitleException(
-      '暂不支持解压 ${kind.label} 压缩包，请手动解压后选择字幕文件',
+      '${kind.label} 压缩包需要异步解包，请用 extractArchiveEntriesAsync',
     );
   }
   try {
@@ -76,6 +97,51 @@ List<ArchiveEntry> extractArchiveEntries(List<int> bytes) {
   } catch (_) {
     return const <ArchiveEntry>[];
   }
+}
+
+/// 解出归档内的全部文件条目（异步版，支持 ZIP / GZ / RAR / 7Z / BZ2）。
+///
+/// 为什么需要异步：assrt 上大量字幕以 `.rar` 发布（实测 id=733904
+/// 「人性本兽 Animals 2026」整包就是 rar，内含 4 个 srt）。原先
+/// 「暂不支持解压 RAR 压缩包，请手动解压」的提示对用户是死路。
+///
+/// `koni_archive` 是纯 Dart 的 RAR4/RAR5/7z 读取器，无 FFI、无原生依赖，
+/// Windows 桌面可用（`rar` / `flutter_rar` / `unrar` 那几个包是 FFI 或
+/// 平台插件，桌面端拿不到）。
+Future<List<ArchiveEntry>> extractArchiveEntriesAsync(List<int> bytes) async {
+  final kind = detectArchiveKind(bytes);
+  if (kind == null) return const <ArchiveEntry>[];
+  if (!kind.needsKoni) return extractArchiveEntries(bytes);
+
+  koni.Archive? archive;
+  try {
+    archive = await koni.Archive.openBytes(Uint8List.fromList(bytes));
+    final out = <ArchiveEntry>[];
+    for (final e in archive.entries) {
+      if (e.type != koni.ArchiveEntryType.file) continue;
+      if (e.path.endsWith('/')) continue;
+      // 上限：字幕包正常几十 KB ~ 几 MB；给 64MB 兜住异常膨胀的包。
+      if (e.uncompressedSize > 64 << 20) continue;
+      final data = await archive.readBytes(e, maxSize: 64 << 20);
+      if (data.isEmpty) continue;
+      out.add(ArchiveEntry(name: e.path, bytes: data));
+    }
+    return out;
+  } catch (e) {
+    throw SubtitleException(
+      '${kind.label} 压缩包解压失败：${_shortArchiveError(e)}',
+    );
+  } finally {
+    try {
+      await archive?.close();
+    } catch (_) {}
+  }
+}
+
+/// 异常压成一行（koni 的错误信息可能很长，直接塞进 UI 不合适）。
+String _shortArchiveError(Object e) {
+  final text = e.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  return text.length <= 120 ? text : '${text.substring(0, 120)}…';
 }
 
 List<ArchiveEntry> _zipEntries(List<int> bytes) {

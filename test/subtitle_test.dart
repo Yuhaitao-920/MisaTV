@@ -6,7 +6,6 @@ import 'dart:convert';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gbk_codec/gbk_codec.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kniephos/services/subtitle/subtitle.dart';
@@ -143,8 +142,11 @@ void main() {
       expect(SubtitleText.decode(bytes), '你好');
     });
 
-    test('非 UTF-8 → GB18030/GBK 兜底', () {
-      final bytes = gbk_bytes.encode('中文字幕测试');
+    // 用固定字节样本而不是 gbk 编码器现场生成：一是让这条用例不再依赖任何
+    // GBK 库的初始化（那正是偶发崩溃的来源），二是样本本身就是回归样本。
+    test('非 UTF-8 → GBK 兜底', () {
+      // “中文字幕测试”的 GBK 字节：D6D0 CEC4 D7D6 C4BB B2E2 CAD4
+      const bytes = [214, 208, 206, 196, 215, 214, 196, 187, 178, 226, 202, 212];
       expect(utf8.decode(bytes, allowMalformed: true), isNot('中文字幕测试'));
       expect(SubtitleText.decode(bytes), '中文字幕测试');
     });
@@ -244,14 +246,17 @@ void main() {
       expect(epOf('Show.第03集.mkv'), '3');
     });
 
-    test('rar/7z/bz2 明确不支持并给中文原因', () {
+    // 2026-11-16：RAR / 7Z / BZ2 现在通过 koni_archive 异步解包，
+    // 同步入口仍会抛（提示改用 async 版）—— 保留这条是为了钉住
+    // 「同步 API 不会静默返回空数组」这个契约。
+    test('rar/7z/bz2 走异步，同步入口明确提示', () {
       final rar = <int>[0x52, 0x61, 0x72, 0x21, 0, 0];
       expect(
         () => extractArchiveEntries(rar),
         throwsA(isA<SubtitleException>().having(
           (e) => e.message,
           'message',
-          contains('暂不支持解压 RAR'),
+          contains('需要异步解包'),
         )),
       );
       final sevenZip = <int>[

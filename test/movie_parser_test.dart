@@ -101,5 +101,27 @@ void main() {
       expect(items[1].year, '');
       expect(items[1].isFolder, isFalse);
     });
+
+    test('detailContent 返回多条 folder 目录时全部保留', () {
+      const json = '''
+      {
+        "list": [
+          {"vod_id": "quark-51", "vod_name": "夸克网盘 51", "vod_tag": "folder"},
+          {"vod_id": "baidu-2", "vod_name": "百度网盘 2", "vod_tag": "folder"}
+        ]
+      }
+      ''';
+      final detail = MovieParser.toDetail(
+        MovieParser.parseJson(json).movie,
+        'src',
+      );
+      expect(detail, isNotNull);
+      expect(detail!.folders.length, 2);
+      expect(detail.folders.first.id, 'quark-51');
+      expect(detail.folders.last.name, '百度网盘 2');
+      expect(detail.folders.every((folder) => folder.isFolder), isTrue);
+      expect(detail.flags, isEmpty);
+      expect(detail.episodes, isEmpty);
+    });
   });
 }

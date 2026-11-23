@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/logging/app_log.dart';
 import '../core/logging/log_redact.dart';
-import '../core/net/download_mirrors.dart';
+import '../core/net/github_proxy.dart';
+import 'update/update_service.dart';
 
 /// 管理 Yaozhil/mpv-Yaozhi 整合包：按需下载、解压、外部播放。
 class MpvExtension {
@@ -18,21 +19,72 @@ class MpvExtension {
   static const _api =
       'https://api.github.com/repos/Yaozhil/mpv-Yaozhi/releases/latest';
 
-  /// GitHub 在国内经常超时：API 与资源都准备直连 + 加速代理多条线路，先测速再下。
-  static const _apiMirrors = <String>[
-    _api,
-    'https://gh-proxy.com/https://api.github.com/repos/Yaozhil/mpv-Yaozhi/releases/latest',
-    'https://ghfast.top/https://api.github.com/repos/Yaozhil/mpv-Yaozhi/releases/latest',
-  ];
-
-  static const _ghProxies = <String>[
-    'https://ghfast.top/',
-    'https://gh-proxy.com/',
-    'https://ghproxy.net/',
-  ];
-
   String? _exePath;
   Map<String, String> _meta = const {};
+  Map<String, dynamic>? _latest;
+  DateTime? _latestAt;
+
+  /// 拉取最新 release（gh-proxy 优先）。5 分钟内复用缓存，避免进设置页就重复请求。
+  Future<Map<String, dynamic>?> latestRelease({bool force = false}) async {
+    final cached = _latest;
+    final at = _latestAt;
+    if (!force &&
+        cached != null &&
+        at != null &&
+        DateTime.now().difference(at) < const Duration(minutes: 5)) {
+      return cached;
+    }
+    final client = http.Client();
+    try {
+      for (final api in ghProxyCandidates(_api)) {
+        try {
+          final response = await client.get(
+            Uri.parse(api),
+            headers: const {
+              'User-Agent': 'MisaTV/0.1',
+              'Accept': 'application/vnd.github+json',
+            },
+          );
+          if (response.statusCode != 200) continue;
+          final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+          if (decoded is Map) {
+            final data = Map<String, dynamic>.from(decoded);
+            _latest = data;
+            _latestAt = DateTime.now();
+            return data;
+          }
+        } catch (e) {
+          AppLog.w('mpv', '获取版本信息失败（$api）：$e');
+        }
+      }
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
+  /// 已安装版本是否落后于仓库最新 release。
+  ///
+  /// 只用于设置页显示「更新」按钮；不强制、不弹提醒。mpv-Yaozhi 的 tag 形如
+  /// `mpv-Yaozhi（1.1.3-1）`，所以优先抽取其中的数字版本再比较。
+  Future<bool> get hasUpdate async {
+    if (!Platform.isWindows || !await isInstalled) return false;
+    final latest = await latestRelease();
+    final latestTag = (latest?['tag_name'] ?? '').toString().trim();
+    if (latestTag.isEmpty) return false;
+    final installedTag = ((await meta)['tag'] ?? '').trim();
+    if (installedTag.isEmpty) return true;
+    if (installedTag == latestTag) return false;
+    final latestVersion = _versionOf(latestTag);
+    final installedVersion = _versionOf(installedTag);
+    if (latestVersion.isNotEmpty && installedVersion.isNotEmpty) {
+      return UpdateService.compareVersions(latestVersion, installedVersion) > 0;
+    }
+    return latestTag != installedTag;
+  }
+
+  static String _versionOf(String tag) =>
+      RegExp(r'\d+(?:\.\d+)+').firstMatch(tag)?.group(0) ?? '';
 
   Future<String> get _root async {
     final support = await getApplicationSupportDirectory();
@@ -66,8 +118,10 @@ class MpvExtension {
     return _exePath ?? '';
   }
 
-  Future<String?> _findExecutable() async {
-    final root = Directory(await _root);
+  Future<String?> _findExecutable() async => _findExecutableIn(await _root);
+
+  Future<String?> _findExecutableIn(String rootPath) async {
+    final root = Directory(rootPath);
     if (!await root.exists()) return null;
     final sep = Platform.pathSeparator;
     // Yaozhi 新版整合包的主程序是 `core-builds/current/Yaoplayer.exe`，
@@ -106,34 +160,9 @@ class MpvExtension {
     final client = http.Client();
     try {
       onProgress?.call(const MpvProgress(0, 0, '正在获取版本信息'));
-      final apiRanked = await rankMirrors(_apiMirrors);
-      final apis = apiRanked.isEmpty ? _apiMirrors : apiRanked;
-      Map<String, dynamic>? data;
-      var lastApiError = '';
-      for (final api in apis) {
-        try {
-          final latest = await client.get(
-            Uri.parse(api),
-            headers: const {
-              'User-Agent': 'MisaTV/0.1',
-              'Accept': 'application/vnd.github+json',
-            },
-          );
-          if (latest.statusCode != 200) {
-            lastApiError = 'HTTP ${latest.statusCode}';
-            continue;
-          }
-          final decoded = jsonDecode(utf8.decode(latest.bodyBytes));
-          if (decoded is Map) {
-            data = Map<String, dynamic>.from(decoded);
-            break;
-          }
-        } catch (e) {
-          lastApiError = '$e';
-        }
-      }
+      final data = await latestRelease(force: true);
       if (data == null) {
-        throw MpvException('获取 MPV 版本失败（所有线路均不可用：$lastApiError）');
+        throw const MpvException('获取 MPV 版本失败（gh-proxy / 直连均不可用）');
       }
       final asset = _pickAsset(data);
       if (asset == null) {
@@ -144,18 +173,22 @@ class MpvExtension {
       final total = (asset['size'] as num?)?.toInt() ?? 0;
 
       final root = Directory(await _root);
-      if (await root.exists()) await root.delete(recursive: true);
+      final staging = Directory('${root.path}.new');
+      final backup = Directory('${root.path}.old');
+      for (final dir in [staging, backup]) {
+        try {
+          if (await dir.exists()) await dir.delete(recursive: true);
+        } catch (_) {}
+      }
       final downloadDir = Directory(
-        '${root.path}${Platform.pathSeparator}download',
+        '${staging.path}${Platform.pathSeparator}download',
       );
       await downloadDir.create(recursive: true);
       final archive = File('${downloadDir.path}${Platform.pathSeparator}$name');
 
-      // 直连 GitHub + 加速代理都测一遍，取最快的先下，失败再顺延。
-      onProgress?.call(MpvProgress(0, total, '测速选择最快下载线路'));
-      final mirrors = <String>[url, ..._ghProxies.map((proxy) => '$proxy$url')];
-      final ranked = await rankMirrors(mirrors);
-      final candidates = ranked.isEmpty ? mirrors : ranked;
+      // 支持库下载统一走 gh-proxy：代理优先，直连只作最后兜底。
+      final candidates = ghProxyCandidates(url);
+      onProgress?.call(MpvProgress(0, total, '正在通过 gh-proxy 下载 $name'));
 
       var received = 0;
       var length = total;
@@ -192,19 +225,63 @@ class MpvExtension {
         }
       }
       if (lastError.isNotEmpty) {
+        await _cleanupQuietly(staging);
         throw MpvException('下载失败（所有线路）：$lastError');
       }
 
       onProgress?.call(MpvProgress(received, length, '正在解压整合包'));
-      final extracted = Directory(root.path);
-      await extracted.create(recursive: true);
-      final ok = await _extract(archive, extracted, onProgress: onProgress);
+      final appDir = Directory('${staging.path}${Platform.pathSeparator}app');
+      await appDir.create(recursive: true);
+      final ok = await _extract(archive, appDir, onProgress: onProgress);
       if (!ok) {
+        await _cleanupQuietly(staging);
         throw const MpvException('解压失败：未能取得 7zr 解压工具，请安装 7-Zip 后重试');
       }
+      final stagedExe = await _findExecutableIn(appDir.path);
+      if (stagedExe == null) {
+        await _cleanupQuietly(staging);
+        throw const MpvException('解压完成但未找到 mpv.exe');
+      }
+      // 更新时先保留旧版本：下载/解压全部成功后再换目录，
+      // 中途失败不会把用户已有的播放器删掉。
+      final tool = File(
+        '${root.path}${Platform.pathSeparator}tools${Platform.pathSeparator}7zr.exe',
+      );
+      if (await tool.exists()) {
+        try {
+          final tools = Directory(
+            '${staging.path}${Platform.pathSeparator}tools',
+          );
+          await tools.create(recursive: true);
+          await tool.copy('${tools.path}${Platform.pathSeparator}7zr.exe');
+        } catch (_) {}
+      }
+      try {
+        await downloadDir.delete(recursive: true);
+      } catch (_) {}
+      if (await root.exists()) {
+        try {
+          await root.rename(backup.path);
+        } catch (e) {
+          await _cleanupQuietly(staging);
+          rethrow;
+        }
+      }
+      try {
+        await staging.rename(root.path);
+      } catch (e) {
+        try {
+          if (await backup.exists()) await backup.rename(root.path);
+        } catch (_) {}
+        await _cleanupQuietly(staging);
+        rethrow;
+      }
+      try {
+        if (await backup.exists()) await backup.delete(recursive: true);
+      } catch (_) {}
       final exe = await _findExecutable();
       if (exe == null) {
-        throw const MpvException('解压完成但未找到 mpv.exe');
+        throw const MpvException('安装完成但未找到 mpv.exe');
       }
       await File('${root.path}${Platform.pathSeparator}meta.json')
           .writeAsString(
@@ -219,10 +296,6 @@ class MpvExtension {
         'name': (data['name'] ?? '').toString(),
       };
       _exePath = exe;
-      try {
-        await archive.delete();
-        await downloadDir.delete(recursive: true);
-      } catch (_) {}
       onProgress?.call(MpvProgress(received, length, '已完成'));
       return exe;
     } finally {
@@ -243,6 +316,12 @@ class MpvExtension {
       (a, b) => ((b['size'] as num?) ?? 0).compareTo((a['size'] as num?) ?? 0),
     );
     return Map<String, dynamic>.from(candidates.first);
+  }
+
+  Future<void> _cleanupQuietly(Directory dir) async {
+    try {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {}
   }
 
   Future<bool> _extract(
@@ -331,8 +410,14 @@ class MpvExtension {
   Future<void> remove() async {
     final root = Directory(await _root);
     if (await root.exists()) await root.delete(recursive: true);
+    for (final suffix in const ['.new', '.old']) {
+      final dir = Directory('${root.path}$suffix');
+      if (await dir.exists()) await dir.delete(recursive: true);
+    }
     _exePath = null;
     _meta = const {};
+    _latest = null;
+    _latestAt = null;
   }
 
   /// 使用整合包内的 mpv.exe 打开链接（独立窗口）。

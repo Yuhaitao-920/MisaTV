@@ -34,6 +34,7 @@ import '../immersive/hero_title_style.dart';
 import '../immersive/title_tint.dart';
 import '../immersive/immersive_metrics.dart';
 import '../immersive/immersive_widgets.dart';
+import 'folder_page.dart';
 import 'player_page.dart';
 
 class DetailPage extends StatefulWidget {
@@ -63,6 +64,10 @@ class _DetailPageState extends State<DetailPage> {
   bool _initialized = false;
   DoubanInfo? _douban;
   DoubanDetailExtra? _extra;
+
+  /// 小窗口详情页背景：优先用补图逻辑找到的高质量横图，失败再退回竖版封面。
+  String _backdropUrl = '';
+  String _backdropKey = '';
 
   /// 播放器正在打开（取链 / 压栈）：防止连续点击重复解析、打开多份。
   bool _opening = false;
@@ -110,6 +115,39 @@ class _DetailPageState extends State<DetailPage> {
     return app.activeSite;
   }
 
+  /// 详情页展示名：detailContent 只返回网盘目录时，`detail.name` 通常是第一个
+  /// 目录名（如「夸克网盘 51」），要回落到用户点击的资源名。
+  String _displayNameOf(VodDetail detail) {
+    final itemName = widget.item.name.trim();
+    if (detail.flags.isEmpty &&
+        detail.folders.isNotEmpty &&
+        itemName.isNotEmpty) {
+      return itemName;
+    }
+    final name = detail.name.trim();
+    return name.isNotEmpty ? name : itemName;
+  }
+
+  Future<void> _loadBackdrop(
+    String name,
+    String year,
+    String altTitle,
+  ) async {
+    final title = name.trim();
+    if (title.isEmpty) return;
+    final key = '$title|$year|$altTitle';
+    if (key == _backdropKey) return;
+    _backdropKey = key;
+    final app = AppScope.of(context);
+    final url = await app.artworkService.backdrop(
+      title,
+      year: year,
+      altTitle: altTitle,
+    );
+    if (!mounted || key != _backdropKey) return;
+    setState(() => _backdropUrl = url ?? '');
+  }
+
   Future<void> _load() async {
     final app = AppScope.of(context);
     final site = _site(app);
@@ -132,6 +170,9 @@ class _DetailPageState extends State<DetailPage> {
       _error = null;
     });
     try {
+      // 用户已经选中条目：先结束仍在跑的聚合搜索，释放被搜索占用的 JAR host，
+      // 否则详情 / 取链会排在上百个搜索源后面，表现为点开详情几十秒没反应。
+      app.searchService.cancelActiveRound();
       final detail = await app.sourceService.detail(
         site,
         widget.item.id,
@@ -189,9 +230,7 @@ class _DetailPageState extends State<DetailPage> {
   /// 豆瓣元数据：封面 / 简介 / 评分 / 相关推荐 / 影评。失败不影响选集与播放。
   Future<void> _loadDouban(VodDetail detail) async {
     final app = AppScope.of(context);
-    final name = detail.name.trim().isEmpty
-        ? widget.item.name.trim()
-        : detail.name.trim();
+    final name = _displayNameOf(detail);
     if (name.isEmpty) return;
     final info = await app.discoverService.loadInfo(name, year: detail.year);
     if (!mounted) return;
@@ -199,6 +238,9 @@ class _DetailPageState extends State<DetailPage> {
       setState(() => _douban = info);
       unawaited(_loadEpisodeStills(detail));
     }
+    unawaited(
+      _loadBackdrop(name, detail.year, info?.originalTitle ?? ''),
+    );
     final extra = await app.discoverService.loadDetailExtra(
       name,
       year: detail.year,
@@ -1068,6 +1110,7 @@ class _DetailPageState extends State<DetailPage> {
                 child: ImmersiveBackdrop(
                   title: name,
                   year: year,
+                  altTitle: douban?.originalTitle ?? '',
                   fallback: poster,
                 ),
               ),
@@ -1093,6 +1136,7 @@ class _DetailPageState extends State<DetailPage> {
                 child: ImmersiveBackdrop(
                   title: name,
                   year: year,
+                  altTitle: douban?.originalTitle ?? '',
                   fallback: poster,
                 ),
               ),
@@ -1119,6 +1163,7 @@ class _DetailPageState extends State<DetailPage> {
 
     final flag = _flag ?? (detail.flags.isNotEmpty ? detail.flags.first : '');
     final episodes = detail.episodeList(flag);
+    final folders = detail.folders;
     final history = app.historyFor(detail.sourceKey, detail.id);
     final genres = douban?.genres.isNotEmpty == true
         ? douban!.genres.take(4).toList()
@@ -1186,6 +1231,23 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
 
+    /// `detailContent` 返回的网盘目录：进入沉浸分类页继续逐层展开。
+    void openFolder(VodItem folder) {
+      final target = site;
+      if (target == null) {
+        _toast('找不到该目录所属的站点');
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ImmersiveCategoryPage(
+            site: target,
+            sortClass: SortClass(id: folder.id, name: folder.name),
+          ),
+        ),
+      );
+    }
+
     void scrollEpisodes(double delta) {
       if (!controller.hasClients) return;
       final target = (controller.offset + delta).clamp(
@@ -1227,6 +1289,7 @@ class _DetailPageState extends State<DetailPage> {
                 child: ImmersiveBackdrop(
                   title: name,
                   year: year,
+                  altTitle: douban?.originalTitle ?? '',
                   fallback: poster,
                 ),
               ),
@@ -1411,6 +1474,10 @@ class _DetailPageState extends State<DetailPage> {
                                         if (episodes.isNotEmpty)
                                           _ImmersiveMetaChip(
                                             '${episodes.length} 集',
+                                          )
+                                        else if (folders.isNotEmpty)
+                                          _ImmersiveMetaChip(
+                                            '${folders.length} 个目录',
                                           ),
                                         for (final genre in genres)
                                           _ImmersiveMetaChip(genre),
@@ -1468,47 +1535,49 @@ class _DetailPageState extends State<DetailPage> {
                                       ),
                                     ],
                                     const SizedBox(height: 22),
-                                    Row(
-                                      children: [
-                                        FilledButton.icon(
-                                          autofocus: true,
-                                          onPressed: canContinue
-                                              ? playContinue
-                                              : playFromStart,
-                                          icon: const Icon(
-                                            Icons.play_arrow_rounded,
-                                            size: 22,
-                                          ),
-                                          label: Text(
-                                            canContinue ? '继续播放' : '立即播放',
-                                          ),
-                                          style: FilledButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 26,
-                                              vertical: 17,
-                                            ),
-                                          ),
-                                        ),
-                                        if (canContinue) ...[
-                                          const SizedBox(width: 12),
-                                          OutlinedButton.icon(
-                                            onPressed: playFromStart,
+                                    if (episodes.isNotEmpty)
+                                      Row(
+                                        children: [
+                                          FilledButton.icon(
+                                            autofocus: true,
+                                            onPressed: canContinue
+                                                ? playContinue
+                                                : playFromStart,
                                             icon: const Icon(
-                                              Icons.replay_rounded,
-                                              size: 20,
+                                              Icons.play_arrow_rounded,
+                                              size: 22,
                                             ),
-                                            label: const Text('从头播放'),
-                                            style: OutlinedButton.styleFrom(
+                                            label: Text(
+                                              canContinue ? '继续播放' : '立即播放',
+                                            ),
+                                            style: FilledButton.styleFrom(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 22,
+                                                    horizontal: 26,
                                                     vertical: 17,
                                                   ),
                                             ),
                                           ),
+                                          if (canContinue) ...[
+                                            const SizedBox(width: 12),
+                                            OutlinedButton.icon(
+                                              onPressed: playFromStart,
+                                              icon: const Icon(
+                                                Icons.replay_rounded,
+                                                size: 20,
+                                              ),
+                                              label: const Text('从头播放'),
+                                              style: OutlinedButton.styleFrom(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 22,
+                                                      vertical: 17,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
-                                    ),
+                                      ),
                                     if (cast.isNotEmpty) ...[
                                       const SizedBox(height: 22),
                                       Text(
@@ -1843,8 +1912,10 @@ class _DetailPageState extends State<DetailPage> {
       body: Stack(
         children: [
           _Backdrop(
-            image: doubanImageDisplayUrl(backdropImage),
-            headers: isDoubanImageUrl(backdropImage)
+            image: _backdropUrl.isNotEmpty
+                ? _backdropUrl
+                : doubanImageDisplayUrl(backdropImage),
+            headers: _backdropUrl.isNotEmpty
                 ? const <String, String>{}
                 : (detail != null && backdropImage == detail.cleanPic
                       ? detail.picHeaders
@@ -1915,6 +1986,14 @@ class _DetailPageState extends State<DetailPage> {
                       : LayoutBuilder(
                           builder: (context, constraints) {
                             final narrow = constraints.maxWidth < 760;
+                            final episodes = detail.episodeList(_flag ?? '');
+                            final folders = detail.folders;
+                            // detailContent 只有网盘目录、没有可播线路：
+                            // 选集区改为目录列表，不再显示「暂无选集」。
+                            final folderOnly =
+                                folders.isNotEmpty &&
+                                episodes.isEmpty &&
+                                detail.flags.isEmpty;
                             return SingleChildScrollView(
                               padding: EdgeInsets.fromLTRB(
                                 narrow ? 18 : 32,
@@ -1937,7 +2016,7 @@ class _DetailPageState extends State<DetailPage> {
                                     introText: introText,
                                     introFromDouban: detail.des.trim().isEmpty,
                                     onExpandIntro: () => _showFullIntro(
-                                      detail.name,
+                                      _displayNameOf(detail),
                                       introText,
                                       fromDouban: detail.des.trim().isEmpty,
                                     ),
@@ -1992,7 +2071,7 @@ class _DetailPageState extends State<DetailPage> {
                                         Row(
                                           children: [
                                             Text(
-                                              '选集',
+                                              folderOnly ? '网盘目录' : '选集',
                                               style: theme.textTheme.titleLarge,
                                             ),
                                             const Spacer(),
@@ -2013,6 +2092,41 @@ class _DetailPageState extends State<DetailPage> {
                                               ),
                                           ],
                                         ),
+                                        if (folders.isNotEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              for (final folder in folders)
+                                                OutlinedButton.icon(
+                                                  onPressed: () =>
+                                                      openFolderBrowse(
+                                                        context,
+                                                        folder,
+                                                      ),
+                                                  icon: const Icon(
+                                                    Icons.folder_rounded,
+                                                    size: 18,
+                                                  ),
+                                                  label: ConstrainedBox(
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                          maxWidth: 240,
+                                                        ),
+                                                    child: Text(
+                                                      folder.name.trim().isEmpty
+                                                          ? '未命名目录'
+                                                          : folder.name,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ],
                                         if (detail.flags.isNotEmpty) ...[
                                           const SizedBox(height: 12),
                                           ScrollConfiguration(
@@ -2075,20 +2189,21 @@ class _DetailPageState extends State<DetailPage> {
                                             ),
                                           ),
                                         ],
-                                        const SizedBox(height: 14),
-                                        _EpisodeGrid(
-                                          episodes: detail.episodeList(
-                                            _flag ?? '',
+                                        if (!folderOnly) ...[
+                                          const SizedBox(height: 14),
+                                          _EpisodeGrid(
+                                            episodes: episodes,
+                                            currentIndex:
+                                                history?.flag == _flag
+                                                ? history?.episodeIndex
+                                                : null,
+                                            onTap: (index) =>
+                                                _playEpisode(index),
                                           ),
-                                          currentIndex: history?.flag == _flag
-                                              ? history?.episodeIndex
-                                              : null,
-                                          onTap: (index) => _playEpisode(index),
-                                        ),
-                                        if (detail.flags.isEmpty ||
-                                            detail
-                                                .episodeList(_flag ?? '')
-                                                .isEmpty) ...[
+                                        ],
+                                        if (!folderOnly &&
+                                            (detail.flags.isEmpty ||
+                                                episodes.isEmpty)) ...[
                                           const SizedBox(height: 6),
                                           Row(
                                             children: [
@@ -2110,7 +2225,9 @@ class _DetailPageState extends State<DetailPage> {
                                               ),
                                               TextButton.icon(
                                                 onPressed: () =>
-                                                    _search(detail.name),
+                                                    _search(
+                                                      _displayNameOf(detail),
+                                                    ),
                                                 icon: const Icon(
                                                   Icons.search_rounded,
                                                   size: 18,
@@ -2236,8 +2353,8 @@ class _Backdrop extends StatelessWidget {
                   image,
                   fit: BoxFit.cover,
                   headers: headers.isEmpty ? null : headers,
-                  filterQuality: FilterQuality.low,
-                  cacheWidth: 960,
+                  filterQuality: FilterQuality.medium,
+                  cacheWidth: 1600,
                   errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
               )
@@ -2357,6 +2474,8 @@ class _DetailHeader extends StatelessWidget {
     this.fallbackCover = '',
     this.fallbackCoverHeaders = const <String, String>{},
     this.progress = 0,
+    this.showPlay = true,
+    this.titleOverride = '',
   });
 
   final VodDetail detail;
@@ -2393,7 +2512,13 @@ class _DetailHeader extends StatelessWidget {
         : coverUrl == fallbackCover
         ? fallbackCoverHeaders
         : const <String, String>{};
-    final posterWidth = narrow ? 170.0 : 210.0;
+    // 手机上收窄海报，给右侧标题 / 评分 / 主演留出可读宽度。
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final mobileLayout =
+        narrow && !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final posterWidth = mobileLayout
+        ? (screenWidth * 0.30).clamp(96.0, 132.0).toDouble()
+        : (narrow ? 170.0 : 210.0);
     final posterHeight = posterWidth * 1.5;
     final poster = MouseRegion(
       cursor: coverUrl.isEmpty
@@ -2444,14 +2569,18 @@ class _DetailHeader extends StatelessWidget {
       HoverMarqueeText(
         title,
         maxLines: 2,
-        textAlign: narrow ? TextAlign.center : TextAlign.left,
+        textAlign: narrow && !mobileLayout
+            ? TextAlign.center
+            : TextAlign.left,
         style: theme.textTheme.headlineMedium?.copyWith(
-          fontSize: narrow ? 26 : 34,
+          fontSize: mobileLayout ? 22 : (narrow ? 26 : 34),
         ),
       ),
       const SizedBox(height: 12),
       Wrap(
-        alignment: narrow ? WrapAlignment.center : WrapAlignment.start,
+        alignment: narrow && !mobileLayout
+            ? WrapAlignment.center
+            : WrapAlignment.start,
         spacing: 8,
         runSpacing: 8,
         children: [
@@ -2490,7 +2619,9 @@ class _DetailHeader extends StatelessWidget {
           ].where((s) => s.isNotEmpty).join('  ·  '),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          textAlign: narrow ? TextAlign.center : TextAlign.left,
+          textAlign: narrow && !mobileLayout
+              ? TextAlign.center
+              : TextAlign.left,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
             height: 1.5,
@@ -2528,22 +2659,71 @@ class _DetailHeader extends StatelessWidget {
     );
 
     if (narrow) {
-      return Column(
-        children: [
-          poster,
-          const SizedBox(height: 20),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ...heading,
-              if (intro != null) ...[
-                const SizedBox(height: 12),
-                SizedBox(height: 150, child: intro),
+      if (!mobileLayout) {
+        // 非安卓的窄窗口保持原来的居中版式。
+        return Column(
+          children: [
+            poster,
+            const SizedBox(height: 20),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ...heading,
+                if (intro != null) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(height: 150, child: intro),
+                ],
+                const SizedBox(height: 14),
+                if (showPlay) playRow,
               ],
-              const SizedBox(height: 14),
-              playRow,
+            ),
+          ],
+        );
+      }
+      // 手机竖屏：海报与标题并排（避免整块居中把首屏撑得过长），
+      // 简介单独成段，播放键占满整行，符合常见安卓影视 App 的排版。
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              poster,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: heading,
+                ),
+              ),
             ],
           ),
+          if (intro != null) ...[
+            const SizedBox(height: 14),
+            SizedBox(height: 120, child: intro),
+          ],
+          const SizedBox(height: 16),
+          if (showPlay) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton.icon(
+                onPressed: onPlay,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(playLabel),
+              ),
+            ),
+            if (progress > 0.01) ...[
+              const SizedBox(height: 8),
+              Text(
+                '已看 ${(progress * 100).round()}%',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppTheme.accentForeground(theme.colorScheme),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
         ],
       );
     }
@@ -2565,7 +2745,7 @@ class _DetailHeader extends StatelessWidget {
                 ] else
                   const Spacer(),
                 const SizedBox(height: 10),
-                playRow,
+                if (showPlay) playRow,
               ],
             ),
           ),
@@ -3554,6 +3734,63 @@ class _ImmersiveLineChip extends StatelessWidget {
   }
 }
 
+class _ImmersiveFolderChip extends StatelessWidget {
+  const _ImmersiveFolderChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = label.trim().isEmpty ? '未命名目录' : label.trim();
+    return ImmersiveFocusable(
+      onTap: onTap,
+      builder: (context, active) => Container(
+        constraints: const BoxConstraints(minWidth: 140, maxWidth: 280),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: active ? 0.14 : 0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: active
+                ? Colors.white.withValues(alpha: 0.42)
+                : Colors.white.withValues(alpha: 0.10),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.folder_rounded,
+              size: 18,
+              color: theme.colorScheme.primary.withValues(alpha: 0.9),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: active ? 0.94 : 0.78),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 16,
+              color: Colors.white.withValues(alpha: 0.46),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ImmersiveEpisodeCard extends StatelessWidget {
   const _ImmersiveEpisodeCard({
     required this.episode,
@@ -3561,6 +3798,7 @@ class _ImmersiveEpisodeCard extends StatelessWidget {
     required this.title,
     required this.year,
     required this.fallback,
+    this.altTitle = '',
     this.still = '',
     required this.selected,
     required this.onTap,
@@ -3571,6 +3809,9 @@ class _ImmersiveEpisodeCard extends StatelessWidget {
   final String title;
   final String year;
   final String fallback;
+
+  /// 元数据里的英文 / 日文原名，TMDB 匹配用。
+  final String altTitle;
 
   /// TMDB 该集的剧照；空串时继续使用片名横图。
   final String still;
@@ -3628,6 +3869,7 @@ class _ImmersiveEpisodeCard extends StatelessWidget {
                     ImmersiveBackdrop(
                       title: title,
                       year: year,
+                      altTitle: altTitle,
                       fallback: fallback,
                       scrim: true,
                     ),

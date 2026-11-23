@@ -57,8 +57,7 @@ class SourceBean {
         caseSensitive: false,
       ).hasMatch('$api $key $name');
 
-  bool get supported =>
-      isCms || isJsSpider || isPySpider || isKazumi;
+  bool get supported => isCms || isJsSpider || isPySpider || isKazumi;
 
   String get kindLabel {
     if (type == 0) return 'CMS XML';
@@ -171,6 +170,91 @@ const String kLiveUaHelper =
     '只作用于当前这一条直播源。留空 = 自动：已知服务（如 live.ottiptv.cc）用其指定 UA，'
     '其余用 okhttp/3.12.0。列表与频道流都会带上它。';
 
+/// 直播源的 TVBus（Go 引擎）配置。
+///
+/// 字段对齐 FongMi/TV 的 `Core`：`so` 是引擎 `.so` 的下载地址（每个源不同，
+/// 因此不能随 APK 分发），`resp` 非空时主程序在 `/tvbus` 暴露它给引擎取配置。
+class TvBusCore {
+  const TvBusCore({
+    this.auth = '',
+    this.name = '',
+    this.pass = '',
+    this.broker = '',
+    this.domain = '',
+    this.resp = '',
+    this.sign = '',
+    this.pkg = '',
+    this.so = '',
+    this.key = '',
+    this.options = const [],
+  });
+
+  final String auth;
+  final String name;
+  final String pass;
+  final String broker;
+  final String domain;
+  final String resp;
+  final String sign;
+  final String pkg;
+  final String so;
+  final String key;
+  final List<TvBusOption> options;
+
+  bool get hasEngine => so.trim().isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'auth': auth,
+    'name': name,
+    'pass': pass,
+    'broker': broker,
+    'domain': domain,
+    'resp': resp,
+    'sign': sign,
+    'pkg': pkg,
+    'so': so,
+    'key': key,
+    if (options.isNotEmpty)
+      'option': [for (final option in options) option.toJson()],
+  };
+
+  factory TvBusCore.fromJson(Map<String, dynamic> json) => TvBusCore(
+    auth: (json['auth'] ?? '').toString(),
+    name: (json['name'] ?? '').toString(),
+    pass: (json['pass'] ?? '').toString(),
+    broker: (json['broker'] ?? '').toString(),
+    domain: (json['domain'] ?? '').toString(),
+    resp: (json['resp'] ?? '').toString(),
+    sign: (json['sign'] ?? '').toString(),
+    pkg: (json['pkg'] ?? '').toString(),
+    so: (json['so'] ?? '').toString(),
+    key: (json['key'] ?? '').toString(),
+    options: [
+      if (json['option'] is List)
+        for (final item in json['option'] as List)
+          if (item is Map)
+            TvBusOption.fromJson(Map<String, dynamic>.from(item)),
+    ],
+  );
+}
+
+class TvBusOption {
+  const TvBusOption({required this.key, this.values = const []});
+
+  final String key;
+  final List<String> values;
+
+  Map<String, dynamic> toJson() => {'key': key, 'values': values};
+
+  factory TvBusOption.fromJson(Map<String, dynamic> json) => TvBusOption(
+    key: (json['key'] ?? '').toString(),
+    values: [
+      if (json['values'] is List)
+        for (final value in json['values'] as List) value.toString(),
+    ],
+  );
+}
+
 class LiveBean {
   const LiveBean({
     required this.name,
@@ -185,6 +269,7 @@ class LiveBean {
     this.timeout = 15,
     this.header,
     this.ua = '',
+    this.core,
   });
 
   final String name;
@@ -201,6 +286,7 @@ class LiveBean {
   final int timeout;
   final Map<String, String>? header;
   final String ua;
+  final TvBusCore? core;
 
   /// type=1 与 0 一样是普通 txt/m3u 直播源（很多订阅用它标注线路）。
   bool get supported => type == '0' || type == '1' || type == '3' || isSpider;
@@ -256,6 +342,7 @@ class LiveBean {
     'timeout': timeout,
     if (header != null) 'header': header,
     'ua': ua,
+    if (core != null) 'core': core!.toJson(),
   };
 
   factory LiveBean.fromJson(Map<String, dynamic> json) => LiveBean(
@@ -273,7 +360,25 @@ class LiveBean {
       (k, v) => MapEntry(k.toString(), v.toString()),
     ),
     ua: (json['ua'] ?? '').toString(),
+    core: coreOf(json['core']),
   );
+
+  static TvBusCore? coreOf(dynamic raw) {
+    if (raw is Map) {
+      return TvBusCore.fromJson(Map<String, dynamic>.from(raw));
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          return TvBusCore.fromJson(Map<String, dynamic>.from(decoded));
+        }
+      } catch (_) {
+        // 非 JSON 的 core 忽略，不影响直播列表
+      }
+    }
+    return null;
+  }
 }
 
 /// 订阅根部的 `headers`：按 host 给播放请求补固定请求头。
@@ -536,7 +641,8 @@ class ConfigProfile {
   final int liveCount;
 
   /// 解析相对路径的基准：优先实际地址，旧档案回落到用户填的订阅地址。
-  String get resolveBaseUrl => baseUrl.trim().isNotEmpty ? baseUrl.trim() : url.trim();
+  String get resolveBaseUrl =>
+      baseUrl.trim().isNotEmpty ? baseUrl.trim() : url.trim();
 
   /// 最近一次成功刷新订阅的时间（本地导入为空）。
   final DateTime? lastRefreshAt;
