@@ -814,7 +814,10 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                 DeviceOrientation.landscapeLeft,
                 DeviceOrientation.landscapeRight,
               ]
-            : <DeviceOrientation>[],
+            // 与点播播放器一致：退出全屏必须显式请求竖屏。空列表只是放开
+            // 方向锁、跟随系统，手机横着拿或未开自动旋转时会卡在横屏，画面
+            // 看着就「缩不小」。Android TV 会忽略该请求，无副作用。
+            : <DeviceOrientation>[DeviceOrientation.portraitUp],
       );
       await SystemChrome.setEnabledSystemUIMode(
         next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
