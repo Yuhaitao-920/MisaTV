@@ -52,6 +52,9 @@ kotlin {
 }
 
 dependencies {
+    // hook-release.aar 用 java.time / java.nio，AGP 9.1 开启脱糖后必须声明依赖。
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
     // CatVod / wex 加固壳解密出的「真实蜘蛛」运行在宿主 ClassLoader 的 parent 链上，
     // 会直接引用 TVBox 宿主自带的 Java 库。Flutter 侧一个都没有，缺了就在
     // homeContent 抛 `NoClassDefFoundError: Failed resolution of: Lokhttp3/Request$Builder;`。
