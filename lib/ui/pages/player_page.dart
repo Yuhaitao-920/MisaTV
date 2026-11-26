@@ -58,6 +58,9 @@ import '../widgets/dlna_cast_sheet.dart';
 import '../widgets/subtitle_panel.dart';
 import '../widgets/video_download_dialog.dart';
 import '../../state/app_state.dart';
+import '../../services/lan/flow_client.dart';
+import '../../services/lan/flow_payload.dart';
+import '../../services/lan/lan_discovery.dart';
 import '../widgets/drive_login_prompt.dart';
 
 part 'player/cast_part.dart';
