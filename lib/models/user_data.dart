@@ -403,6 +403,7 @@ class PlayerSettings {
     this.autoLandscape = true,
     this.useFfmpeg = true,
     this.useEmbeddedMpv = false,
+    this.spiderPoolSize = 3,
   });
   final double speed;
   final bool autoPlayNext;
@@ -417,6 +418,10 @@ class PlayerSettings {
   /// 内嵌 mpv 在 App 内部渲染，切换播放器不跳出 App、可接续进度。
   /// 安卓 / 桌面可用；Web 忽略（media_kit 无 Web 视频输出）。
   final bool useEmbeddedMpv;
+
+  /// JAR 蜘蛛单源并发实例池大小（1-8）。
+  /// 调大让同一 JAR 源的多个请求真正并行，代价是内存与冷启动开销。
+  final int spiderPoolSize;
 
   /// 播放失败时自动换线路；当前源线路耗尽后搜索其他源的相同片名。
   final bool autoSwitchLine;
@@ -507,11 +512,13 @@ class PlayerSettings {
     bool? autoLandscape,
     bool? useFfmpeg,
     bool? useEmbeddedMpv,
+    int? spiderPoolSize,
   }) => PlayerSettings(
     speed: speed ?? this.speed,
     autoLandscape: autoLandscape ?? this.autoLandscape,
     useFfmpeg: useFfmpeg ?? this.useFfmpeg,
     useEmbeddedMpv: useEmbeddedMpv ?? this.useEmbeddedMpv,
+    spiderPoolSize: (spiderPoolSize ?? this.spiderPoolSize).clamp(1, 8),
     autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     autoSwitchLine: autoSwitchLine ?? this.autoSwitchLine,
     magnetDownloadDir: magnetDownloadDir ?? this.magnetDownloadDir,
@@ -595,6 +602,7 @@ class PlayerSettings {
     'autoLandscape': autoLandscape,
     'useFfmpeg': useFfmpeg,
     'useEmbeddedMpv': useEmbeddedMpv,
+    'spiderPoolSize': spiderPoolSize,
     'autoPlayNext': autoPlayNext,
     'autoSwitchLine': autoSwitchLine,
     'magnetDownloadDir': magnetDownloadDir,
@@ -677,6 +685,7 @@ class PlayerSettings {
     fit: normalizePlayerFit((j['fit'] ?? '').toString()).name,
     jsWorkerPool: (j['jsWorkerPool'] as bool?) ?? false,
     keepSpiderHosts: (j['keepSpiderHosts'] as bool?) ?? false,
+    spiderPoolSize: ((j['spiderPoolSize'] as num?)?.toInt() ?? 3).clamp(1, 8),
     externalPlayers: _externalPlayersFromJson(j['externalPlayers']),
     defaultPlayer: normalizeDefaultPlayer(
       (j['defaultPlayer'] ?? '').toString(),
