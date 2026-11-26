@@ -40,7 +40,8 @@ extension SpiderDebugStateLabel on SpiderDebugState {
   };
 
   /// 进行中的状态：此时不接受新的 run。
-  bool get busy => this == SpiderDebugState.loading || this == SpiderDebugState.running;
+  bool get busy =>
+      this == SpiderDebugState.loading || this == SpiderDebugState.running;
 }
 
 /// 调试执行器：由 AppState 注入，实际调用 SourceService。
@@ -237,8 +238,7 @@ class SpiderDebugSession {
     }
   }
 
-  bool isExpired(DateTime now) =>
-      !busy && now.difference(_lastAccess) > ttl;
+  bool isExpired(DateTime now) => !busy && now.difference(_lastAccess) > ttl;
 
   void _cancelDeadline() {
     _deadline?.cancel();
@@ -335,9 +335,8 @@ class SpiderDebugService {
 }
 
 /// 把调试请求体解析成 `{method, args}`；非法输入抛 [SpiderDebugException]。
-({String method, Map<String, dynamic> args, Duration timeout}) parseSpiderDebugRequest(
-  Map<String, dynamic> body,
-) {
+({String method, Map<String, dynamic> args, Duration timeout})
+parseSpiderDebugRequest(Map<String, dynamic> body) {
   final method = (body['method'] ?? '').toString().trim();
   if (method.isEmpty) {
     throw const SpiderDebugException('缺少 method');

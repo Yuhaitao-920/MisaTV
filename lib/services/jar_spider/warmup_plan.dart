@@ -43,9 +43,7 @@ List<WarmUpPlanItem> buildWarmUpPlan({
     if (!site.isJarSpider) continue;
     // 用户关掉的源不该占用启动开销。
     if (site.searchable != 1) continue;
-    candidates.add(
-      WarmUpPlanItem(site: site, weight: weightOf(site)),
-    );
+    candidates.add(WarmUpPlanItem(site: site, weight: weightOf(site)));
     index++;
     if (index > limit * 8) break; // 防御：订阅异常大时不无限遍历
   }
@@ -54,7 +52,5 @@ List<WarmUpPlanItem> buildWarmUpPlan({
     if (byWeight != 0) return byWeight;
     return 0; // 同权重保持原顺序（稳定）
   });
-  return candidates.length > limit
-      ? candidates.sublist(0, limit)
-      : candidates;
+  return candidates.length > limit ? candidates.sublist(0, limit) : candidates;
 }

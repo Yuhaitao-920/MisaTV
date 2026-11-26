@@ -33,7 +33,10 @@ void main() {
         out.addAll(filter.feed('next'));
       }
       // 前 2 次逐条输出；之后每 N 次才输出一条（第 4 次），第 3/5 次被降频。
-      expect(out.where((line) => line.contains('IllegalStateException')).length, 3);
+      expect(
+        out.where((line) => line.contains('IllegalStateException')).length,
+        3,
+      );
       expect(out.where((line) => line.contains('同类第 2 次')).length, 1);
     });
 

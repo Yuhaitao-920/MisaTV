@@ -101,9 +101,7 @@ class _VideoDownloadDialogState extends State<_VideoDownloadDialog> {
                 ],
                 const SizedBox(height: 8),
                 Text(
-                  active
-                      ? '下载复用播放时的同一条中继链路；关掉弹窗会转入后台继续下载。'
-                      : '文件保存在边播缓存目录下的 downloads 文件夹，可在 设置 → 下载管理 中暂停 / 继续 / 删除。',
+                  active ? '下载复用播放时的同一条中继链路；关掉弹窗会转入后台继续下载。' : '文件保存在边播缓存目录下的 downloads 文件夹，可在 设置 → 下载管理 中暂停 / 继续 / 删除。',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     height: 1.4,

@@ -25,7 +25,8 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = color ?? (isDark ? const Color(0xF21B2218) : const Color(0xF7FFFFFF));
+    final bg =
+        color ?? (isDark ? const Color(0xF21B2218) : const Color(0xF7FFFFFF));
     final top = Color.lerp(bg, Colors.white, isDark ? 0.06 : 0.14) ?? bg;
     return Container(
       margin: margin,
@@ -37,7 +38,8 @@ class GlassPanel extends StatelessWidget {
           colors: [top, bg],
         ),
         border: Border.all(
-          color: borderColor ??
+          color:
+              borderColor ??
               (isDark ? const Color(0x33FFFFFF) : const Color(0xCCFFFFFF)),
         ),
         boxShadow: [
@@ -54,7 +56,12 @@ class GlassPanel extends StatelessWidget {
 }
 
 class SectionHeader extends StatelessWidget {
-  const SectionHeader({super.key, required this.title, this.subtitle, this.trailing});
+  const SectionHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+  });
 
   final String title;
   final String? subtitle;

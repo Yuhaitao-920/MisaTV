@@ -36,14 +36,14 @@ mid/index.m3u8
         ),
         'https://a.example.com/x.m3u8',
       );
-      expect(pickHlsVariant('#EXTM3U\n', 'https://a.example.com/m.m3u8'), isNull);
+      expect(
+        pickHlsVariant('#EXTM3U\n', 'https://a.example.com/m.m3u8'),
+        isNull,
+      );
     });
 
     test('媒体清单不会被误判为主清单', () {
-      expect(
-        isHlsMasterPlaylist('#EXTM3U\n#EXTINF:4,\nseg0.ts\n'),
-        isFalse,
-      );
+      expect(isHlsMasterPlaylist('#EXTM3U\n#EXTINF:4,\nseg0.ts\n'), isFalse);
     });
   });
 
@@ -66,7 +66,10 @@ sub/seg1.ts
       expect(playlist.segments.length, 2);
       expect(playlist.segments[0].url, 'https://cdn.example.com/live/seg0.ts');
       expect(playlist.segments[0].sequence, 7);
-      expect(playlist.segments[1].url, 'https://cdn.example.com/live/sub/seg1.ts');
+      expect(
+        playlist.segments[1].url,
+        'https://cdn.example.com/live/sub/seg1.ts',
+      );
       expect(playlist.segments[1].sequence, 8);
       expect(playlist.hasInit, isFalse);
     });
@@ -177,13 +180,17 @@ seg0.ts
   group('VideoDownloadProgress', () {
     test('优先按字节算进度，其次按分段数', () {
       expect(
-        const VideoDownloadProgress(receivedBytes: 50, totalBytes: 200)
-            .fraction,
+        const VideoDownloadProgress(
+          receivedBytes: 50,
+          totalBytes: 200,
+        ).fraction,
         0.25,
       );
       expect(
-        const VideoDownloadProgress(completedSegments: 3, totalSegments: 4)
-            .fraction,
+        const VideoDownloadProgress(
+          completedSegments: 3,
+          totalSegments: 4,
+        ).fraction,
         0.75,
       );
       expect(const VideoDownloadProgress().fraction, isNull);
@@ -191,8 +198,10 @@ seg0.ts
 
     test('分段进度不会超过 1', () {
       expect(
-        const VideoDownloadProgress(completedSegments: 5, totalSegments: 4)
-            .fraction,
+        const VideoDownloadProgress(
+          completedSegments: 5,
+          totalSegments: 4,
+        ).fraction,
         1.0,
       );
     });

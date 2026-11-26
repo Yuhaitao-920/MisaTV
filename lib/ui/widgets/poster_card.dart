@@ -339,11 +339,7 @@ class _SourceCountLabel extends StatelessWidget {
     final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          Icons.layers_rounded,
-          size: 12,
-          color: theme.colorScheme.primary,
-        ),
+        Icon(Icons.layers_rounded, size: 12, color: theme.colorScheme.primary),
         const SizedBox(width: 4),
         Text(
           '另有 $count 个源',

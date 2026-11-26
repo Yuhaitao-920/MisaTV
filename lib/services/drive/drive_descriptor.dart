@@ -43,8 +43,9 @@ class NativeDriveLink {
 }
 
 /// 描述符前缀允许的网盘商；base64 允许 `+ / - _ =` 四种字符。
-final _descriptorKeyRe =
-    RegExp(r'^(quark|uc|baidu|115|ali|alipan)@([A-Za-z0-9_+/=-]+)$');
+final _descriptorKeyRe = RegExp(
+  r'^(quark|uc|baidu|115|ali|alipan)@([A-Za-z0-9_+/=-]+)$',
+);
 
 /// 嵌套信封外层 `a` 允许的网盘商（含暂不支持的 thunder，供上层给出明确提示）。
 const _nestedProviders = <String>{

@@ -48,10 +48,7 @@ CatchupResult? buildCatchupUrl({
   );
 
   if (type == 'shift' || type == 'timeshift') {
-    final url = _withQuery(live, {
-      'utc': '$startSec',
-      'lutc': '$nowSec',
-    });
+    final url = _withQuery(live, {'utc': '$startSec', 'lutc': '$nowSec'});
     return url == null ? null : CatchupResult(url: url, kind: 'shift');
   }
 
@@ -63,9 +60,7 @@ CatchupResult? buildCatchupUrl({
   if (type == 'flussonic') {
     if (source.isNotEmpty) {
       final expanded = _expand(source, values);
-      final url = _isHttp(expanded)
-          ? expanded
-          : _appendSuffix(live, expanded);
+      final url = _isHttp(expanded) ? expanded : _appendSuffix(live, expanded);
       return CatchupResult(url: url, kind: 'flussonic');
     }
     final url = _flussonicAbsolute(live, startSec);
@@ -136,9 +131,7 @@ String _appendSuffix(String base, String suffix) {
   if (raw.isEmpty) return base;
   if (raw.startsWith('&')) return '$base$raw';
   if (raw.startsWith('?')) {
-    return base.contains('?')
-        ? '$base&${raw.substring(1)}'
-        : '$base$raw';
+    return base.contains('?') ? '$base&${raw.substring(1)}' : '$base$raw';
   }
   return '$base${base.contains('?') ? '&' : '?'}$raw';
 }
@@ -146,9 +139,9 @@ String _appendSuffix(String base, String suffix) {
 String? _withQuery(String base, Map<String, String> extra) {
   final uri = Uri.tryParse(base);
   if (uri == null) return null;
-  return uri.replace(
-    queryParameters: {...uri.queryParameters, ...extra},
-  ).toString();
+  return uri
+      .replace(queryParameters: {...uri.queryParameters, ...extra})
+      .toString();
 }
 
 /// Xtream Codes: `/timeshift/<user>/<pass>/<分钟>/<YYYY-MM-DD:HH-mm>/<streamId>.<ext>`
@@ -186,9 +179,8 @@ String? _flussonicAbsolute(String liveUrl, int startSec) {
   if (segments.isEmpty) return null;
   final last = segments.last.toLowerCase();
   if (!last.endsWith('.m3u8')) return null;
-  final stream = last == 'index.m3u8' ||
-          last == 'mono.m3u8' ||
-          last == 'playlist.m3u8'
+  final stream =
+      last == 'index.m3u8' || last == 'mono.m3u8' || last == 'playlist.m3u8'
       ? null
       : last.substring(0, last.length - '.m3u8'.length);
   final base = [...segments];

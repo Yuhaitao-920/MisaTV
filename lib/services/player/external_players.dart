@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../../core/logging/app_log.dart';
+
 /// 桌面端可用的第三方播放器（自动探测或用户手动选择）。
 class ExternalPlayer {
   const ExternalPlayer({
@@ -162,20 +164,46 @@ List<String> externalSeekArgs(String playerId, int seconds) {
 }
 
 /// 拉起外部播放器（分离进程：应用退出不带走播放器）。
+///
+/// 返回 false 只代表「参数层面就没法启动」（非 Windows / 文件不存在 / 同步抛错）。
+/// 进程真正能否起来是异步的，这里通过 [onLaunchError] 回调把失败原因交出去，
+/// 调用方可以据此提示用户并写日志——见 `_tryDefaultExternalPlayer`。
 bool launchExternalPlayer(
   String path,
   String url, {
   List<String> extraArgs = const [],
+  void Function(Object error)? onLaunchError,
 }) {
-  if (!Platform.isWindows) return false;
-  if (!externalPlayerExists(path)) return false;
+  // 每次启动都记一行：外部播放器最容易「点了没反应」，没有这条日志就完全
+  // 无法判断是没发起、发起失败、还是播放器自己起来了但不显示窗口。
+  AppLog.i(
+    'external',
+    '启动外部播放器 path=$path args=${[...extraArgs, url].join(' ')}',
+  );
+  if (!Platform.isWindows) {
+    AppLog.w('external', '非 Windows 平台，不支持外部播放器');
+    return false;
+  }
+  if (!externalPlayerExists(path)) {
+    AppLog.w('external', '播放器文件不存在：$path');
+    return false;
+  }
   try {
     Process.start(path, [
       ...extraArgs,
       url,
-    ], mode: ProcessStartMode.detached).then((_) {}, onError: (Object _) {});
+    ], mode: ProcessStartMode.detached).then(
+      (_) {},
+      onError: (Object e) {
+        // 以前这里把错误整个吞掉，函数还会返回 true —— UI 认为成功、不回退、
+        // 也不提示，用户看到的就是「点了没反应」。现在交回调用方处理。
+        AppLog.e('external', '外部播放器启动失败 path=$path', e);
+        onLaunchError?.call(e);
+      },
+    );
     return true;
-  } catch (_) {
+  } catch (e) {
+    AppLog.e('external', '外部播放器启动抛错 path=$path', e);
     return false;
   }
 }

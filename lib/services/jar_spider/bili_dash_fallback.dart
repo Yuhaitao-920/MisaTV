@@ -81,10 +81,12 @@ class BiliDashFallback {
     String cookie,
     String flag,
   ) async {
-    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    const ua =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
         'Chrome/126.0.0.0 Safari/537.36';
-    final url = 'https://api.bilibili.com/x/player/playurl?avid=$aid&cid=$cid'
+    final url =
+        'https://api.bilibili.com/x/player/playurl?avid=$aid&cid=$cid'
         '&qn=$qn&fnval=1&fnver=0&fourk=0&platform=html5';
     final headers = <String, String>{
       // html5 分支不需要 wbi 签名；带上站点 Referer/UA 才不会被判爬虫。
@@ -122,10 +124,7 @@ class BiliDashFallback {
       return PlayResult(
         url: direct,
         flag: flag,
-        headers: {
-          'Referer': 'https://www.bilibili.com/',
-          'User-Agent': ua,
-        },
+        headers: {'Referer': 'https://www.bilibili.com/', 'User-Agent': ua},
       );
     } catch (e) {
       AppLog.w('bili', 'DASH 回退请求失败 qn=$qn: $e');

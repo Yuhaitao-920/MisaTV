@@ -141,9 +141,9 @@ const _webLoginConfigs = <String, _WebLoginConfig>{
     ],
   ),
   '115': _WebLoginConfig(
-  provider: '115',
-  name: '115网盘',
-  loginUrl: 'https://115.com/',
+    provider: '115',
+    name: '115网盘',
+    loginUrl: 'https://115.com/',
     scope: 'https:/115.com',
     cookieScopes: [
       'https:/115.com',
@@ -319,7 +319,7 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
   String? _guangyaUserCode;
   bool _guangyaAuthLoading = false;
   String? _guangyaError;
-    String? _error;
+  String? _error;
 
   _WebLoginConfig get _config => widget.config;
 
@@ -338,9 +338,15 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
     _timeoutTimer?.cancel();
     super.dispose();
   }
+
   Future<void> _startGuangyaDeviceAuth() async {
     if (_guangyaAuthLoading) return;
-    if (mounted) { setState(() { _guangyaAuthLoading = true; _guangyaError = null; }); }
+    if (mounted) {
+      setState(() {
+        _guangyaAuthLoading = true;
+        _guangyaError = null;
+      });
+    }
     final client = HttpClient();
     try {
       final req = await client.postUrl(
@@ -349,9 +355,7 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
       req.headers.set('content-type', 'application/json');
       req.headers.set('referer', _config.scope);
       req.headers.set('user-agent', _desktopUserAgent);
-      req.write(
-        jsonEncode({'scope': 'user', 'client_id': 'aMe-8VSlkrbQXpUR'}),
-      );
+      req.write(jsonEncode({'scope': 'user', 'client_id': 'aMe-8VSlkrbQXpUR'}));
       final resp = await req.close();
       final body = await resp.transform(utf8.decoder).join();
       if (!mounted || _finished) return;
@@ -360,59 +364,61 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
         if (decoded is Map) {
           final deviceCode = (decoded['device_code'] ?? '').toString().trim();
           final userCode = (decoded['user_code'] ?? '').toString().trim();
-          final verifyComplete =
-              (decoded['verification_uri_complete'] ?? '').toString().trim();
-          final verifyUri =
-              (decoded['verification_uri'] ?? '').toString().trim();
-          final authUrl =
-              verifyComplete.isNotEmpty ? verifyComplete : verifyUri;
+          final verifyComplete = (decoded['verification_uri_complete'] ?? '')
+              .toString()
+              .trim();
+          final verifyUri = (decoded['verification_uri'] ?? '')
+              .toString()
+              .trim();
+          final authUrl = verifyComplete.isNotEmpty
+              ? verifyComplete
+              : verifyUri;
           if (deviceCode.isNotEmpty && authUrl.isNotEmpty) {
             setState(() {
               _guangyaDeviceCode = deviceCode;
               _guangyaUserCode = userCode.isNotEmpty ? userCode : null;
               _guangyaAuthUrl = authUrl;
-            _guangyaAuthLoading = false;
-            if (userCode.isNotEmpty) {
-              _status = '请完成光鸭官方授权（授权码：$userCode）';
-            }
-          });
-          _timer ??= Timer.periodic(
-            const Duration(seconds: 2),
-            (_) => _poll(),
-          );
+              _guangyaAuthLoading = false;
+              if (userCode.isNotEmpty) {
+                _status = '请完成光鸭官方授权（授权码：$userCode）';
+              }
+            });
+            _timer ??= Timer.periodic(
+              const Duration(seconds: 2),
+              (_) => _poll(),
+            );
+          } else if (mounted) {
+            setState(() {
+              _guangyaError = '光鸭授权响应缺少必要字段（device_code 或 verification_uri）';
+              _guangyaAuthLoading = false;
+            });
+          }
         } else if (mounted) {
           setState(() {
-            _guangyaError = '光鸭授权响应缺少必要字段（device_code 或 verification_uri）';
+            _guangyaError = '获取光鸭授权码失败：响应格式异常';
             _guangyaAuthLoading = false;
           });
         }
       } else if (mounted) {
         setState(() {
-          _guangyaError = '获取光鸭授权码失败：响应格式异常';
+          _guangyaError = '获取光鸭授权码失败（HTTP ${resp.statusCode}）';
           _guangyaAuthLoading = false;
         });
       }
-    } else if (mounted) {
-      setState(() {
-        _guangyaError = '获取光鸭授权码失败（HTTP ${resp.statusCode}）';
-        _guangyaAuthLoading = false;
-      });
-    }
-  } catch (e) {
-    if (mounted) {
-      setState(() {
-        _guangyaError = '获取光鸭授权码失败：$e';
-        _guangyaAuthLoading = false;
-      });
-    }
-  } finally {
-    client.close();
-    if (mounted && _guangyaAuthLoading) {
-      setState(() => _guangyaAuthLoading = false);
-    }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _guangyaError = '获取光鸭授权码失败：$e';
+          _guangyaAuthLoading = false;
+        });
+      }
+    } finally {
+      client.close();
+      if (mounted && _guangyaAuthLoading) {
+        setState(() => _guangyaAuthLoading = false);
+      }
     }
   }
-
 
   Future<void> _bootstrap() async {
     _timer = Timer.periodic(const Duration(milliseconds: 1500), (_) => _poll());
@@ -606,8 +612,8 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
       if ((_config.provider == 'quark' ||
               _config.provider == 'uc' ||
               _config.provider == 'baidu' ||
-            _config.provider == '115' ||
-            _config.provider == 'bili') &&
+              _config.provider == '115' ||
+              _config.provider == 'bili') &&
           cookie != _lastValidatedCookie &&
           now - _lastValidateAt >= 3000) {
         _lastValidatedCookie = cookie;
@@ -617,7 +623,7 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
           'uc' => await refreshUcSession(cookie),
           '115' => await refreshPan115Session(cookie),
           'bili' => await refreshBiliSession(cookie),
-            _ => await refreshBaiduSession(cookie),
+          _ => await refreshBaiduSession(cookie),
         };
         if (!mounted) return;
         _lastValidatedOk = session.valid;
@@ -645,8 +651,8 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
       if (_config.provider == 'quark' ||
           _config.provider == 'uc' ||
           _config.provider == 'baidu' ||
-         _config.provider == '115' ||
-        _config.provider == 'bili') {
+          _config.provider == '115' ||
+          _config.provider == 'bili') {
         // Cookie 刚变化但还没到下一次校验时间：继续等，绝不能先保存访客 Cookie。
         if (cookie != _lastValidatedCookie) return;
         if (_lastValidatedOk == false) {
@@ -732,10 +738,7 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text(
-              '正在获取光鸭登录二维码...',
-              style: theme.textTheme.bodyMedium,
-            ),
+            Text('正在获取光鸭登录二维码...', style: theme.textTheme.bodyMedium),
           ],
         ),
       );
@@ -770,15 +773,11 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
       );
     }
 
-    final qrUrl = Uri.https(
-      'api.qrserver.com',
-      '/v1/create-qr-code/',
-      {
-        'size': '280x280',
-        'margin': '12',
-        'data': _guangyaAuthUrl!,
-      },
-    ).toString();
+    final qrUrl = Uri.https('api.qrserver.com', '/v1/create-qr-code/', {
+      'size': '280x280',
+      'margin': '12',
+      'data': _guangyaAuthUrl!,
+    }).toString();
 
     return Center(
       child: SingleChildScrollView(
@@ -824,9 +823,9 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
                 OutlinedButton.icon(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: _guangyaAuthUrl!));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制光鸭授权链接')),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('已复制光鸭授权链接')));
                   },
                   icon: const Icon(Icons.copy_rounded, size: 18),
                   label: const Text('复制授权链接'),
@@ -887,9 +886,9 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                        (_guangyaUserCode ?? '').isNotEmpty
-                            ? '请完成光鸭官方授权（授权码：$_guangyaUserCode）'
-                            :                           _config.hint,
+                          (_guangyaUserCode ?? '').isNotEmpty
+                              ? '请完成光鸭官方授权（授权码：$_guangyaUserCode）'
+                              : _config.hint,
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.55,
@@ -912,91 +911,93 @@ class _DriveWebLoginDialogState extends State<_DriveWebLoginDialog> {
               child: _config.provider == 'guangya'
                   ? _buildGuangyaQrBody(context)
                   : Stack(
-                children: [
-                  Positioned.fill(
-                    child: InAppWebView(
-                      initialUrlRequest: URLRequest(
-                        url: WebUri(_guangyaAuthUrl ?? _config.loginUrl),
-                      ),
-                      initialSettings: InAppWebViewSettings(
-                        javaScriptEnabled: true,
-                        supportMultipleWindows: false,
-                        userAgent: _desktopUserAgent,
-                        useWideViewPort: true,
-                        loadWithOverviewMode: true,
-                        supportZoom: true,
-                        builtInZoomControls: true,
-                        displayZoomControls: false,
-                      ),
-                      onWebViewCreated: (controller) =>
-                          _controller = controller,
-                      // Windows 插件 0.6.0 的权限回调不判空，Dart 返回 null 会闪退。
-                      onPermissionRequest: (controller, request) async =>
-                          PermissionResponse(action: PermissionResponseAction.DENY),
-                      onLoadStart: (controller, url) {
-                        _setStatus('正在加载网页…');
-                      },
-                      onLoadStop: (controller, url) async {
-                        // 首次加载完成后清一次旧会话并重载，保证看到扫码页。
-                        if (!_storageCleared &&
-                            (url?.scheme ?? '').startsWith('http')) {
-                          _storageCleared = true;
-                          await _resetSession(controller);
-                          return;
-                        }
-                        // 页面可能重定向（如百度跳网盘），每次加载完成都重放裁剪脚本。
-                        _scheduleIsolation();
-                        if (!_finished) _setStatus('等待扫码…');
-                      },
-                      onReceivedError: (controller, request, error) {
-                        if (request.isForMainFrame ?? false) {
-                          setState(() {
-                            _error = error.description;
-                            _status = '网页加载失败';
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                  if (_error != null)
-                    Positioned.fill(
-                      child: ColoredBox(
-                        color: theme.colorScheme.surface,
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.cloud_off_rounded,
-                                  size: 40,
-                                  color: theme.colorScheme.error,
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '网页加载失败',
-                                  style: theme.textTheme.titleSmall,
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _error!,
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                                const SizedBox(height: 16),
-                                FilledButton.tonal(
-                                  onPressed: _reload,
-                                  child: const Text('重试'),
-                                ),
-                              ],
+                      children: [
+                        Positioned.fill(
+                          child: InAppWebView(
+                            initialUrlRequest: URLRequest(
+                              url: WebUri(_guangyaAuthUrl ?? _config.loginUrl),
                             ),
+                            initialSettings: InAppWebViewSettings(
+                              javaScriptEnabled: true,
+                              supportMultipleWindows: false,
+                              userAgent: _desktopUserAgent,
+                              useWideViewPort: true,
+                              loadWithOverviewMode: true,
+                              supportZoom: true,
+                              builtInZoomControls: true,
+                              displayZoomControls: false,
+                            ),
+                            onWebViewCreated: (controller) =>
+                                _controller = controller,
+                            // Windows 插件 0.6.0 的权限回调不判空，Dart 返回 null 会闪退。
+                            onPermissionRequest: (controller, request) async =>
+                                PermissionResponse(
+                                  action: PermissionResponseAction.DENY,
+                                ),
+                            onLoadStart: (controller, url) {
+                              _setStatus('正在加载网页…');
+                            },
+                            onLoadStop: (controller, url) async {
+                              // 首次加载完成后清一次旧会话并重载，保证看到扫码页。
+                              if (!_storageCleared &&
+                                  (url?.scheme ?? '').startsWith('http')) {
+                                _storageCleared = true;
+                                await _resetSession(controller);
+                                return;
+                              }
+                              // 页面可能重定向（如百度跳网盘），每次加载完成都重放裁剪脚本。
+                              _scheduleIsolation();
+                              if (!_finished) _setStatus('等待扫码…');
+                            },
+                            onReceivedError: (controller, request, error) {
+                              if (request.isForMainFrame ?? false) {
+                                setState(() {
+                                  _error = error.description;
+                                  _status = '网页加载失败';
+                                });
+                              }
+                            },
                           ),
                         ),
-                      ),
+                        if (_error != null)
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: theme.colorScheme.surface,
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.cloud_off_rounded,
+                                        size: 40,
+                                        color: theme.colorScheme.error,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        '网页加载失败',
+                                        style: theme.textTheme.titleSmall,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _error!,
+                                        textAlign: TextAlign.center,
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      FilledButton.tonal(
+                                        onPressed: _reload,
+                                        child: const Text('重试'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
             ),
             const Divider(height: 1),
             Padding(

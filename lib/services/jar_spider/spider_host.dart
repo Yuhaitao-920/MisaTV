@@ -162,13 +162,15 @@ class JarSpiderHost {
         host._errors.add(out);
       }
     }, onError: (Object _) {});
-    unawaited(process.exitCode.then((_) {
-      host._exited = true;
-      for (final out in host._stderrFilter.flush()) {
-        if (host._errors.length > 60) host._errors.removeAt(0);
-        host._errors.add(out);
-      }
-    }, onError: (Object _) {}));
+    unawaited(
+      process.exitCode.then((_) {
+        host._exited = true;
+        for (final out in host._stderrFilter.flush()) {
+          if (host._errors.length > 60) host._errors.removeAt(0);
+          host._errors.add(out);
+        }
+      }, onError: (Object _) {}),
+    );
     // 监听器挂好后再收养：MethodChannel 调用期间 JVM 可能已经在写启动日志。
     await ProcessJob.adopt(process.pid);
     return host;
@@ -320,18 +322,37 @@ class JarServeHost {
         host._errors.add(out);
       }
     }, onError: (Object _) {});
-    unawaited(process.exitCode.then((_) {
-      host._exited = true;
-      for (final out in host._stderrFilter.flush()) {
-        if (host._errors.length > 60) host._errors.removeAt(0);
-        host._errors.add(out);
-      }
-      host._failAll('常驻蜘蛛进程已退出');
-    }, onError: (Object _) {}));
+    unawaited(
+      process.exitCode.then((_) {
+        host._exited = true;
+        for (final out in host._stderrFilter.flush()) {
+          if (host._errors.length > 60) host._errors.removeAt(0);
+          host._errors.add(out);
+        }
+        host._failAll('常驻蜘蛛进程已退出');
+      }, onError: (Object _) {}),
+    );
     // 监听器挂好后再收养：MethodChannel 调用期间 JVM 可能已经在写启动日志。
     await ProcessJob.adopt(process.pid);
     return host;
   }
+
+  /// 连续多少次「单次调用超时」才判定整只 host 已卡死。
+  ///
+  /// 以前只要一次超时就 `killNow()`。问题是同一只 JVM 的主线程是**串行**处理
+  /// 请求的：排在前面的请求超时被杀时，后面排队的请求会一起收到「进程已退出」，
+  /// 于是「一个慢源」连锁拖垮同池的其它源（用户感受就是丢结果）。
+  ///
+  /// 现在把「单次失败」与「进程卡死」解耦：超时只让当前请求失败，等主线程
+  /// 处理完前面的请求、轮到没有应答时再累计。连续 [_deadAfterTimeouts] 次都
+  /// 没恢复才杀进程。
+  static const int _deadAfterTimeouts = 2;
+
+  /// 连续超时计数：任何一次成功应答都清零。
+  int _consecutiveTimeouts = 0;
+
+  /// 该 host 是否已被判定卡死（不再接收新请求）。
+  bool get wedged => _consecutiveTimeouts >= _deadAfterTimeouts;
 
   Future<ServeReply> call({
     required String className,
@@ -346,12 +367,14 @@ class JarServeHost {
     inflight++;
     try {
       try {
-        _stdin.writeln(jsonEncode({
-          'id': id,
-          'className': className,
-          'method': method,
-          'args': args,
-        }));
+        _stdin.writeln(
+          jsonEncode({
+            'id': id,
+            'className': className,
+            'method': method,
+            'args': args,
+          }),
+        );
         await _stdin.flush();
       } catch (_) {
         // 进程已退出时管道会先断开、exitCode 还没回调：统一按 host 死亡处理，
@@ -364,10 +387,19 @@ class JarServeHost {
       }
       final reply = await completer.future.timeout(timeout);
       lastUsedAt = DateTime.now();
+      // 成功应答说明主线程是活的：超时计数清零。
+      _consecutiveTimeouts = 0;
       return reply;
     } on TimeoutException {
-      // 主线程被卡死的蜘蛛不会自行恢复：直接结束这个 host，后续请求换新进程。
-      unawaited(killNow());
+      // 单次超时**不**立刻杀进程：同池还排着别的源的请求，杀掉会一起连累。
+      // 只累计次数，连续多次仍无应答才认为主线程卡死（见 wedged）。
+      _consecutiveTimeouts++;
+      if (_consecutiveTimeouts >= _deadAfterTimeouts) {
+        unawaited(killNow());
+        throw ServeHostException(
+          '常驻蜘蛛连续 $_deadAfterTimeouts 次调用超时，进程已重启（$method）',
+        );
+      }
       throw ServeHostException('常驻蜘蛛调用超时（$method）');
     } finally {
       _pending.remove(id);
@@ -407,15 +439,19 @@ class JarServeHost {
     if (completer == null || completer.isCompleted) return;
     final pp = decoded['pp'];
     if (pp is num && pp.toInt() > 0) proxyPort = pp.toInt();
-    completer.complete(ServeReply(
-      ok: decoded['ok'] == true,
-      data: (decoded['data'] ?? '').toString(),
-    ));
+    completer.complete(
+      ServeReply(
+        ok: decoded['ok'] == true,
+        data: (decoded['data'] ?? '').toString(),
+      ),
+    );
   }
 
   void _failAll(String message) {
     for (final completer in _pending.values) {
-      if (!completer.isCompleted) completer.completeError(ServeHostException(message));
+      if (!completer.isCompleted) {
+        completer.completeError(ServeHostException(message));
+      }
     }
     _pending.clear();
   }

@@ -94,7 +94,9 @@ Future<void> showVolumeSheet({
                   Text(
                     hint,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.76),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.76,
+                      ),
                       height: 1.5,
                     ),
                   ),

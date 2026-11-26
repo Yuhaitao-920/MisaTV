@@ -76,7 +76,10 @@ class LiveService {
     final hostRuleHeaders = hostRule?.header ?? const <String, String>{};
     final hostRuleUa = liveHeaderValue(hostRuleHeaders, 'user-agent');
     // 订阅 header 里的 UA 要按大小写不敏感取：订阅常写小写 \`user-agent\`。
-    final headerUaValue = liveHeaderValue(bean.header ?? const {}, 'user-agent');
+    final headerUaValue = liveHeaderValue(
+      bean.header ?? const {},
+      'user-agent',
+    );
     final headerUa = headerUaValue.isNotEmpty;
     // 用户在「设置 → 直播源 → 自定义直播 UA」里填的内容。
     // 只有**命中的接口规则**算「用户点名给这条直播接口」：与订阅自带 ua 同级，

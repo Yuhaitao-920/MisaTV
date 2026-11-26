@@ -57,7 +57,8 @@ class LiveChannel {
   factory LiveChannel.fromJson(Map<String, dynamic> json) => LiveChannel(
     name: (json['name'] ?? '').toString(),
     urls: [
-      for (final item in (json['urls'] is List ? json['urls'] as List : const []))
+      for (final item
+          in (json['urls'] is List ? json['urls'] as List : const []))
         item.toString(),
     ],
     logo: (json['logo'] ?? '').toString(),
@@ -88,11 +89,7 @@ class LiveLine {
   final String name;
   final String url;
 
-  Map<String, dynamic> toJson() => {
-    'index': index,
-    'name': name,
-    'url': url,
-  };
+  Map<String, dynamic> toJson() => {'index': index, 'name': name, 'url': url};
 
   factory LiveLine.fromJson(Map<String, dynamic> json) => LiveLine(
     index: (json['index'] as num?)?.toInt() ?? 0,
@@ -114,9 +111,9 @@ class LiveGroup {
   factory LiveGroup.fromJson(Map<String, dynamic> json) => LiveGroup(
     group: (json['group'] ?? '').toString(),
     channels: [
-      for (final item in (json['channels'] is List ? json['channels'] as List : const []))
-        if (item is Map)
-          LiveChannel.fromJson(Map<String, dynamic>.from(item)),
+      for (final item
+          in (json['channels'] is List ? json['channels'] as List : const []))
+        if (item is Map) LiveChannel.fromJson(Map<String, dynamic>.from(item)),
     ],
   );
 }
@@ -127,7 +124,9 @@ List<LiveLine> channelLines(LiveChannel channel) {
     final raw = channel.urls[i];
     final parts = raw.split(r'$');
     final url = parts.first.trim();
-    final name = parts.length > 1 && parts[1].trim().isNotEmpty ? parts[1].trim() : '源${i + 1}';
+    final name = parts.length > 1 && parts[1].trim().isNotEmpty
+        ? parts[1].trim()
+        : '源${i + 1}';
     if (url.isEmpty) continue;
     out.add(LiveLine(index: i + 1, name: name, url: url));
   }

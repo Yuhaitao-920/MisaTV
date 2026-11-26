@@ -509,10 +509,7 @@ List<({String shareId, String uk})> baiduShareIdOrders(
 ) {
   final first = (shareId: shareId, uk: uk);
   if (shareId == uk) return <({String shareId, String uk})>[first];
-  return <({String shareId, String uk})>[
-    first,
-    (shareId: uk, uk: shareId),
-  ];
+  return <({String shareId, String uk})>[first, (shareId: uk, uk: shareId)];
 }
 
 /// 只读分享取链：不创建目录、不转存、不登记清理；分享者 fs_id 必须精确命中。
@@ -574,7 +571,11 @@ Future<NativeDriveLink> _trySharedDirectLink(
 
 /// 一次 `share/list` 尝试的结果。
 class _ShareListAttempt {
-  const _ShareListAttempt({this.link, this.reason = '', this.retryable = false});
+  const _ShareListAttempt({
+    this.link,
+    this.reason = '',
+    this.retryable = false,
+  });
 
   final NativeDriveLink? link;
   final String reason;
@@ -617,9 +618,7 @@ Future<_ShareListAttempt> _shareListOnce({
   }
   final errno = _intOrNull(result.json['errno']);
   if (errno == -7 || errno == 105) {
-    return _ShareListAttempt.retry(
-      '${baiduErrnoText(errno!)}（errno=$errno）',
-    );
+    return _ShareListAttempt.retry('${baiduErrnoText(errno!)}（errno=$errno）');
   }
   if (errno != null && errno != 0) {
     return _ShareListAttempt(reason: '${baiduErrnoText(errno)}（errno=$errno）');
@@ -689,8 +688,9 @@ Future<String?> _probeSharedDirect(
           origin.port != current.port;
       for (final entry in headers.entries) {
         // 跨源不带本机网盘 Cookie / Authorization（CDN 域不需要，也不该外泄）
-        final sensitive =
-            _probeSensitiveHeaders.contains(entry.key.toLowerCase());
+        final sensitive = _probeSensitiveHeaders.contains(
+          entry.key.toLowerCase(),
+        );
         if (crossOrigin && sensitive) continue;
         request.headers.set(entry.key, entry.value);
       }

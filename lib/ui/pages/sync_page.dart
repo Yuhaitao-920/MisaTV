@@ -290,7 +290,9 @@ class _SyncPageState extends State<SyncPage> {
                 DropdownButtonFormField<String>(
                   // FormField 只在创建时读取 initialValue；自动选中/切换服务器
                   // 时用 key 重建，保证下拉框显示的就是真正会同步的那台。
-                  key: ValueKey('dav-${selectedServer ?? '-'}-${servers.length}'),
+                  key: ValueKey(
+                    'dav-${selectedServer ?? '-'}-${servers.length}',
+                  ),
                   initialValue: selectedServer,
                   decoration: const InputDecoration(labelText: '服务器'),
                   items: [
@@ -371,6 +373,30 @@ class _SyncPageState extends State<SyncPage> {
                   ),
                 ),
               ],
+            ],
+          ),
+          const SizedBox(height: 16),
+          _SectionCard(
+            title: '设备流转',
+            icon: Icons.devices_rounded,
+            children: [
+              Text(
+                '在播放器里点「流转」，选择同一局域网的另一台 MisaTV，'
+                '就能把正在看的这一集推过去接着播。',
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.6),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '· 像投屏一样是一次性操作：点一次用一次，不常驻后台广播。\n'
+                '· 推送方会自动退出播放器；本机会在对方点流转时被临时发现。\n'
+                '· 只传「播放地址 + 片名/集数」，不传订阅与账号凭据。\n'
+                '· 接收方播完退出后，若已配置 WebDAV 同步，会自动同步一次'
+                '观看历史，方便其他设备续播。',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  height: 1.7,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),

@@ -40,10 +40,7 @@ Future<void> openRawPlayback(
       flag: flag,
       episodeIndex: index,
       episodes: episodes,
-      initialPlay: PlayResult(
-        url: episodes[index].url,
-        headers: headers,
-      ),
+      initialPlay: PlayResult(url: episodes[index].url, headers: headers),
       ephemeral: true,
     ),
   );

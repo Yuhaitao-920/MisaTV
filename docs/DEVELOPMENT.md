@@ -126,6 +126,50 @@ LivePlayerPage 发现 tvbus://
 启动 2 秒后自动弹一个独立播放器窗口，用来验证多窗口链路（子引擎插件注册、载荷解析、窗口形态）。
 正式构建不带这个 define，`String.fromEnvironment` 取到空串，整段被摇掉，运行时零成本。
 
+## 本地包（ZIP / 目录）的路径改写
+
+`LocalImportService.rewriteLocalPaths` 把订阅里指向包内的相对路径改成 `file://`，
+兼容 `./x`、`clan://localhost/<包名>/x`、`assets://`、`pkg://`。
+
+**`ext` 里的 `$` 是分隔符，不是路径字符**。TVBox 生态常见
+`"ext": "./config/env.json$闪电"`：脚本自己按 `$` 切开，前半是配置地址、后半是这条
+线路的名字（`wanpan.js` 里就是 `const [url, order] = ext.split('$')`）。
+`_splitRef` 必须把 `$` 之后的部分当作 `suffix` 保留，否则整串会被当成文件路径
+`env.json$闪电` 去找，必然不存在 → 原样退回相对路径 → 脚本请求 404 → 网盘线路全空。
+
+配套的两点：
+
+1. **JS 侧的 `req()` 要能读 `file://`**。脚本拿 ext 后是 `await request(url)`，
+   最终走 `__net` → `_handleNet`；curl 不认这个 scheme，所以在 `_handleNet` 里
+   先按 `_localFileOf()` 读本地文件（同样要剥掉 `?query` 与 `$suffix`）。
+2. **`$` 只在后面确实还有内容时才算分隔符**，避免误伤结尾的单个 `$`。
+
+## WebDAV / 坚果云订阅的凭据（地址内嵌账号密码）
+
+订阅地址常写成 `https://用户名:密码@dav.jianguoyun.com/dav/tvbox/hu/tvbox.json`
+（坚果云、Nextcloud、群晖都这么给）。**Dart 的 `HttpClient` 不会把 `Uri.userInfo`
+自动转成请求头**，所以只要哪里漏了这一步，服务端就回 401。
+
+实测同一个地址：不带凭据 HTTP 401，带凭据 HTTP 200（正文约 38KB，112 个站点）。
+
+三个必须都带上凭据的入口，改代码时别只修一处：
+
+| 入口 | 位置 | 说明 |
+| --- | --- | --- |
+| 订阅正文 | `AppHttp._getTextOnce` / `probeText` | 统一走 `AppHttp.authHeadersOf(uri)` |
+| jar 下载（桌面） | `JarSpider._downloadJar` | 自建 `HttpClient`，手动 `set('Authorization', …)` |
+| jar 下载（Android） | `jar_spider_android.dart` 的 `_download` | 同上 |
+
+两个实现细节：
+
+1. **用户名里的 `%40` 要解码回 `@`**。`Uri.userInfo` 拿到的是编码后的字符串，直接拼
+   Basic 串会得到错误凭据。
+2. **相对路径解析会继承 userinfo**。`ConfigParser.fixContentPath` 用
+   `Uri.resolve` 把 `./custom_spider_cat.jar` 补全成订阅目录下的绝对地址，凭据会
+   一起带过来——这正是 jar 下载能成功的前提，别在中间环节把 userinfo 剥掉。
+
+`redactUrl` 本来就只保留 `scheme://host/path`，所以日志与错误提示不会泄露密码。
+
 ## 订阅代理规则（`rules[].hosts`）
 
 TVBox 的代理规则：`rules[].hosts` 列出「要由应用代理出去」的域名（支持 `.*workers.dev`
@@ -166,6 +210,52 @@ JVM 里的 jar 蜘蛛（自带 OkHttp）与 JS 蜘蛛的 curl 子进程——这
 覆盖范围：普通 TXT / M3U 直播源（列表 + 频道流 + 回看 + 壳经 `/proxy?do=live` 取的直播单）。
 **不覆盖**直播蜘蛛（type=3 / 带 `api`）—— 那类源的 UA 由蜘蛛自己决定，应用不替它改。
 
+## 本地直播源的导入语义（`_importLocalLive`）
+
+本地导入 TXT / M3U 以前只有一条路：复制到应用数据目录，作为**一条独立线路**
+塞进 `localLives`。多份文件就散成一堆脱离订阅的线路，没法归类。
+
+现在与点播的本地 PY 源（`_importLocalPyFiles`）完全对齐，弹窗二选一：
+
+| 选择 | 写入位置 | 结果 |
+| --- | --- | --- |
+| 并入已有直播订阅 | `addLivesToProfile` 改写该订阅的 `rawJson` | 成为该订阅里的一条新线路，同 `name+url` 就地合并 |
+| 创建新订阅 | `importFromLocalText(jsonEncode({'lives': [...]}))` | 生成一个纯直播订阅，与导入 M3U / TXT 地址同一形态 |
+
+两条必须知道的约束：
+
+1. **并入的线路要按 `addedLiveKeys` 保活**（`mergeAddedLives`）。线上订阅刷新会用远端
+   内容覆盖 `rawJson`，不带这层标记用户加的线路就没了。逻辑与点播侧的
+   `addedSiteKeys` / `mergeAddedSites` 一一对应，单测在 `live_import_target_test.dart`。
+2. **`lives` 与 `live` 两个字段名都要认**。有的订阅只写 `live`；`addLivesToProfile`、
+   `_editRawLives`、`mergeAddedLives` 必须用同一套判断，否则会出现「加得进去但删不掉」的割裂。
+
+`localLives` 那条老路径仍然保留（`addLocalLive`），用于不归属任何订阅的临时线路；
+新建本地订阅的 `url` 为空，界面不给刷新按钮，`refreshProfile` 也会直接拒绝，
+所以它天然不会走保活分支。
+
+## 换台菜单定位（`_ChannelPickerSheet`）
+
+换台菜单打开时要直接停在「当前正在看的那个台」，不能每次都从第一组第一台开始。
+三件事必须一起做到，缺一条都会表现为「打开就从头开始」：
+
+1. **默认分组 = 当前频道真正所在的分组**。`initialGroup` 只是打开播放器时用户在
+   直播列表里停留的分组，用它会让菜单停在一个不含当前频道的组里。
+   `_initialIndex` 先按频道找组，找不到才退回 `initialGroup`，最后才退回第 0 组。
+2. **网格按行号粗定位，再精确居中**。频道是懒加载的，目标可能在视口外，所以要先用
+   「列数 → 行号 → 偏移」估算 `jumpTo`，下一帧目标项建出来后再 `Scrollable.ensureVisible`
+   居中；重试时会连粗定位一起重来（弹层入场期间控制器可能还没接上）。
+3. **列数换算必须与 Flutter 一致**：`ceil(网格宽度 / (maxCrossAxisExtent + crossAxisSpacing))`。
+   少加列间距会让列数偏大、行号偏小，于是定位跑到当前频道的上一档去
+   （`lib/services/live/channel_grid.dart`，单测 `live_channel_grid_test.dart` 守着）。
+
+另外两条容易踩的坑：
+
+- **不要给「当前分组」那一行挂 `GlobalKey`**。用户点分组时它会换行，key 跟着迁移会冒重复
+  key / 元素重挂。分组行高靠第一行实测（`_measureGroupExtent`）加算术定位就够准。
+- **切换分组后网格不能保留上一个分组的滚动位置**。新分组里若没有当前频道就回到顶部，
+  否则用户看到的是中间某一段，会以为点错了分组。
+
 ## 蜘蛛运行时
 
 | 类型 | 实现要点 |
@@ -197,8 +287,7 @@ Android 10（API 29）起，targetSdk ≥ 29 的应用不能 `exec()` 应用数�
 2. 调用超时只能让 Dart 侧先返回，Python 线程本身没有安全的强杀手段。
    `_PyHost` 在 Android 上的实现只是让 Python 丢弃实例并尽量调 `destroy()`。
 
-jar 系蜘蛛**不读 `ext` 里的网盘凭据**，必须由应用主动落盘到固定位置
-（`.quarkcookie`、prefs 种子、Pizazz、`Cloud-drive.txt`、`TVBox/*.txt`），缺一个就会显示「还没有配置夸克 Cookie」。
+jar 系蜘蛛**不读 `ext` 里的网盘凭据**，必须由应用主动落盘到固定位置（`.quarkcookie`、prefs 种子、Pizazz、`Cloud-drive.txt`、`TVBox/*.txt`），缺一个就会显示「还没有配置夸克 Cookie」。
 
 ## 网盘 / 站点凭据（`driveAccounts`）
 
@@ -262,6 +351,63 @@ Flutter 3.47 在 Windows 默认走 Impeller OpenGLESSDF 后端，本项目的圆
 图片解码同时收敛：`imageCache` 上限 48MB / 220 张（`main.dart`），海报 `cacheWidth: 320`、
 详情背景 960、收藏与直播台标 200 / 128。首页背景只用一层对角渐变，用 `CustomPainter`
 （`AppBackdropPainter`）画在内容之下的同一绘制层，不用溢出视口的 `Stack`。
+
+## TV 精简版（MISA_TV）
+
+同一套 Flutter 工程出两个安卓包：
+
+| 变体 | 命令 | applicationId | 界面 |
+| --- | --- | --- | --- |
+| 全功能 | `flutter build apk --release --target-platform android-arm64` | `com.kniephos.kniephos` | 沉浸 + 常规 |
+| TV 精简 | 同上追加 `--dart-define=MISA_TV=true` | `com.kniephos.kniephos.tv` | **只有沉浸** |
+
+两个包**独立 applicationId**，可并存安装；签名用同一个 keystore（以后要合并
+包名也不会出现签名冲突）。
+
+### 用 `--dart-define` 而不是 productFlavors 的原因
+
+Dart 侧能直接 `if (kMisaTv)` 把整块 UI 摇掉（tree-shaking 生效）。只改 Gradle
+flavor 的话，不用的页面仍会被 AOT 编译进去，省不到体积，还要维护两套 main。
+
+开关常量在 `lib/core/app_variant.dart`：
+
+```dart
+const bool kMisaTv = bool.fromEnvironment('MISA_TV');
+```
+
+### TV 版砍掉了什么
+
+| 内容 | 做法 | 理由 |
+| --- | --- | --- |
+| 常规 UI 页面（`lib/ui/pages/`） | `AppShell` 强制走 `ImmersiveShell` | 电视只用遥控器，鼠标界面没意义 |
+| 常规详情页 | 换 `lib/ui/tv_detail_page.dart`（海报 + 简介 + 选集 + 播放） | `DetailPage` 两千多行，含剧照墙 / 演职员 / 影评，都要额外请求 |
+| 一起看 | 播放器入口加 `!kMisaTv` | 单台电视没有这个场景 |
+| DLNA 投屏 | 同上 | 电视自己就是被投屏目标，且已有「流转」 |
+| 外部播放器管理 | 同上（TV 上没有 PotPlayer / MPV 可调起） | — |
+| `assets/jvm/**` | Gradle `resources.excludes`（**安卓全平台都不需要**） | 安卓走 ART / DexClassLoader，`JvmRuntime.jarSpiderReady()` 对 Android 直接返回 true |
+| `assets/aria2/**` | 同上 | Windows 的 aria2c.exe，安卓用内置 BT 实现 |
+| 多余字体 | CI 构建前删除 4 个字重 | TV 远看分辨不出字重，省约 32 MB |
+
+### TV 版**保留**的功能
+
+沉浸观影界面、Python 蜘蛛（Chaquopy，minSdk 仍是 24）、JS 蜘蛛（QuickJS）、
+jar / DEX 蜘蛛（安卓原生 DexClassLoader，**不需要 JRE**）、直播、网盘、
+WebDAV、弹幕、设备流转。
+
+### 构建
+
+```bash
+# 本地
+flutter build apk --release --target-platform android-arm64 --dart-define=MISA_TV=true
+
+# CI
+.github/workflows/build-android-tv.yml（手动触发或发布 release 时自动出包）
+```
+
+CI 里依次做：裁字体 → 构建 → 校验签名（必须是正式 keystore）→ **断言 APK 里
+没有 `assets/jvm` / `assets/aria2`**（裁剪生效）→ 打印体积 → 上传。
+
+签名 secret 与全功能版共用同一套（`ANDROID_KEYSTORE_BASE64` 等 4 个）。
 
 ## Android APK 体积
 

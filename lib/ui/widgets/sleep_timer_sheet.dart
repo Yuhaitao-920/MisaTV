@@ -4,7 +4,11 @@ import '../../services/player/sleep_timer.dart';
 
 /// 睡眠定时器弹层的选择结果。
 class SleepTimerChoice {
-  const SleepTimerChoice._({this.duration, this.atEndOfVideo = false, this.cancel = false});
+  const SleepTimerChoice._({
+    this.duration,
+    this.atEndOfVideo = false,
+    this.cancel = false,
+  });
 
   /// 固定时长模式。
   const SleepTimerChoice.duration(Duration duration)
@@ -89,9 +93,9 @@ Future<SleepTimerChoice?> showSleepTimerSheet({
                   for (final preset in kSleepTimerPresets)
                     ActionChip(
                       label: Text(_presetLabel(preset)),
-                      onPressed: () => Navigator.of(
-                        ctx,
-                      ).pop(SleepTimerChoice.duration(preset)),
+                      onPressed: () =>
+                          Navigator.of(ctx)
+                              .pop(SleepTimerChoice.duration(preset)),
                     ),
                 ],
               ),
@@ -108,7 +112,8 @@ Future<SleepTimerChoice?> showSleepTimerSheet({
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: () =>
-                      Navigator.of(ctx).pop(const SleepTimerChoice.endOfVideo()),
+                      Navigator.of(ctx)
+                          .pop(const SleepTimerChoice.endOfVideo()),
                   icon: const Icon(Icons.movie_filter_rounded, size: 18),
                   label: const Text('播完当前视频后暂停（不连播）'),
                 ),

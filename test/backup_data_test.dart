@@ -10,7 +10,12 @@ void main() {
       'kind': 'kniephos-backup',
       'version': 1,
       'profiles': [
-        {'id': 'p1', 'name': '测试', 'url': 'https://example.com/a.json', 'rawJson': '{"sites":[{"key":"a","type":1,"api":"https://a"}]}'},
+        {
+          'id': 'p1',
+          'name': '测试',
+          'url': 'https://example.com/a.json',
+          'rawJson': '{"sites":[{"key":"a","type":1,"api":"https://a"}]}',
+        },
       ],
       'activeProfileId': 'p1',
     });
@@ -28,7 +33,10 @@ void main() {
         'userConfig': {
           'version': 2,
           'apiUrl': 'https://example.com/sub.json',
-          'global': {'spider': 'https://example.com/spider.jar', 'flags': ['qq']},
+          'global': {
+            'spider': 'https://example.com/spider.jar',
+            'flags': ['qq'],
+          },
           'sources': [
             {'key': 'a', 'name': 'A', 'type': 1, 'api': 'https://a'},
             {'key': 'b', 'name': 'B', 'type': 3, 'api': 'csp_B'},
@@ -69,7 +77,11 @@ void main() {
   });
 
   test('备份版本高于当前会拒绝', () {
-    final text = jsonEncode({'kind': 'kniephos-backup', 'version': 99, 'profiles': []});
+    final text = jsonEncode({
+      'kind': 'kniephos-backup',
+      'version': 99,
+      'profiles': [],
+    });
     expect(() => BackupData.parse(text), throwsFormatException);
   });
 

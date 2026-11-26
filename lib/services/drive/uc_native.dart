@@ -19,7 +19,8 @@ import 'quark_session_io.dart' show mergeSetCookies, sanitizeCookie;
 const _ref = 'https://drive.uc.cn/';
 const _base = 'https://pc-api.uc.cn/1/clouddrive';
 const _query = 'pr=UCBrowser&fr=pc';
-const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+const _ua =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/126.0.6478.61 Safari/537.36';
 
 const _pageSize = 50;
@@ -31,8 +32,10 @@ final _ucCompoundRe = RegExp(
   r'^(.*?)__([0-9a-f]{32})\+([0-9a-z]{10,32})\+([0-9a-f]{32})$',
   caseSensitive: false,
 );
-final _ucShareIdRe =
-    RegExp(r'(?:drive|fast)\.uc\.cn/s/([0-9a-zA-Z_-]+)', caseSensitive: false);
+final _ucShareIdRe = RegExp(
+  r'(?:drive|fast)\.uc\.cn/s/([0-9a-zA-Z_-]+)',
+  caseSensitive: false,
+);
 final _shareIdCharsRe = RegExp(r'^[0-9a-z_-]+$', caseSensitive: false);
 final _fidBadRe = RegExp(r'[/:?]');
 final _pwdRe = RegExp(
@@ -93,9 +96,7 @@ class _HttpResult {
 /// 全局串行锁：分享会话与 download 下发 Cookie 属共享状态机，并发会互相污染。
 Future<void> _ucChain = Future<void>.value();
 
-Future<NativeDriveLink> _enqueueUc(
-  Future<NativeDriveLink> Function() task,
-) {
+Future<NativeDriveLink> _enqueueUc(Future<NativeDriveLink> Function() task) {
   final run = _ucChain.then((_) async {
     try {
       return await task();
@@ -117,29 +118,32 @@ bool looksLikeUcShare(String text, {String flag = ''}) {
 /// 是否是 FTY 系 UC 复合集地址（`<name>__<fid>+<pwdId>+<token>`）。
 ///
 /// 结构本身就能确定是 UC：夸克复合串用 `~~`，且分享 id 不在这个位置。
-bool looksLikeUcCompound(String text) =>
-    _ucCompoundRe.hasMatch(text.trim());
+bool looksLikeUcCompound(String text) => _ucCompoundRe.hasMatch(text.trim());
 
 /// 从文本解析 UC 分享 `pwd_id`、提取码与内层 fid。
 UcShareRef? extractUcShare(String text, {String flag = ''}) {
   final desc = parseDriveDescriptor(text);
   if (desc != null && desc.provider == 'uc') {
-    final pwdId = descriptorField(
-      desc.data,
-      <String>['shareId', 'pwdId', 'sId'],
-    );
+    final pwdId = descriptorField(desc.data, <String>[
+      'shareId',
+      'pwdId',
+      'sId',
+    ]);
     if (pwdId.isNotEmpty) {
       final passcode = _str(desc.data['passcode']).isNotEmpty
           ? _str(desc.data['passcode'])
           : _str(desc.data['pwd']);
-      final fileId = descriptorField(
-        desc.data,
-        <String>['fileId', 'fid', 'fs_id', 'file_id'],
-      );
-      final name = descriptorField(
-        desc.data,
-        <String>['name', 'fileName', 'file_name'],
-      );
+      final fileId = descriptorField(desc.data, <String>[
+        'fileId',
+        'fid',
+        'fs_id',
+        'file_id',
+      ]);
+      final name = descriptorField(desc.data, <String>[
+        'name',
+        'fileName',
+        'file_name',
+      ]);
       return UcShareRef(
         pwdId: pwdId,
         passcode: passcode,
@@ -193,10 +197,7 @@ UcShareRef? extractUcShare(String text, {String flag = ''}) {
     final match = _ucShareIdRe.firstMatch(candidate);
     if (match == null) continue;
     final pwd = _pwdRe.firstMatch(candidate);
-    return UcShareRef(
-      pwdId: match.group(1)!,
-      passcode: pwd?.group(1) ?? '',
-    );
+    return UcShareRef(pwdId: match.group(1)!, passcode: pwd?.group(1) ?? '');
   }
   return null;
 }
@@ -282,8 +283,9 @@ Future<NativeDriveLink> _resolveUcDirectInner(
     return list is List ? list : const <dynamic>[];
   }
 
-  final preferName =
-      episodeName.trim().isNotEmpty ? episodeName.trim() : ref.name;
+  final preferName = episodeName.trim().isNotEmpty
+      ? episodeName.trim()
+      : ref.name;
   _UcShareFile? file;
   try {
     file = await _resolveShareFile(ref.fileId, fetchPage, preferName);
@@ -299,17 +301,15 @@ Future<NativeDriveLink> _resolveUcDirectInner(
   }
 
   // 3) 免转存直链：带分享 token 直接 download，不写本人盘。
-  final direct = await _post(
-    '/file/download',
-    accountCookie,
-    <String, Object?>{
-      'fids': <String>[file.fid],
-      'fid_token_list': <String>[file.token],
-      'pwd_id': ref.pwdId,
-      'stoken': stoken,
-    },
+  final direct = await _post('/file/download', accountCookie, <String, Object?>{
+    'fids': <String>[file.fid],
+    'fid_token_list': <String>[file.token],
+    'pwd_id': ref.pwdId,
+    'stoken': stoken,
+  });
+  final directUrl = _str(
+    _dig(direct.json, <Object>['data', 0, 'download_url']),
   );
-  final directUrl = _str(_dig(direct.json, <Object>['data', 0, 'download_url']));
   if (directUrl.isEmpty) {
     final message = _str(direct.json['message']);
     final code = _intOrNull(direct.json['code']);
@@ -327,11 +327,7 @@ Future<NativeDriveLink> _resolveUcDirectInner(
     'Referer': _ref,
     'Cookie': playCookie,
   };
-  final invalid = await _validateUcMediaUrl(
-    directUrl,
-    file.size,
-    playHeaders,
-  );
+  final invalid = await _validateUcMediaUrl(directUrl, file.size, playHeaders);
   if (invalid != null) {
     return NativeDriveLink.failed('免转存直链不可用（$invalid）');
   }
@@ -500,12 +496,12 @@ String _episodeKeyOf(String name) {
       )
       .trim();
   if (s.isEmpty) return '';
-  final seasonEpisode = RegExp(r'[Ss]\d{1,2}\s*[Ee]\s*0*(\d{1,4})').firstMatch(s);
+  final seasonEpisode = RegExp(r'[Ss]\d{1,2}\s*[Ee]\s*0*(\d{1,4})')
+      .firstMatch(s);
   if (seasonEpisode != null) {
     return 'ep${int.parse(seasonEpisode.group(1)!)}';
   }
-  final chineseEpisode =
-      RegExp(r'第\s*0*(\d{1,4})\s*[集话期]').firstMatch(s);
+  final chineseEpisode = RegExp(r'第\s*0*(\d{1,4})\s*[集话期]').firstMatch(s);
   if (chineseEpisode != null) {
     return 'ep${int.parse(chineseEpisode.group(1)!)}';
   }
@@ -533,11 +529,11 @@ Future<String?> _validateUcMediaUrl(
   Map<String, String> headers,
 ) async {
   if (!_httpUrlRe.hasMatch(url)) return '下载地址不是 HTTP(S)';
-  final client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 12);
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
-    final request =
-        await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 20));
+    final request = await client
+        .getUrl(Uri.parse(url))
+        .timeout(const Duration(seconds: 20));
     request.followRedirects = true;
     for (final entry in headers.entries) {
       request.headers.set(entry.key, entry.value);
@@ -552,17 +548,19 @@ Future<String?> _validateUcMediaUrl(
       response.headers,
       HttpHeaders.contentTypeHeader,
     ).toLowerCase();
-    final contentRange =
-        _headerFirst(response.headers, 'content-range');
+    final contentRange = _headerFirst(response.headers, 'content-range');
     final contentLength = _headerFirst(
       response.headers,
       HttpHeaders.contentLengthHeader,
     );
     final length = int.tryParse(contentLength) ?? 0;
-    final bytes = await _readPrefix(response, 4096)
-        .timeout(const Duration(seconds: 20));
+    final bytes = await _readPrefix(
+      response,
+      4096,
+    ).timeout(const Duration(seconds: 20));
 
-    final magic = bytes.isNotEmpty &&
+    final magic =
+        bytes.isNotEmpty &&
         (bytes[0] == 0x47 ||
             (bytes.length >= 4 &&
                 bytes[0] == 0x1a &&
@@ -580,11 +578,10 @@ Future<String?> _validateUcMediaUrl(
     }
 
     final totalMatch = _totalSizeRe.firstMatch(contentRange);
-    final reportedSize =
-        totalMatch != null ? int.tryParse(totalMatch.group(1)!) ?? 0 : length;
-    if (expectedSize > 0 &&
-        reportedSize > 0 &&
-        reportedSize != expectedSize) {
+    final reportedSize = totalMatch != null
+        ? int.tryParse(totalMatch.group(1)!) ?? 0
+        : length;
+    if (expectedSize > 0 && reportedSize > 0 && reportedSize != expectedSize) {
       return 'CDN 文件大小 $reportedSize 与目标 $expectedSize 不一致';
     }
     return null;
@@ -659,11 +656,11 @@ Future<_HttpResult> _http(
   String? body,
   Map<String, String> headers = const <String, String>{},
 }) async {
-  final client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 12);
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
-    final request =
-        await client.openUrl(method, uri).timeout(const Duration(seconds: 12));
+    final request = await client
+        .openUrl(method, uri)
+        .timeout(const Duration(seconds: 12));
     for (final entry in headers.entries) {
       request.headers.set(entry.key, entry.value);
     }

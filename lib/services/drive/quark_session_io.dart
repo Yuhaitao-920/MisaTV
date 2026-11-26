@@ -21,11 +21,13 @@ class QuarkSessionResult {
   final String userId;
 }
 
-const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+const _ua =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 '
     'Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
 const _referer = 'https://pan.quark.cn/';
-const _memberUrl = 'https://drive-pc.quark.cn/1/clouddrive/member'
+const _memberUrl =
+    'https://drive-pc.quark.cn/1/clouddrive/member'
     '?pr=ucpro&fr=pc&uc_param_str=&fetch_subscribe=true&_ch=home&fetch_identity=true';
 
 /// 清掉历史版本合并出错留下的坏键（键名带 `$`，如 `$1__puus`）：

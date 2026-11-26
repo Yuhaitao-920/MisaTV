@@ -11,10 +11,7 @@ import '../../services/drive/quark_session.dart';
 import '../../services/drive/uc_session.dart';
 
 /// 手动粘贴网盘 Cookie 的输入框；保存成功后返回 true。
-Future<bool?> showDriveCookieDialog(
-  BuildContext context,
-  String provider,
-) {
+Future<bool?> showDriveCookieDialog(BuildContext context, String provider) {
   return showDialog<bool>(
     context: context,
     builder: (_) => _DriveCookieDialog(provider: provider),
@@ -135,7 +132,11 @@ class _DriveCookieDialogState extends State<_DriveCookieDialog> {
       height: 1.6,
     );
     return AlertDialog(
-      title: Text(isTokenDriveProvider(_provider) ? '手动输入 Token · $_name' : '手动输入 Cookie · $_name'),
+      title: Text(
+        isTokenDriveProvider(_provider)
+            ? '手动输入 Token · $_name'
+            : '手动输入 Cookie · $_name',
+      ),
       content: SizedBox(
         width: 640,
         child: SingleChildScrollView(
@@ -153,12 +154,12 @@ class _DriveCookieDialogState extends State<_DriveCookieDialog> {
               Text(
                 _optional
                     ? '建议包含登录态字段：$_authFields（没有也能播 360P / 480P，'
-                        '配上后才能拿高清与大会员画质）；'
-                        'Cookie 等同于账号密码，只会保存在本机。'
+                          '配上后才能拿高清与大会员画质）；'
+                          'Cookie 等同于账号密码，只会保存在本机。'
                     : _authFields.isEmpty
                     ? 'Cookie 等同于账号密码，只会保存在本机。'
                     : '必须包含登录态字段：$_authFields；'
-                        'Cookie 等同于账号密码，只会保存在本机。',
+                          'Cookie 等同于账号密码，只会保存在本机。',
                 style: hint,
               ),
               const SizedBox(height: 14),

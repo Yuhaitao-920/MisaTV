@@ -243,9 +243,7 @@ void main() {
         isTrue,
       );
       expect(
-        PlayPageUnwrap.isDriveCdnUrl(
-          'https://cdn.drive.uc.cn/some/file.mkv',
-        ),
+        PlayPageUnwrap.isDriveCdnUrl('https://cdn.drive.uc.cn/some/file.mkv'),
         isTrue,
       );
     });

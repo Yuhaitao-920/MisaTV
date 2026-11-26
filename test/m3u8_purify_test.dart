@@ -11,8 +11,10 @@ const String base = 'https://cdn.example.com/hls/index.m3u8';
 /// 拼一份清单（每行一段，段用 `名字` + 时长）
 String build(List<String> lines) => '${lines.join('\n')}\n';
 
-List<String> seg(String name, [String dur = '6.0']) =>
-    <String>['#EXTINF:$dur,', name];
+List<String> seg(String name, [String dur = '6.0']) => <String>[
+  '#EXTINF:$dur,',
+  name,
+];
 
 String num(int i) => i.toString().padLeft(4, '0');
 
@@ -249,12 +251,8 @@ void main() {
     });
 
     test('BOM 开头的清单也能处理', () {
-      final src = '\ufeff${build(<String>[
-        '#EXTM3U',
-        ...seg('seg_0001.ts', '10.0'),
-        ...seg('seg_0002.ts', '10.0'),
-        '#EXT-X-ENDLIST',
-      ])}';
+      final src =
+          '\ufeff${build(<String>['#EXTM3U', ...seg('seg_0001.ts', '10.0'), ...seg('seg_0002.ts', '10.0'), '#EXT-X-ENDLIST'])}';
       expect(purifyM3u8(src, base)?.removed, 0);
     });
   });
@@ -285,7 +283,10 @@ void main() {
 
   group('hostRegexFor / isAd', () {
     final rules = <dynamic>[
-      <String, dynamic>{'host': 'other.com', 'regex': <String>['1.23']},
+      <String, dynamic>{
+        'host': 'other.com',
+        'regex': <String>['1.23'],
+      },
       <String, dynamic>{
         'host': 'cdn.example.com',
         'regex': <String>[
@@ -293,7 +294,10 @@ void main() {
           '5.76',
         ],
       },
-      <String, dynamic>{'host': 'cdn.example.com', 'regex': <String>['never-used']},
+      <String, dynamic>{
+        'host': 'cdn.example.com',
+        'regex': <String>['never-used'],
+      },
     ];
 
     test('按播放地址命中第一个 host（且该条带 regex）→ 返回其规则表', () {

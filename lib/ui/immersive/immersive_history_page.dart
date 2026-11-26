@@ -43,9 +43,9 @@ class ImmersiveHistoryPage extends StatelessWidget {
                   onPressed: () async {
                     await app.clearHistory();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已清空观看历史')),
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('已清空观看历史')));
                     }
                   },
                   icon: const Icon(Icons.delete_sweep_outlined, size: 18),
@@ -64,13 +64,12 @@ class ImmersiveHistoryPage extends StatelessWidget {
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.only(bottom: 16),
-                    gridDelegate:
-                        SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: m.posterMaxExtent,
-                          mainAxisExtent: m.cardExtent,
-                          crossAxisSpacing: 18,
-                          mainAxisSpacing: 22,
-                        ),
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: m.posterMaxExtent,
+                      mainAxisExtent: m.cardExtent,
+                      crossAxisSpacing: 18,
+                      mainAxisSpacing: 22,
+                    ),
                     itemCount: items.length,
                     itemBuilder: (context, index) {
                       final item = items[index];
@@ -82,7 +81,10 @@ class ImmersiveHistoryPage extends StatelessWidget {
                         sourceName: item.sourceName,
                         remarks: item.remarks,
                       );
-                      void open({bool autoPlay = true, bool fromStart = false}) {
+                      void open({
+                        bool autoPlay = true,
+                        bool fromStart = false,
+                      }) {
                         openImmersiveItem(
                           context,
                           vod,

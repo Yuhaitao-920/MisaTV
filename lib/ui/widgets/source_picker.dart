@@ -83,9 +83,7 @@ class _SourcePickerSheetState extends State<_SourcePickerSheet> {
               _PickerChips(
                 label: '点播订阅',
                 activeId: app.activeProfileId ?? '',
-                options: [
-                  for (final p in app.vodProfiles) (p.id, p.name),
-                ],
+                options: [for (final p in app.vodProfiles) (p.id, p.name)],
                 onTap: app.activateProfile,
               ),
               const SizedBox(height: 10),
@@ -213,7 +211,13 @@ class _PickerChips extends StatelessWidget {
 }
 
 class _SiteTile extends StatelessWidget {
-  const _SiteTile({super.key, required this.site, required this.active, required this.usable, this.onTap});
+  const _SiteTile({
+    super.key,
+    required this.site,
+    required this.active,
+    required this.usable,
+    this.onTap,
+  });
   final SourceBean site;
   final bool active;
   final bool usable;
@@ -236,14 +240,18 @@ class _SiteTile extends StatelessWidget {
               height: 38,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: usable ? 0.16 : 0.06),
+                color: theme.colorScheme.primary.withValues(
+                  alpha: usable ? 0.16 : 0.06,
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 site.displayName.characters.first,
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
-                  color: usable ? theme.colorScheme.primary : theme.disabledColor,
+                  color: usable
+                      ? theme.colorScheme.primary
+                      : theme.disabledColor,
                 ),
               ),
             ),
@@ -259,7 +267,9 @@ class _SiteTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.70),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.70,
+                      ),
                     ),
                   ),
                   if (!usable)
@@ -267,13 +277,19 @@ class _SiteTile extends StatelessWidget {
                       site.unsupportedReason,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.error),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
                     ),
                 ],
               ),
             ),
             if (active)
-              Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary, size: 22)
+              Icon(
+                Icons.check_circle_rounded,
+                color: theme.colorScheme.primary,
+                size: 22,
+              )
             else if (!usable)
               Icon(Icons.block_rounded, color: theme.disabledColor, size: 20),
           ],

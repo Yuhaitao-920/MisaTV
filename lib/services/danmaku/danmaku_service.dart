@@ -14,7 +14,8 @@ import 'danmaku_query.dart';
 import 'danmaku_settings.dart';
 import 'danmaku_xml.dart';
 
-const String danmakuUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Win-Box/0.98';
+const String danmakuUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Win-Box/0.98';
 const Duration danmakuSearchTimeout = Duration(seconds: 8);
 const Duration danmakuBangumiTimeout = Duration(seconds: 8);
 const Duration danmakuCommentTimeout = Duration(seconds: 40);
@@ -103,10 +104,8 @@ class _EndpointFail {
 }
 
 class DanmakuService {
-  DanmakuService({
-    this.settingsJson,
-    http.Client? client,
-  }) : _client = client ?? http.Client();
+  DanmakuService({this.settingsJson, http.Client? client})
+    : _client = client ?? http.Client();
 
   /// 外部注入的弹幕设置 JSON（key → JSON 文本；`danmaku` / `settings` / 唯一值）。
   final Map<String, String> Function()? settingsJson;
@@ -123,7 +122,10 @@ class DanmakuService {
     if (provider == null) return DanmakuSettings.defaults();
     final map = provider();
     if (map.isEmpty) return DanmakuSettings.defaults();
-    final raw = map['danmaku'] ?? map['settings'] ?? (map.length == 1 ? map.values.first : null);
+    final raw =
+        map['danmaku'] ??
+        map['settings'] ??
+        (map.length == 1 ? map.values.first : null);
     return DanmakuSettings.fromJsonString(raw);
   }
 
@@ -164,7 +166,9 @@ class DanmakuService {
     DanmakuCandidate candidate, {
     Duration? timeout,
   }) async {
-    if (candidate.episodeId <= 0 || candidate.source.trim().isEmpty) return const [];
+    if (candidate.episodeId <= 0 || candidate.source.trim().isEmpty) {
+      return const [];
+    }
     final xml = await _comment(
       candidate.source,
       candidate.episodeId,
@@ -196,17 +200,19 @@ class DanmakuService {
       final rank = (k.isEmpty || t.isEmpty)
           ? 2
           : t == k
-              ? 0
-              : (t.contains(k) || k.contains(t) ? 1 : 2);
+          ? 0
+          : (t.contains(k) || k.contains(t) ? 1 : 2);
       final n = epNumberOf(c);
-      items.add(_RankedCandidate(
-        candidate: c,
-        rank: rank,
-        seasonRank: seasonRankOf(c.title, season),
-        epMatch: looksForEp && candidateMatchesEp(c, ep) ? 0 : 1,
-        epNumber: n,
-        index: index++,
-      ));
+      items.add(
+        _RankedCandidate(
+          candidate: c,
+          rank: rank,
+          seasonRank: seasonRankOf(c.title, season),
+          epMatch: looksForEp && candidateMatchesEp(c, ep) ? 0 : 1,
+          epNumber: n,
+          index: index++,
+        ),
+      );
     }
     items.sort((a, b) {
       var r = a.rank - b.rank;
@@ -268,7 +274,11 @@ class DanmakuService {
         : limited;
   }
 
-  Future<List<DanmakuAnime>> _searchAnime(String base, String keyword, String sourceName) async {
+  Future<List<DanmakuAnime>> _searchAnime(
+    String base,
+    String keyword,
+    String sourceName,
+  ) async {
     final url = joinApi(
       base,
       '/api/v2/search/anime?keyword=${Uri.encodeQueryComponent(keyword)}',
@@ -281,7 +291,11 @@ class DanmakuService {
     } catch (_) {
       throw StateError('响应不是 JSON');
     }
-    final list = parseEndpointAnimeList(json, normalizeEndpointBase(base), sourceName);
+    final list = parseEndpointAnimeList(
+      json,
+      normalizeEndpointBase(base),
+      sourceName,
+    );
     if (list == null) throw StateError('响应结构异常');
     return list;
   }
@@ -399,7 +413,11 @@ class _RankedCandidate {
 }
 
 /// 宽松解析搜索响应：`{animes:[...]}` 或数组；animeId 必填，bangumiId 缺失用 animeId 兜底。
-List<DanmakuAnime>? parseEndpointAnimeList(dynamic json, String source, String sourceName) {
+List<DanmakuAnime>? parseEndpointAnimeList(
+  dynamic json,
+  String source,
+  String sourceName,
+) {
   final List<dynamic>? arr;
   if (json is List) {
     arr = json;
@@ -418,16 +436,19 @@ List<DanmakuAnime>? parseEndpointAnimeList(dynamic json, String source, String s
     if (title.isEmpty) continue;
     final bangumiId = _toNum(raw['bangumiId']);
     final episodeCount = _toNum(raw['episodeCount']);
-    out.add(DanmakuAnime(
-      animeId: animeId.toInt(),
-      bangumiId: bangumiId?.toInt(),
-      title: title,
-      kind: raw['type'] == null ? '' : raw['type'].toString(),
-      episodeCount:
-          episodeCount != null && episodeCount > 0 ? episodeCount.toInt() : 0,
-      source: source,
-      sourceName: sourceName,
-    ));
+    out.add(
+      DanmakuAnime(
+        animeId: animeId.toInt(),
+        bangumiId: bangumiId?.toInt(),
+        title: title,
+        kind: raw['type'] == null ? '' : raw['type'].toString(),
+        episodeCount: episodeCount != null && episodeCount > 0
+            ? episodeCount.toInt()
+            : 0,
+        source: source,
+        sourceName: sourceName,
+      ),
+    );
   }
   return out;
 }
@@ -454,14 +475,16 @@ List<DanmakuCandidate>? parseEndpointEpisodes(
     // 接口的集号字段（`episodeNumber`，数字或数字串）——部分条目标题不提集号。
     final epNumRaw = raw['episodeNumber'] ?? raw['episode_number'];
     final epNum = epNumRaw == null ? '' : epNumRaw.toString().trim();
-    out.add(DanmakuCandidate(
-      episodeId: id.toInt(),
-      title: title,
-      episodeTitle: raw['episodeTitle']?.toString().trim() ?? '',
-      episodeNumber: RegExp(r'^\d{1,4}$').hasMatch(epNum) ? epNum : '',
-      source: source,
-      sourceName: sourceName,
-    ));
+    out.add(
+      DanmakuCandidate(
+        episodeId: id.toInt(),
+        title: title,
+        episodeTitle: raw['episodeTitle']?.toString().trim() ?? '',
+        episodeNumber: RegExp(r'^\d{1,4}$').hasMatch(epNum) ? epNum : '',
+        source: source,
+        sourceName: sourceName,
+      ),
+    );
   }
   return out;
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:gbk_codec/gbk_codec.dart';
 import 'package:http/http.dart' as http;
 
@@ -134,7 +134,10 @@ class AppHttp {
     observer?.call('GET', normalized);
     try {
       final res = await client
-          .get(uri, headers: {..._defaultHeaders, ...?headers})
+          .get(
+            uri,
+            headers: {..._defaultHeaders, ...?headers, ...authHeadersOf(uri)},
+          )
           .timeout(timeout);
       // 403/503 也可能带 Set-Cookie（反爬先种 Cookie），要赶在抛错前收下。
       final setCookie = res.headers['set-cookie'];
@@ -142,7 +145,7 @@ class AppHttp {
       if (res.statusCode >= 400) {
         AppLog.w('http', 'GET ${redactUrl(normalized)} HTTP ${res.statusCode}');
         throw AppHttpException(
-          '站点返回 HTTP ${res.statusCode}',
+          _describeStatus(res.statusCode, uri),
           statusCode: res.statusCode,
         );
       }
@@ -161,6 +164,54 @@ class AppHttp {
       AppLog.w('http', 'GET ${redactUrl(normalized)} 失败', detail);
       throw AppHttpException(describeAppError(e).message);
     }
+  }
+
+  /// 401 / 403 时给出「这是凭据问题」的提示，而不是干巴巴的状态码。
+  ///
+  /// WebDAV / 坚果云订阅把账号密码写在地址里，输错、过期或被网盘改了密码都表现
+  /// 为 401；用户看到「站点返回 HTTP 401」完全不知道该改什么。
+  static String _describeStatus(int status, Uri uri) {
+    if (status == 401) {
+      return uri.userInfo.isEmpty
+          ? '站点返回 HTTP 401（需要登录）。如果这是 WebDAV / 坚果云订阅，'
+                '地址里要带上账号密码：https://用户名:密码@主机/路径'
+          : '站点返回 HTTP 401（账号或密码不对）。请检查地址里内嵌的 WebDAV 账号密码';
+    }
+    if (status == 403 && uri.userInfo.isNotEmpty) {
+      return '站点返回 HTTP 403（凭据被拒绝）。请确认该 WebDAV 账号有权限读取此路径';
+    }
+    return '站点返回 HTTP $status';
+  }
+
+  /// 地址里内嵌的账号密码 → `Authorization: Basic …`。
+  ///
+  /// `https://user:pass@dav.jianguoyun.com/dav/x.json` 是 WebDAV / 坚果云订阅的
+  /// 常见写法，TVBox 生态普遍支持。但 Dart 的 `HttpClient` **不会**把
+  /// `Uri.userInfo` 自动转成请求头：不加这一步，服务端直接回 401，
+  /// 表现为「订阅导入失败：站点返回 HTTP 401」。
+  ///
+  /// 订阅正文、jar 下载、封面直链都走同一个订阅地址的凭据，所以做成公开方法，
+  /// 供那些自建 `HttpClient` 的下载器（jar 蜘蛛）复用。
+  ///
+  /// 用户名里的 `%40`（`@` 的转义）要先解码，否则拼出来的 Basic 串是错的。
+  static Map<String, String> authHeadersOf(Uri uri) {
+    final info = uri.userInfo;
+    if (info.isEmpty || !info.contains(':')) return const {};
+    final colon = info.indexOf(':');
+    final rawUser = info.substring(0, colon);
+    final rawPass = info.substring(colon + 1);
+    String decode(String value) {
+      try {
+        return Uri.decodeComponent(value);
+      } catch (_) {
+        return value;
+      }
+    }
+
+    final token = base64Encode(
+      utf8.encode('${decode(rawUser)}:${decode(rawPass)}'),
+    );
+    return {'authorization': 'Basic $token'};
   }
 
   /// 只读响应体开头的 [maxBytes] 字节，用于「先鉴定这是不是直播单」。
@@ -186,7 +237,11 @@ class AppHttp {
     StreamSubscription<List<int>>? sub;
     try {
       final request = http.Request('GET', uri)
-        ..headers.addAll({..._defaultHeaders, ...?headers})
+        ..headers.addAll({
+          ..._defaultHeaders,
+          ...?headers,
+          ...authHeadersOf(uri),
+        })
         ..followRedirects = true;
       final client = useDoh ? (_dohClient ??= createDohClient()) : _client;
       observer?.call('GET', normalized);
@@ -218,7 +273,9 @@ class AppHttp {
         (chunk) {
           final remain = maxBytes - buf.length;
           if (remain > 0) {
-            buf.addAll(chunk.length <= remain ? chunk : chunk.sublist(0, remain));
+            buf.addAll(
+              chunk.length <= remain ? chunk : chunk.sublist(0, remain),
+            );
           }
           if (buf.length >= maxBytes && !done.isCompleted) {
             sub?.pause();

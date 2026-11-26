@@ -45,8 +45,14 @@ void main() {
       });
       final target = Directory(p.join(tmp.path, 'out', 'jre'));
       expect(BundledRuntime.seed('jre', target, exeDir: tmp.path), isTrue);
-      expect(File(p.join(target.path, 'bin/java.exe')).readAsStringSync(), 'java');
-      expect(File(p.join(target.path, 'legal/java.base/LICENSE')).readAsStringSync(), 'GPL');
+      expect(
+        File(p.join(target.path, 'bin/java.exe')).readAsStringSync(),
+        'java',
+      );
+      expect(
+        File(p.join(target.path, 'legal/java.base/LICENSE')).readAsStringSync(),
+        'GPL',
+      );
     });
 
     test('目标已存在文件时不覆盖、直接返回 true', () {

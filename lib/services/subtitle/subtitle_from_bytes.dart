@@ -25,11 +25,7 @@ SubtitleFile subtitleFromBytes(
     if (text.trim().isEmpty) {
       throw const SubtitleException('字幕内容为空或无法解码');
     }
-    return SubtitleFile(
-      name: fileName,
-      format: extOf(fileName),
-      text: text,
-    );
+    return SubtitleFile(name: fileName, format: extOf(fileName), text: text);
   }
 
   final entries = extractArchiveEntries(bytes);
@@ -96,9 +92,7 @@ SubtitleFile _pickAndDecode(
     n: 12, // 候选上限：再多也没人愿意翻
   );
   if (ranked.isEmpty) {
-    throw SubtitleException(
-      '压缩包内未找到字幕文件（共 ${entries.length} 个条目）',
-    );
+    throw SubtitleException('压缩包内未找到字幕文件（共 ${entries.length} 个条目）');
   }
 
   // 先把全部候选解出来（供 UI 选择 / 供调用方缓存）。

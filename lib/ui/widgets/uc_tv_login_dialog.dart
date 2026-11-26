@@ -8,10 +8,10 @@ import '../../services/uc_tv_token_service.dart';
 
 /// UC TV 授权：扫码后把 token 对写入本机（非会员 UC 原画所需）。
 Future<bool?> showUcTvLoginDialog(BuildContext context) => showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => const _UcTvLoginDialog(),
-    );
+  context: context,
+  barrierDismissible: true,
+  builder: (_) => const _UcTvLoginDialog(),
+);
 
 class _UcTvLoginDialog extends StatefulWidget {
   const _UcTvLoginDialog();
@@ -55,7 +55,9 @@ class _UcTvLoginDialogState extends State<_UcTvLoginDialog> {
     try {
       final app = AppScope.of(context);
       final saved = app.driveAccounts['uc']?.extra['uctvDeviceId'] ?? '';
-      final deviceId = saved.isNotEmpty ? saved : UcTvTokenService.newDeviceId();
+      final deviceId = saved.isNotEmpty
+          ? saved
+          : UcTvTokenService.newDeviceId();
       final session = await _service.create(deviceId: deviceId);
       if (!mounted) return;
       setState(() {
@@ -152,7 +154,8 @@ class _UcTvLoginDialogState extends State<_UcTvLoginDialog> {
                 child: Image.memory(
                   base64Decode(session.imageDataUrl.split(',').last),
                   fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Icon(Icons.qr_code_2_rounded, size: 160),
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.qr_code_2_rounded, size: 160),
                 ),
               ),
             if (session != null) ...[
@@ -178,14 +181,19 @@ class _UcTvLoginDialogState extends State<_UcTvLoginDialog> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.error),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
               ),
             ],
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('关闭')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('关闭'),
+        ),
         FilledButton.tonal(
           onPressed: _busy ? null : _start,
           child: Text(_expired ? '刷新二维码' : '重新获取'),

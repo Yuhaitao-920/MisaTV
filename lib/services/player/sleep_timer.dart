@@ -23,11 +23,7 @@ enum SleepTimerMode {
 
 /// 定时器状态快照（UI 直接读它渲染）。
 class SleepTimerState {
-  const SleepTimerState({
-    this.mode,
-    this.deadlineMs,
-    this.totalMs = 0,
-  });
+  const SleepTimerState({this.mode, this.deadlineMs, this.totalMs = 0});
 
   static const SleepTimerState off = SleepTimerState();
 

@@ -65,7 +65,8 @@ String? _relayFileUrl(String raw, String baseUrl) {
 /// `Cloud-drive: "tvfan/Cloud-drive.txt"` → `http://127.0.0.1:<relay>/file/tvfan/Cloud-drive.txt`。
 bool _normalizeCloudDrive(Map decoded) {
   final raw = '${decoded['Cloud-drive'] ?? ''}'.trim();
-  if (raw.isEmpty || RegExp(r'^https?://', caseSensitive: false).hasMatch(raw)) {
+  if (raw.isEmpty ||
+      RegExp(r'^https?://', caseSensitive: false).hasMatch(raw)) {
     return false;
   }
   if (!LocalRelay.instance.running) return false;

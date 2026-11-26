@@ -16,10 +16,7 @@ void main() {
       expect(full, 33);
       expect(quarter, 8);
       expect(quarter * 4, lessThanOrEqualTo(full + 1));
-      expect(
-        danmakuLaneCount(height: 10, fontSize: 24, regionRatio: 0.25),
-        1,
-      );
+      expect(danmakuLaneCount(height: 10, fontSize: 24, regionRatio: 0.25), 1);
     });
 
     test('4K 全屏轨道数不被 40 上限截断', () {
@@ -142,10 +139,7 @@ void main() {
     });
 
     test('空文本与非法宽度直接跳过', () {
-      final items = [
-        _scroll(0, ''),
-        _scroll(1, '正常弹幕'),
-      ];
+      final items = [_scroll(0, ''), _scroll(1, '正常弹幕')];
       final slots = scheduleDanmaku(
         items: items,
         widths: const [100, 0],

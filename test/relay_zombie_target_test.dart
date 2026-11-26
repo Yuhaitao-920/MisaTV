@@ -22,7 +22,8 @@ void main() {
 
     test('地址被判死后能被识别', () {
       final relay = LocalRelay.instance;
-      const url = 'https://dl-pc-zb.drive.quark.cn/AAA/1/hash/file?filename=A.mkv';
+      const url =
+          'https://dl-pc-zb.drive.quark.cn/AAA/1/hash/file?filename=A.mkv';
       // 通过 releasePlaySessions 无法直接注入，这里用 revive 反证表的读写
       relay.revivePlayTarget(url);
       expect(relay.isDeadPlayTarget(url), isFalse);

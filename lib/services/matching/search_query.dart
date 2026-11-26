@@ -94,7 +94,9 @@ class SearchQuery {
     for (final word in excludes) {
       if (lowerName.contains(word)) return false;
     }
-    final itemYear = int.tryParse(RegExp(r'\d{4}').firstMatch(year)?.group(0) ?? '');
+    final itemYear = int.tryParse(
+      RegExp(r'\d{4}').firstMatch(year)?.group(0) ?? '',
+    );
     if (this.year != null) {
       if (itemYear != null && itemYear != this.year) return false;
     } else if (yearMin != null || yearMax != null) {
@@ -115,7 +117,8 @@ class SearchQuery {
   }
 
   @override
-  String toString() => 'SearchQuery(keyword=$keyword, year=$year, '
+  String toString() =>
+      'SearchQuery(keyword=$keyword, year=$year, '
       'range=$yearMin..$yearMax, types=$types, areas=$areas, '
       'excludes=$excludes)';
 }

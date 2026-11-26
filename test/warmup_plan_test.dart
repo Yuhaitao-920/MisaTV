@@ -100,11 +100,7 @@ void main() {
 
   test('空订阅返回空计划', () {
     expect(
-      buildWarmUpPlan(
-        sites: const [],
-        runtimeReady: true,
-        weightOf: (_) => 1,
-      ),
+      buildWarmUpPlan(sites: const [], runtimeReady: true, weightOf: (_) => 1),
       isEmpty,
     );
   });

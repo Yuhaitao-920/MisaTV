@@ -23,7 +23,11 @@ void main() {
     );
     relay.debugService = debug;
     relay.spiderDebugRunner =
-        ({required String method, required Map<String, dynamic> args, required void Function(String) onRequest}) async {
+        ({
+          required String method,
+          required Map<String, dynamic> args,
+          required void Function(String) onRequest,
+        }) async {
           onRequest('GET https://example.com/$method');
           return '{"ok":true,"method":"$method"}';
         };
@@ -45,7 +49,10 @@ void main() {
   }) async {
     final client = HttpClient();
     try {
-      final req = await client.openUrl(method, Uri.parse('${relay.baseUrl}$path'));
+      final req = await client.openUrl(
+        method,
+        Uri.parse('${relay.baseUrl}$path'),
+      );
       headers.forEach(req.headers.set);
       if (body != null) {
         req.headers.contentType = ContentType.json;
@@ -76,7 +83,10 @@ void main() {
     final run = await call(
       'POST',
       '/debug/spider?session=$session',
-      body: jsonEncode({'method': 'home', 'args': {'site': 'a'}}),
+      body: jsonEncode({
+        'method': 'home',
+        'args': {'site': 'a'},
+      }),
     );
     expect(run.status, 200);
     final decoded = jsonDecode(run.body) as Map;

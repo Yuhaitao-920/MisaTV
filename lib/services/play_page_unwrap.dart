@@ -39,7 +39,6 @@ class PlayPageUnwrap {
   /// 网盘 CDN 直链的路径通常没有扩展名（靠 query 里的 token 鉴权），
   /// 不能按「无扩展名 = 播放页」去抓取：整集文件会被 getText 拉下来并超时。
 
-
   /// 只有疑似播放页/分享页才需要抓取；带媒体扩展名的直链直接放行。
   ///
   /// ★ 网盘 CDN 直链必须放行：它们的路径是「一长串 hex 段 + 文件名哈希」，
@@ -190,22 +189,22 @@ class PlayPageUnwrap {
         skipBinaryMedia: true,
       );
       if (res != null) {
-      final type = res.contentType.toLowerCase();
-      // 本身已经是清单或媒体流：原地址可以直接播。
-      if (type.contains('mpegurl') ||
-                type.startsWith('video/') ||
-          type.startsWith('audio/') || 
-          type.contains('octet-stream') ||
-          res.body.isEmpty ||
-          res.body.trimLeft().startsWith('#EXTM3U')) {
-        return play;
-      }
-      final extracted = extractMediaUrl(res.body, url);
-      if (extracted != null && extracted != url) {
-        _remember(url, extracted);
-        AppLog.i('play', '云播页面解出直链 ${redactUrl(extracted)}');
-        return _withUrl(play, extracted);
-      }
+        final type = res.contentType.toLowerCase();
+        // 本身已经是清单或媒体流：原地址可以直接播。
+        if (type.contains('mpegurl') ||
+            type.startsWith('video/') ||
+            type.startsWith('audio/') ||
+            type.contains('octet-stream') ||
+            res.body.isEmpty ||
+            res.body.trimLeft().startsWith('#EXTM3U')) {
+          return play;
+        }
+        final extracted = extractMediaUrl(res.body, url);
+        if (extracted != null && extracted != url) {
+          _remember(url, extracted);
+          AppLog.i('play', '云播页面解出直链 ${redactUrl(extracted)}');
+          return _withUrl(play, extracted);
+        }
       }
     } catch (e) {
       AppLog.w('play', '云播页面解析失败 ${redactUrl(url)}', e);
@@ -222,13 +221,13 @@ class PlayPageUnwrap {
           skipBinaryMedia: true,
         );
         if (res != null) {
-        final type = res.contentType.toLowerCase();
-        if (type.contains('mpegurl') ||
-            res.body.trimLeft().startsWith('#EXTM3U')) {
-          _remember(url, fallback);
-          AppLog.i('play', '云播页面补 /index.m3u8 成功 ${redactUrl(fallback)}');
-          return _withUrl(play, fallback);
-        }
+          final type = res.contentType.toLowerCase();
+          if (type.contains('mpegurl') ||
+              res.body.trimLeft().startsWith('#EXTM3U')) {
+            _remember(url, fallback);
+            AppLog.i('play', '云播页面补 /index.m3u8 成功 ${redactUrl(fallback)}');
+            return _withUrl(play, fallback);
+          }
         }
       } catch (_) {
         // 补路径也失败：保持原地址，让播放器给出明确错误

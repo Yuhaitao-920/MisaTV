@@ -31,10 +31,7 @@ class EpgService {
       refresh: refresh,
     );
     if (programs.isEmpty) return const {};
-    return buildEpgEntries(
-      programs,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+    return buildEpgEntries(programs, DateTime.now().millisecondsSinceEpoch);
   }
 
   /// 完整节目表（键与 [loadFor] 一致），供节目单与直播回看使用。
@@ -48,7 +45,9 @@ class EpgService {
     final refs = <EpgChannelRef>[];
     for (final channel in channels) {
       final ref = epgRefOf(channel);
-      if (ref.tvgId.isNotEmpty || ref.tvgName.isNotEmpty || ref.name.isNotEmpty) {
+      if (ref.tvgId.isNotEmpty ||
+          ref.tvgName.isNotEmpty ||
+          ref.name.isNotEmpty) {
         refs.add(ref);
       }
     }
@@ -119,7 +118,8 @@ class EpgService {
     return dir;
   }
 
-  String _hash(String url) => crypto.md5.convert(utf8.encode(url)).toString().substring(0, 16);
+  String _hash(String url) =>
+      crypto.md5.convert(utf8.encode(url)).toString().substring(0, 16);
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -130,14 +130,20 @@ class EpgService {
       ..autoUncompress = false;
     try {
       final req = await client.getUrl(Uri.parse(url)).timeout(_timeout);
-      req.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/120.0 Safari/537.36');
+      req.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      );
       req.headers.set('Accept', '*/*');
       final res = await req.close().timeout(_timeout);
       if (res.statusCode >= 400) {
         throw HttpException('HTTP ${res.statusCode}', uri: Uri.parse(url));
       }
-      var bytes = await res.fold<List<int>>(<int>[], (acc, chunk) => acc..addAll(chunk));
+      var bytes = await res.fold<List<int>>(
+        <int>[],
+        (acc, chunk) => acc..addAll(chunk),
+      );
       if (bytes.length > 1 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
         bytes = gzip.decode(bytes);
       }
@@ -150,9 +156,13 @@ class EpgService {
   String _decodeXml(List<int> bytes) {
     if (bytes.isEmpty) return '';
     final head = latin1.decode(bytes.take(256).toList(), allowInvalid: true);
-    final match = RegExp(r'''encoding\s*=\s*["']([\w-]+)["']''', caseSensitive: false).firstMatch(head);
+    final match = RegExp(
+      r'''encoding\s*=\s*["']([\w-]+)["']''',
+      caseSensitive: false,
+    ).firstMatch(head);
     final encoding = (match?.group(1) ?? 'utf-8').toLowerCase();
-    final text = (encoding == 'gbk' || encoding == 'gb2312' || encoding == 'gb18030')
+    final text =
+        (encoding == 'gbk' || encoding == 'gb2312' || encoding == 'gb18030')
         ? gbk.decode(bytes)
         : utf8.decode(bytes, allowMalformed: true);
     return text.replaceFirst('\uFEFF', '');
@@ -166,7 +176,11 @@ List<String> collectEpgUrls(String liveEpg, List<EpgChannelRef> refs) {
   final out = <String>[];
   void push(String raw) {
     final t = raw.trim();
-    if (t.isEmpty || t.contains('{') || !RegExp(r'^https?://', caseSensitive: false).hasMatch(t)) return;
+    if (t.isEmpty ||
+        t.contains('{') ||
+        !RegExp(r'^https?://', caseSensitive: false).hasMatch(t)) {
+      return;
+    }
     final low = t.toLowerCase();
     if (!low.contains('xml') && !low.contains('gz')) return;
     if (!out.contains(t)) out.add(t);

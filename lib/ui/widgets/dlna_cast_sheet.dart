@@ -81,7 +81,9 @@ class _DlnaCastPanelState extends State<DlnaCastPanel> {
       messenger?.showSnackBar(SnackBar(content: Text('已投到「${result.device}」')));
       Navigator.of(context).pop();
     } else {
-      messenger?.showSnackBar(SnackBar(content: Text(result.error.isEmpty ? '投屏失败' : result.error)));
+      messenger?.showSnackBar(
+        SnackBar(content: Text(result.error.isEmpty ? '投屏失败' : result.error)),
+      );
     }
   }
 
@@ -94,9 +96,7 @@ class _DlnaCastPanelState extends State<DlnaCastPanel> {
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text('投屏到电视', style: theme.textTheme.titleLarge),
-            ),
+            Expanded(child: Text('投屏到电视', style: theme.textTheme.titleLarge)),
             IconButton(
               tooltip: '重新搜索',
               onPressed: _loading ? null : _search,
@@ -116,7 +116,11 @@ class _DlnaCastPanelState extends State<DlnaCastPanel> {
             padding: EdgeInsets.symmetric(vertical: 28),
             child: Row(
               children: [
-                SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
                 SizedBox(width: 12),
                 Text('正在搜索局域网设备…'),
               ],
@@ -142,10 +146,18 @@ class _DlnaCastPanelState extends State<DlnaCastPanel> {
             (device) => ListTile(
               contentPadding: EdgeInsets.zero,
               leading: _busyUdn == device.udn
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.tv_rounded),
               title: Text(device.name),
-              subtitle: Text(device.location, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                device.location,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               onTap: _busyUdn.isEmpty ? () => _cast(device) : null,
             ),
           ),

@@ -15,13 +15,11 @@ void main() {
     });
 
     test('从 cURL 里只取 Cookie 一段', () {
-      final raw = "curl 'https://pan.quark.cn/' \\\n"
+      final raw =
+          "curl 'https://pan.quark.cn/' \\\n"
           " -H 'cookie: __puus=abc; __pus=def' \\\n"
           " -H 'user-agent: Mozilla/5.0'";
-      expect(
-        normalizeDriveCookieInput(raw),
-        '__puus=abc; __pus=def',
-      );
+      expect(normalizeDriveCookieInput(raw), '__puus=abc; __pus=def');
     });
 
     test('每行一个 a=b', () {
@@ -43,17 +41,11 @@ void main() {
 
     test('同名后值覆盖前值，值里的等号保留', () {
       expect(normalizeDriveCookieInput('a=1; a=2'), 'a=2');
-      expect(
-        normalizeDriveCookieInput('token=abc==; x=y'),
-        'token=abc==; x=y',
-      );
+      expect(normalizeDriveCookieInput('token=abc==; x=y'), 'token=abc==; x=y');
     });
 
     test('非法片段被忽略', () {
-      expect(
-        normalizeDriveCookieInput('=no; bad name=1; ok=1'),
-        'ok=1',
-      );
+      expect(normalizeDriveCookieInput('=no; bad name=1; ok=1'), 'ok=1');
     });
   });
 
@@ -67,10 +59,7 @@ void main() {
 
     test('缺少登录态字段时给出提示', () {
       expect(driveCookieHasAuth('quark', 'foo=bar'), isFalse);
-      expect(
-        driveCookieMissingHint('baidu'),
-        contains('BDUSS'),
-      );
+      expect(driveCookieMissingHint('baidu'), contains('BDUSS'));
     });
 
     test('哔哩只认 SESSDATA', () {

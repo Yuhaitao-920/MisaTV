@@ -21,7 +21,10 @@ class EmptyState extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 28, vertical: compact ? 20 : 48),
+        padding: EdgeInsets.symmetric(
+          horizontal: 28,
+          vertical: compact ? 20 : 48,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -32,7 +35,11 @@ class EmptyState extends StatelessWidget {
                 color: theme.colorScheme.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(22),
               ),
-              child: Icon(icon, size: compact ? 24 : 30, color: theme.colorScheme.primary),
+              child: Icon(
+                icon,
+                size: compact ? 24 : 30,
+                color: theme.colorScheme.primary,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
@@ -51,10 +58,7 @@ class EmptyState extends StatelessWidget {
                 ),
               ),
             ],
-            if (action != null) ...[
-              const SizedBox(height: 18),
-              action!,
-            ],
+            if (action != null) ...[const SizedBox(height: 18), action!],
           ],
         ),
       ),

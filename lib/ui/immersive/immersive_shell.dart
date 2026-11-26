@@ -73,7 +73,9 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
         DeviceOrientation.landscapeRight,
       ]),
     );
-    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    unawaited(
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+    );
   }
 
   void _restoreOrientation() {
@@ -236,9 +238,7 @@ class _ImmersiveShellState extends State<ImmersiveShell> {
       3 => const ImmersiveHistoryPage(),
       4 => const ImmersiveFavoritesPage(),
       _ => Padding(
-        padding: EdgeInsets.only(
-          top: ImmersiveMetrics.of(context).contentTop,
-        ),
+        padding: EdgeInsets.only(top: ImmersiveMetrics.of(context).contentTop),
         child: SettingsPage(key: _settingsKey),
       ),
     };
@@ -403,23 +403,26 @@ class _TopBar extends StatelessWidget {
               ),
             if (!compact) const SizedBox(width: 10),
             if (!compact)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                child: Text(
-                  '沉浸观影',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  child: Text(
+                    '沉浸观影',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1,
+                    ),
                   ),
                 ),
               ),
-            ),
             if (!compact) const SizedBox(width: 46),
             for (var i = 0; i < items.length; i++)
               Expanded(
@@ -433,14 +436,14 @@ class _TopBar extends StatelessWidget {
               ),
             if (!compact) const Spacer(),
             if (!compact)
-            Text(
-              time,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.56),
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.4,
+              Text(
+                time,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.56),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.4,
+                ),
               ),
-            ),
             SizedBox(width: compact ? 4 : 18),
             IconButton(
               tooltip: '退出沉浸观影',
@@ -510,7 +513,9 @@ class _NavTab extends StatelessWidget {
                       style: theme.textTheme.labelSmall?.copyWith(
                         fontSize: 10,
                         color: color,
-                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                       ),
                     ),
                   ],
@@ -523,7 +528,9 @@ class _NavTab extends StatelessWidget {
                       item.label,
                       style: theme.textTheme.titleSmall?.copyWith(
                         color: color,
-                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                       ),
                     ),
                   ],

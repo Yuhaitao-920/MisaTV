@@ -353,6 +353,37 @@ extension _PlayerPlaybackExt on _PlayerPageState {
     });
   }
 
+  Future<void> _markSkipIntroFromCurrent() async {
+    if (_live) return;
+    final intro = clampSkipSeconds(_position.inSeconds);
+    if (intro <= 0) {
+      _toast('当前进度为 0 秒，片头无需跳过');
+      return;
+    }
+    await _saveSkipSegments(intro, _skipOutro);
+    if (!mounted) return;
+    _toast('片头已设为 ${_fmt(Duration(seconds: intro))}（长按精确调整/清除）');
+  }
+
+  Future<void> _markSkipOutroFromCurrent() async {
+    if (_live) return;
+    if (_duration <= Duration.zero) {
+      _toast('视频时长尚未就绪，请稍后再试');
+      return;
+    }
+    final remaining = _position >= _duration
+        ? Duration.zero
+        : _duration - _position;
+    final outro = clampSkipSeconds(remaining.inSeconds);
+    if (outro <= 1) {
+      _toast('离结尾太近，请在片尾开始处点击');
+      return;
+    }
+    await _saveSkipSegments(_skipIntro, outro);
+    if (!mounted) return;
+    _toast('片尾已设为 剩 ${_fmt(Duration(seconds: outro))}（长按精确调整/清除）');
+  }
+
   Future<void> _showSkipSettings() async {
     final introCtrl = TextEditingController(
       text: _skipIntro > 0 ? '$_skipIntro' : '',

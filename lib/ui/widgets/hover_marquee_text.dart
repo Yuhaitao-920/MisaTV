@@ -95,6 +95,8 @@ class _HoverMarqueeTextState extends State<HoverMarqueeText>
         final available = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : double.infinity;
+        // `Text` widget 默认带一个和字号等大的 strut（强制行高），而裸
+        // `TextPainter` 不会带。高度校准统一在下面用 `_textStyleHeight` 处理。
         final normalPainter = TextPainter(
           text: TextSpan(text: widget.text, style: widget.style),
           textAlign: widget.textAlign,
@@ -113,20 +115,22 @@ class _HoverMarqueeTextState extends State<HoverMarqueeText>
         final textWidth = fullPainter.width;
         final truncated =
             normalPainter.didExceedMaxLines || textWidth > available + 0.5;
-        final height = normalPainter.height;
+        // 高度完全交给 `Text` 自己决定，不再用 `TextPainter.height` 撑
+        // `SizedBox`。painter 只算字体的 em 高度（字号 13 → 13px），而 `Text`
+        // 走 `RenderParagraph`，会把行距与 ascent/descent 一并算进去
+        // （同例实测 19px）。之前用 painter 的高度限制外层，多出来的 6px 没有
+        // 位置，文字的 descender 就被裁掉——表现正是「分类名 / 集数文字下半截
+        // 看不见」。`_textWidth` 仍用 painter 量，它跟高度无关。
         _textWidth = textWidth;
         _availableWidth = available.isFinite ? available : textWidth;
 
         if (!truncated) {
-          return SizedBox(
-            height: height,
-            child: Text(
-              widget.text,
-              maxLines: widget.maxLines,
-              overflow: widget.overflow,
-              style: widget.style,
-              textAlign: widget.textAlign,
-            ),
+          return Text(
+            widget.text,
+            maxLines: widget.maxLines,
+            overflow: widget.overflow,
+            style: widget.style,
+            textAlign: widget.textAlign,
           );
         }
 
@@ -141,52 +145,50 @@ class _HoverMarqueeTextState extends State<HoverMarqueeText>
           });
         }
 
-        final content = SizedBox(
-          height: height,
-          child: hovering && textWidth > _availableWidth + 0.5
-              ? ClipRect(
-                  child: AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, _) {
-                      final shift =
-                          _controller.value * (textWidth + widget.gap);
-                      return OverflowBox(
-                        alignment: Alignment.topLeft,
-                        maxWidth: double.infinity,
-                        maxHeight: double.infinity,
-                        child: Transform.translate(
-                          offset: Offset(-shift, 0),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                widget.text,
-                                maxLines: 1,
-                                softWrap: false,
-                                style: widget.style,
-                              ),
-                              SizedBox(width: widget.gap),
-                              Text(
-                                widget.text,
-                                maxLines: 1,
-                                softWrap: false,
-                                style: widget.style,
-                              ),
-                            ],
-                          ),
+        // 悬停滚动分支同样不钳高度：`OverflowBox` 内部本身不受约束，
+        // 这里若用 painter 估算的高度反而会把文字裁掉一截。
+        final content = hovering && textWidth > _availableWidth + 0.5
+            ? ClipRect(
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) {
+                    final shift = _controller.value * (textWidth + widget.gap);
+                    return OverflowBox(
+                      alignment: Alignment.topLeft,
+                      maxWidth: double.infinity,
+                      maxHeight: double.infinity,
+                      child: Transform.translate(
+                        offset: Offset(-shift, 0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.text,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: widget.style,
+                            ),
+                            SizedBox(width: widget.gap),
+                            Text(
+                              widget.text,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: widget.style,
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                )
-              : Text(
-                  widget.text,
-                  maxLines: widget.maxLines,
-                  overflow: widget.overflow,
-                  style: widget.style,
-                  textAlign: widget.textAlign,
+                      ),
+                    );
+                  },
                 ),
-        );
+              )
+            : Text(
+                widget.text,
+                maxLines: widget.maxLines,
+                overflow: widget.overflow,
+                style: widget.style,
+                textAlign: widget.textAlign,
+              );
 
         if (widget.externalHover != null) {
           return Semantics(

@@ -3,7 +3,10 @@
 import '../matching/episode_normalizer.dart';
 import 'danmaku_models.dart';
 
-final RegExp _schemeRe = RegExp(r'^[a-z][a-z0-9+.\-]*://', caseSensitive: false);
+final RegExp _schemeRe = RegExp(
+  r'^[a-z][a-z0-9+.\-]*://',
+  caseSensitive: false,
+);
 final RegExp _hostCharsRe = RegExp(r'^[A-Za-z0-9.\-:@\[\]%]+$');
 final RegExp _trailingSlashRe = RegExp(r'/+$');
 final RegExp _wwwRe = RegExp(r'^www\.', caseSensitive: false);
@@ -17,7 +20,10 @@ String normalizeEndpointBase(String url) {
   final withScheme = _schemeRe.hasMatch(s) ? s : 'https://$s';
   // 先按「原文」校验主机段：Dart 的 Uri 会把乱码/中文行也解析出 host，
   // 只看解析结果会把「不是地址的一行」误当合法接口 → 必须拦在解析之前。
-  final hostPart = withScheme.replaceFirst(_schemeRe, '').split(RegExp(r'[/?#]')).first;
+  final hostPart = withScheme
+      .replaceFirst(_schemeRe, '')
+      .split(RegExp(r'[/?#]'))
+      .first;
   if (hostPart.isEmpty || !_hostCharsRe.hasMatch(hostPart)) return '';
   final uri = Uri.tryParse(withScheme);
   if (uri == null) return '';
@@ -68,17 +74,22 @@ List<DanmakuEndpoint> parseCustomEndpoints(String text) {
     }
     final base = normalizeEndpointBase(url);
     if (base.isEmpty || !seen.add(base)) continue;
-    out.add(DanmakuEndpoint(
-      name: name.isEmpty ? endpointLabel(base) : name,
-      url: base,
-      enabled: true,
-    ));
+    out.add(
+      DanmakuEndpoint(
+        name: name.isEmpty ? endpointLabel(base) : name,
+        url: base,
+        enabled: true,
+      ),
+    );
   }
   return out;
 }
 
 /// 合成新接口清单 = 内置项（保留既有开关状态，缺项按内置默认开关补）+ 自定义文本解析结果。
-List<DanmakuEndpoint> mergeEndpoints(List<DanmakuEndpoint> current, String customText) {
+List<DanmakuEndpoint> mergeEndpoints(
+  List<DanmakuEndpoint> current,
+  String customText,
+) {
   final enabledOf = <String, bool>{};
   for (final e in current) {
     final n = normalizeEndpointBase(e.url);
@@ -88,11 +99,9 @@ List<DanmakuEndpoint> mergeEndpoints(List<DanmakuEndpoint> current, String custo
   for (final e in builtinDanmakuEndpoints) {
     final n = normalizeEndpointBase(e.url);
     if (n.isEmpty) continue;
-    out.add(DanmakuEndpoint(
-      name: e.name,
-      url: n,
-      enabled: enabledOf[n] ?? e.enabled,
-    ));
+    out.add(
+      DanmakuEndpoint(name: e.name, url: n, enabled: enabledOf[n] ?? e.enabled),
+    );
   }
   final seen = {for (final e in out) e.url};
   for (final c in parseCustomEndpoints(customText)) {
@@ -161,15 +170,17 @@ List<DanmakuAnime> rankDanmakuAnimes(
     final rank = (k.isEmpty || t.isEmpty)
         ? 2
         : t == k
-            ? 0
-            : (t.contains(k) || k.contains(t) ? 1 : 2);
-    items.add(_RankedAnime(
-      anime: a,
-      rank: rank,
-      seasonRank: seasonRankOf(a.title, season),
-      episodeCount: a.episodeCount,
-      index: idx,
-    ));
+        ? 0
+        : (t.contains(k) || k.contains(t) ? 1 : 2);
+    items.add(
+      _RankedAnime(
+        anime: a,
+        rank: rank,
+        seasonRank: seasonRankOf(a.title, season),
+        episodeCount: a.episodeCount,
+        index: idx,
+      ),
+    );
   }
   items.sort((x, y) {
     var c = x.rank - y.rank;
@@ -237,7 +248,9 @@ String? _looseNumber(String text, int maxDigits) {
 }
 
 bool _isAsciiAlnum(int c) =>
-    (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A);
+    (c >= 0x30 && c <= 0x39) ||
+    (c >= 0x41 && c <= 0x5A) ||
+    (c >= 0x61 && c <= 0x7A);
 
 int? _positive(String? raw) {
   if (raw == null) return null;
@@ -293,7 +306,11 @@ List<DanmakuCandidate> sortCandidatesByEp(List<DanmakuCandidate> list) {
 }
 
 class _EpCandidate {
-  _EpCandidate({required this.candidate, required this.ep, required this.index});
+  _EpCandidate({
+    required this.candidate,
+    required this.ep,
+    required this.index,
+  });
 
   final DanmakuCandidate candidate;
   final int ep;

@@ -1,7 +1,7 @@
 name: kniephos
 description: "MisaTV — 轻量、本地优先的 TVBox 客户端（Flutter 重构）"
 publish_to: 'none'
-version: 1.3.0+14
+version: 1.4.0+15
 
 environment:
   # 放宽到 3.13.0：Flutter 3.47.0 自带 Dart 3.13.0，与 3.13.7 仅差补丁版，

@@ -54,26 +54,44 @@ class _HintRule {
 
 /// 顺序即优先级：先认能扫码的三家，再认只能贴 Cookie 的站点。
 final _rules = <_HintRule>[
-  _HintRule('quark', driveProviderNames['quark']!, [
-    '夸克',
-    RegExp('quark', caseSensitive: false),
-  ], supported: true, webLogin: true),
-  _HintRule('baidu', driveProviderNames['baidu']!, [
-    '百度',
-    RegExp('baidu', caseSensitive: false),
-  ], supported: true, webLogin: true),
-  _HintRule('uc', driveProviderNames['uc']!, [
-    // 避免把 quark / uhd 之类误判成 UC。
-    RegExp(r'(^|[^a-z])uc([^a-z]|$)', caseSensitive: false),
-    '优视',
-  ], supported: true, webLogin: true),
+  _HintRule(
+    'quark',
+    driveProviderNames['quark']!,
+    ['夸克', RegExp('quark', caseSensitive: false)],
+    supported: true,
+    webLogin: true,
+  ),
+  _HintRule(
+    'baidu',
+    driveProviderNames['baidu']!,
+    ['百度', RegExp('baidu', caseSensitive: false)],
+    supported: true,
+    webLogin: true,
+  ),
+  _HintRule(
+    'uc',
+    driveProviderNames['uc']!,
+    [
+      // 避免把 quark / uhd 之类误判成 UC。
+      RegExp(r'(^|[^a-z])uc([^a-z]|$)', caseSensitive: false),
+      '优视',
+    ],
+    supported: true,
+    webLogin: true,
+  ),
   // 哔哩要排在「115」之类数字规则之前，避免 B站 线路被别的规则抢走。
-  _HintRule('bili', driveProviderNames['bili']!, [
-    RegExp(r'^b\s*站', caseSensitive: false),
-    RegExp('bilibili', caseSensitive: false),
-    RegExp(r'(^|[^a-z])bili([^a-z]|$)', caseSensitive: false),
-    '哔哩',
-  ], supported: true, optional: true),
+  _HintRule(
+    'bili',
+    driveProviderNames['bili']!,
+    [
+      RegExp(r'^b\s*站', caseSensitive: false),
+      RegExp('bilibili', caseSensitive: false),
+      RegExp(r'(^|[^a-z])bili([^a-z]|$)', caseSensitive: false),
+      '哔哩',
+    ],
+    supported: true,
+    optional: true,
+  ),
   _HintRule('115', driveProviderNames['115']!, [
     RegExp(r'(^|[^0-9])115([^0-9]|$)'),
   ], supported: true),
@@ -82,41 +100,32 @@ final _rules = <_HintRule>[
     RegExp('aliyun', caseSensitive: false),
     RegExp(r'(^|[^a-z])ali([^a-z]|$)', caseSensitive: false),
   ]),
-  _HintRule('pan123', '123 云盘', [
-    RegExp(r'(^|[^0-9])123([^0-9]|$)'),
-    '123盘',
-  ]),
-  _HintRule('pan139', '移动云盘', [
-    RegExp(r'(^|[^0-9])139([^0-9]|$)'),
-    '移动云',
-  ]),
-  _HintRule('pan189', '天翼云盘', [
-    RegExp(r'(^|[^0-9])189([^0-9]|$)'),
-    '天翼',
-  ]),
-  _HintRule('guangya', '光鸭云盘', [
-    '光雅',
-    '光鸭',
-    RegExp('guangya', caseSensitive: false),
-  ], supported: true, webLogin: true),
-  _HintRule('thunder', '迅雷云盘', [
-    '迅雷',
-    RegExp('thunder', caseSensitive: false),
-    RegExp('xunlei', caseSensitive: false),
-  ], supported: true, webLogin: true),
-  _HintRule('pikpak', 'PikPak', [
-    RegExp('pikpak', caseSensitive: false),
-  ]),
-  _HintRule('magnet', '磁力链接', [
-    '磁力',
-    RegExp('magnet', caseSensitive: false),
-  ]),
+  _HintRule('pan123', '123 云盘', [RegExp(r'(^|[^0-9])123([^0-9]|$)'), '123盘']),
+  _HintRule('pan139', '移动云盘', [RegExp(r'(^|[^0-9])139([^0-9]|$)'), '移动云']),
+  _HintRule('pan189', '天翼云盘', [RegExp(r'(^|[^0-9])189([^0-9]|$)'), '天翼']),
+  _HintRule(
+    'guangya',
+    '光鸭云盘',
+    ['光雅', '光鸭', RegExp('guangya', caseSensitive: false)],
+    supported: true,
+    webLogin: true,
+  ),
+  _HintRule(
+    'thunder',
+    '迅雷云盘',
+    [
+      '迅雷',
+      RegExp('thunder', caseSensitive: false),
+      RegExp('xunlei', caseSensitive: false),
+    ],
+    supported: true,
+    webLogin: true,
+  ),
+  _HintRule('pikpak', 'PikPak', [RegExp('pikpak', caseSensitive: false)]),
+  _HintRule('magnet', '磁力链接', ['磁力', RegExp('magnet', caseSensitive: false)]),
 ];
 
-final _ucTokenPattern = RegExp(
-  r'token|高会|电视端|TV\s*授权',
-  caseSensitive: false,
-);
+final _ucTokenPattern = RegExp(r'token|高会|电视端|TV\s*授权', caseSensitive: false);
 
 DriveLineHint? _matchRule(String text) {
   final value = text.trim();

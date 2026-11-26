@@ -14,8 +14,7 @@ void main() {
     final sockets = <Socket>[];
     server.listen(sockets.add); // 只 accept，永不回包
 
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 1);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
     final sw = Stopwatch()..start();
     var timedOut = false;
     try {
@@ -51,8 +50,7 @@ void main() {
     final sockets = <Socket>[];
     server.listen(sockets.add);
 
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 1);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
     final sw = Stopwatch()..start();
     var caught = false;
     try {

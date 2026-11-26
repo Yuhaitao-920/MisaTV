@@ -139,23 +139,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   }
                 },
                 itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'pauseAll',
-                    child: Text('全部暂停'),
-                  ),
-                  PopupMenuItem(
-                    value: 'resumeAll',
-                    child: Text('全部继续'),
-                  ),
-                  PopupMenuItem(
-                    value: 'clear',
-                    child: Text('清空已结束'),
-                  ),
+                  PopupMenuItem(value: 'pauseAll', child: Text('全部暂停')),
+                  PopupMenuItem(value: 'resumeAll', child: Text('全部继续')),
+                  PopupMenuItem(value: 'clear', child: Text('清空已结束')),
                   PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: 'folder',
-                    child: Text('打开下载目录'),
-                  ),
+                  PopupMenuItem(value: 'folder', child: Text('打开下载目录')),
                 ],
               ),
             ],
@@ -195,21 +183,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       task: task,
                       busy: _busy,
                       onPause: task.isActive || task.isWaiting
-                          ? () => _run(
-                              () => manager.pauseTask(task.gid),
-                              '暂停失败',
-                            )
+                          ? () =>
+                                _run(() => manager.pauseTask(task.gid), '暂停失败')
                           : null,
                       onResume: task.isPaused
-                          ? () => _run(
-                              () => manager.resumeTask(task.gid),
-                              '继续失败',
-                            )
+                          ? () =>
+                                _run(() => manager.resumeTask(task.gid), '继续失败')
                           : null,
-                      onRemove: () => _run(
-                        () => manager.removeTask(task.gid),
-                        '删除失败',
-                      ),
+                      onRemove: () =>
+                          _run(() => manager.removeTask(task.gid), '删除失败'),
                     ),
               ],
             ),
@@ -267,11 +249,7 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
+  const _Metric({required this.label, required this.value, required this.icon});
 
   final String label;
   final String value;
@@ -385,7 +363,9 @@ class _TaskTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.62,
+                      ),
                     ),
                   ),
                   if (task.isError && task.errorMessage.isNotEmpty)
@@ -407,9 +387,7 @@ class _TaskTile extends StatelessWidget {
               tooltip: task.isPaused ? '继续' : '暂停',
               onPressed: busy ? null : (task.isPaused ? onResume : onPause),
               icon: Icon(
-                task.isPaused
-                    ? Icons.play_arrow_rounded
-                    : Icons.pause_rounded,
+                task.isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
                 size: 20,
               ),
             ),

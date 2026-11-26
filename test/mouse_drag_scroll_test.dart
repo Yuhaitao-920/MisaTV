@@ -10,10 +10,7 @@ Widget harness({required bool draggable}) {
     child: ListView.builder(
       scrollDirection: Axis.horizontal,
       itemCount: 40,
-      itemBuilder: (_, index) => SizedBox(
-        width: 60,
-        child: Text('item$index'),
-      ),
+      itemBuilder: (_, index) => SizedBox(width: 60, child: Text('item$index')),
     ),
   );
   return MaterialApp(

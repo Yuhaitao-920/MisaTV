@@ -4,12 +4,18 @@ import 'package:kniephos/services/relay/relay_origin.dart';
 void main() {
   group('normalizeOrigin', () {
     test('补默认端口并统一小写', () {
-      expect(RelayOriginPolicy.normalizeOrigin('http://127.0.0.1:9978'),
-          'http://127.0.0.1:9978');
-      expect(RelayOriginPolicy.normalizeOrigin('https://Example.COM'),
-          'https://example.com:443');
-      expect(RelayOriginPolicy.normalizeOrigin('HTTP://A.Test:80'),
-          'http://a.test:80');
+      expect(
+        RelayOriginPolicy.normalizeOrigin('http://127.0.0.1:9978'),
+        'http://127.0.0.1:9978',
+      );
+      expect(
+        RelayOriginPolicy.normalizeOrigin('https://Example.COM'),
+        'https://example.com:443',
+      );
+      expect(
+        RelayOriginPolicy.normalizeOrigin('HTTP://A.Test:80'),
+        'http://a.test:80',
+      );
     });
 
     test('空值 / 不可解析 / 非法 scheme 返回 null', () {
@@ -18,15 +24,23 @@ void main() {
       // 沙箱 iframe 与 file:// 页面发的是字面量 "null"。
       expect(RelayOriginPolicy.normalizeOrigin('null'), isNull);
       expect(RelayOriginPolicy.normalizeOrigin('file://x'), isNull);
-      expect(RelayOriginPolicy.normalizeOrigin('chrome-extension://abc'), isNull);
+      expect(
+        RelayOriginPolicy.normalizeOrigin('chrome-extension://abc'),
+        isNull,
+      );
     });
   });
 
   group('normalizeHost', () {
     test('Host 头归一成 http://host:port', () {
-      expect(RelayOriginPolicy.normalizeHost('127.0.0.1:9978'),
-          'http://127.0.0.1:9978');
-      expect(RelayOriginPolicy.normalizeHost('localhost'), 'http://localhost:80');
+      expect(
+        RelayOriginPolicy.normalizeHost('127.0.0.1:9978'),
+        'http://127.0.0.1:9978',
+      );
+      expect(
+        RelayOriginPolicy.normalizeHost('localhost'),
+        'http://localhost:80',
+      );
       expect(RelayOriginPolicy.normalizeHost(null), isNull);
       expect(RelayOriginPolicy.normalizeHost('  '), isNull);
     });

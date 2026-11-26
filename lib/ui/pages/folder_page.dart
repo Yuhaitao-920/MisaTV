@@ -17,9 +17,8 @@ void openFolderBrowse(BuildContext context, VodItem folder) {
       app.siteByKey(folder.sourceKey) ??
       (folder.sourceKey.isEmpty ? app.activeSite : null);
   if (site == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('找不到该目录所属的站点，请重新选择或导入源')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('找不到该目录所属的站点，请重新选择或导入源')));
     return;
   }
   Navigator.of(context).push(
@@ -32,11 +31,7 @@ void openFolderBrowse(BuildContext context, VodItem folder) {
 /// 普通窗口下的文件夹浏览：网格展示某一层目录，folder 条目继续下钻，
 /// 其它条目进入详情页。
 class FolderBrowsePage extends StatefulWidget {
-  const FolderBrowsePage({
-    super.key,
-    required this.site,
-    required this.folder,
-  });
+  const FolderBrowsePage({super.key, required this.site, required this.folder});
 
   final SourceBean site;
   final VodItem folder;
@@ -126,9 +121,8 @@ class _FolderBrowsePageState extends State<FolderBrowsePage> {
       _enterFolder(item);
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DetailPage(item: item)),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => DetailPage(item: item)));
   }
 
   @override
@@ -215,13 +209,12 @@ class _FolderBrowsePageState extends State<FolderBrowsePage> {
               final padding = narrow ? 18.0 : 28.0;
               return GridView.builder(
                 padding: EdgeInsets.fromLTRB(padding, 4, padding, 18),
-                gridDelegate:
-                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 188,
-                      mainAxisExtent: 292,
-                      crossAxisSpacing: 14,
-                      mainAxisSpacing: 18,
-                    ),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 188,
+                  mainAxisExtent: 292,
+                  crossAxisSpacing: 14,
+                  mainAxisSpacing: 18,
+                ),
                 itemCount: _items.length,
                 itemBuilder: (context, index) {
                   final item = _items[index];
@@ -253,15 +246,15 @@ class _FolderBrowsePageState extends State<FolderBrowsePage> {
                   child: Text(
                     '$_page / $_pageCount',
                     style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.66),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.66,
+                      ),
                     ),
                   ),
                 ),
                 IconButton(
                   tooltip: '下一页',
-                  onPressed: _page < _pageCount
-                      ? () => _load(_page + 1)
-                      : null,
+                  onPressed: _page < _pageCount ? () => _load(_page + 1) : null,
                   icon: const Icon(Icons.chevron_right_rounded),
                 ),
               ],

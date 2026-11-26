@@ -156,7 +156,8 @@ class MediaItem {
         ? Map<String, dynamic>.from(rawUserData)
         : const <String, dynamic>{};
     final ticks = (json['RunTimeTicks'] as num?)?.toInt() ?? 0;
-    final positionTicks = (userData['PlaybackPositionTicks'] as num?)?.toInt() ?? 0;
+    final positionTicks =
+        (userData['PlaybackPositionTicks'] as num?)?.toInt() ?? 0;
     return MediaItem(
       id: (json['Id'] ?? json['id'] ?? '').toString(),
       name: (json['Name'] ?? json['name'] ?? '').toString(),

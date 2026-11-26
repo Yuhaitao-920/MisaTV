@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../../core/logging/app_log.dart';
 import '../party/party_room.dart';
 import '../sync/sync_bundle.dart';
+import 'flow_payload.dart';
 
 /// 局域网同步服务：给同一网络的其他设备提供「同步包」与「一起看」房间。
 ///
@@ -20,14 +21,24 @@ class LanServer {
     required this.token,
     required this.snapshot,
     required this.apply,
+    required this.onFlow,
+    this.devicePlatform = _defaultPlatform,
   });
 
   static const int defaultPort = 9979;
+
+  static String _defaultPlatform() => 'unknown';
 
   final String Function() deviceName;
   final String Function() token;
   final SyncBundle Function() snapshot;
   final Future<SyncMergeReport> Function(SyncBundle) apply;
+
+  /// 收到别的设备推来的流转时调用；返回 [FlowAck] 决定接受还是拒绝。
+  final Future<FlowAck> Function(FlowPayload payload) onFlow;
+
+  /// 平台标识（`windows` / `android` / `macos` …），供对端列表展示。
+  final String Function() devicePlatform;
 
   /// 「一起看」房间（同一进程的房主直接读写这个对象）。
   final PartyRoom party = PartyRoom();
@@ -52,9 +63,12 @@ class LanServer {
     }
     _server = server;
     _port = server.port;
-    server.listen(_handle, onError: (Object e) {
-      AppLog.w('lan', '局域网服务连接异常：$e');
-    });
+    server.listen(
+      _handle,
+      onError: (Object e) {
+        AppLog.w('lan', '局域网服务连接异常：$e');
+      },
+    );
     AppLog.i('lan', '局域网同步服务已启动：0.0.0.0:$_port');
     return _port;
   }
@@ -104,7 +118,40 @@ class LanServer {
           'name': deviceName(),
           'schemaVersion': SyncBundle.schemaVersion,
           'party': party.open,
+          // 设备流转：对端据此判断是否可推送。
+          'flow': true,
+          'platform': devicePlatform(),
         });
+      }
+      if (path == '/flow') {
+        // 设备流转：另一台设备把「正在播的这一集」推过来。
+        //
+        // 安全边界与 /sync 一致但更严格：
+        //   · 只在局域网内可达（服务本身绑 0.0.0.0，不做公网映射）；
+        //   · 必须能解析成合法 FlowPayload；
+        //   · 由 [onFlow] 决定接受还是拒绝（界面上可弹出确认，或按设置自动接受）。
+        if (request.method != 'POST') {
+          return await _json(res, 405, {'error': 'flow 需要 POST'});
+        }
+        final body = await _readJson(request);
+        if (body == null) {
+          return await _json(res, 400, {'error': '流转数据无法解析'});
+        }
+        final payload = FlowPayload.fromJson(body);
+        if (payload.url.trim().isEmpty || payload.vodName.trim().isEmpty) {
+          return await _json(res, 400, {'error': '流转数据缺少 url 或片名'});
+        }
+        AppLog.i(
+          'lan',
+          '收到设备流转：来自 ${payload.fromDevice} 《${payload.vodName}》'
+              '第 ${payload.episodeIndex + 1} 集',
+        );
+        final ack = await onFlow(payload);
+        AppLog.i(
+          'lan',
+          '设备流转应答：${ack.accepted ? '已接受' : '已拒绝'} ${ack.message}',
+        );
+        return await _json(res, ack.accepted ? 200 : 409, ack.toJson());
       }
       if (path == '/sync') {
         if (token().isNotEmpty && !_tokenMatches(request)) {
@@ -183,7 +230,11 @@ class LanServer {
     Map<String, dynamic> body,
   ) async {
     res.statusCode = status;
-    res.headers.contentType = ContentType('application', 'json', charset: 'utf-8');
+    res.headers.contentType = ContentType(
+      'application',
+      'json',
+      charset: 'utf-8',
+    );
     res.headers.set('Cache-Control', 'no-store');
     final bytes = utf8.encode(jsonEncode(body));
     res.contentLength = bytes.length;

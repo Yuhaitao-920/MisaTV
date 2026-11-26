@@ -110,12 +110,15 @@ final List<RegExp> _noiseWords = [
     r'\b(?:2160p|1440p|1080p|1080i|720p|576p|480p|4k|8k|uhd|fhd|hd|sd)\b',
     caseSensitive: false,
   ),
-  RegExp(r'\b(?:hdr10\+?|hdr|hlg|dolby[\s._-]*(?:vision)?|dovi|dv)\b',
-      caseSensitive: false),
-  RegExp(r'(?:4k|1080p|720p|超清|高清|标清|蓝光|原画|杜比视界|杜比音效)',
-      caseSensitive: false),
-  RegExp(r'\b(?:x264|h264|x265|h265|hevc|avc|av1|vc-1|vp9|10bit|8bit)\b',
-      caseSensitive: false),
+  RegExp(
+    r'\b(?:hdr10\+?|hdr|hlg|dolby[\s._-]*(?:vision)?|dovi|dv)\b',
+    caseSensitive: false,
+  ),
+  RegExp(r'(?:4k|1080p|720p|超清|高清|标清|蓝光|原画|杜比视界|杜比音效)', caseSensitive: false),
+  RegExp(
+    r'\b(?:x264|h264|x265|h265|hevc|avc|av1|vc-1|vp9|10bit|8bit)\b',
+    caseSensitive: false,
+  ),
   RegExp(
     r'\b(?:dts(?:-hd)?|truehd|atmos|aac(?:\d\.\d)?|flac|ac3|ddp\+?|dd|mp3)\b',
     caseSensitive: false,
@@ -128,8 +131,10 @@ final List<RegExp> _noiseWords = [
     r'(?:中英双字|中文字幕|国粤双语|双语字幕|官方双语|内嵌字幕|简繁中字|纯净版|抢先版|修复版|无删减版?|未删减版?|加长版|导演剪辑版|典藏版|重制版|正片|电影版|完结|全集|连播)',
     caseSensitive: false,
   ),
-  RegExp(r'\.(?:mkv|mp4|ts|m2ts|avi|rmvb|flv|mov|wmv|webm)$',
-      caseSensitive: false),
+  RegExp(
+    r'\.(?:mkv|mp4|ts|m2ts|avi|rmvb|flv|mov|wmv|webm)$',
+    caseSensitive: false,
+  ),
 ];
 
 /// 把原始剧集标题解析成结构化信息。
@@ -234,10 +239,7 @@ EpisodeInfo normalizeEpisodeInfo(String raw) {
         ' ',
       )
       .replaceAll(
-        RegExp(
-          r'\bS(?:EASON)?\s*\d{1,2}(?![0-9A-Za-z])',
-          caseSensitive: false,
-        ),
+        RegExp(r'\bS(?:EASON)?\s*\d{1,2}(?![0-9A-Za-z])', caseSensitive: false),
         ' ',
       )
       .replaceAll(RegExp(r'第\s*[0-9零〇一二三四五六七八九十百两兩]+\s*[季部]'), ' ')
@@ -248,10 +250,7 @@ EpisodeInfo normalizeEpisodeInfo(String raw) {
         ),
         ' ',
       )
-      .replaceAll(
-        RegExp(r'\b\d{1,2}x\d{1,4}\b', caseSensitive: false),
-        ' ',
-      )
+      .replaceAll(RegExp(r'\b\d{1,2}x\d{1,4}\b', caseSensitive: false), ' ')
       .replaceAll(
         RegExp(
           r'第\s*[0-9零〇一二三四五六七八九十百两兩]+\s*'

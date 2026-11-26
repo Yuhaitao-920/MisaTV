@@ -128,9 +128,7 @@ Future<List<ArchiveEntry>> extractArchiveEntriesAsync(List<int> bytes) async {
     }
     return out;
   } catch (e) {
-    throw SubtitleException(
-      '${kind.label} 压缩包解压失败：${_shortArchiveError(e)}',
-    );
+    throw SubtitleException('${kind.label} 压缩包解压失败：${_shortArchiveError(e)}');
   } finally {
     try {
       await archive?.close();

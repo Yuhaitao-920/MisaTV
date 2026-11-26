@@ -97,10 +97,7 @@ const Map<SpiderFailureKind, bool> _actionable = {
 /// [runtimeInstalled] 用来区分「真的没装」与「装了但起不来」：例如都出现
 /// `缺少 JVM 运行时` 字样时，前者归到 [SpiderFailureKind.runtimeMissing]，
 /// 后者更可能是运行时损坏，仍按缺失处理并提示重装。
-SpiderFailure classifySpiderFailure(
-  Object error, {
-  bool? runtimeInstalled,
-}) {
+SpiderFailure classifySpiderFailure(Object error, {bool? runtimeInstalled}) {
   final detail = _condense(error);
   final lower = detail.toLowerCase();
 
@@ -116,12 +113,7 @@ SpiderFailure classifySpiderFailure(
     '请重新安装 jvm',
   ])) {
     kind = SpiderFailureKind.runtimeMissing;
-  } else if (_matches(lower, const [
-    '正在安装',
-    '正在下载',
-    '安装中',
-    'downloading',
-  ])) {
+  } else if (_matches(lower, const ['正在安装', '正在下载', '安装中', 'downloading'])) {
     kind = SpiderFailureKind.runtimeInstalling;
   } else if (_matches(lower, const [
     'sourceexception: 需要 ext',

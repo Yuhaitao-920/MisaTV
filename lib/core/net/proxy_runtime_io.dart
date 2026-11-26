@@ -116,10 +116,7 @@ class ProxyRuntime {
           _bridge = null;
         }
       } else {
-        AppLog.i(
-          'proxy',
-          '上游 ${resolved.host}:${resolved.port} 探活失败，保持直连',
-        );
+        AppLog.i('proxy', '上游 ${resolved.host}:${resolved.port} 探活失败，保持直连');
       }
     }
     if (_bridge != null) {
@@ -183,14 +180,15 @@ class ProxyRuntime {
   static bool isPrivateHost(String host) {
     final h = host.trim().toLowerCase();
     if (isLocalHost(h)) return true;
-    if (h.endsWith('.local') || h.endsWith('.lan') || h.endsWith('.home.arpa')) {
+    if (h.endsWith('.local') ||
+        h.endsWith('.lan') ||
+        h.endsWith('.home.arpa')) {
       return true;
     }
     // 单段主机名（nas / router）：只可能来自本机 hosts 或局域网 mDNS。
     if (!h.contains('.')) return true;
-    final match = RegExp(
-      r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$',
-    ).firstMatch(h);
+    final match = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
+        .firstMatch(h);
     if (match == null) return false;
     final a = int.parse(match.group(1)!);
     final b = int.parse(match.group(2)!);
@@ -434,14 +432,14 @@ class ProxyBridge {
     }
 
     unawaited(
-      clientReader.pipeTo(upstream.socket, closeDestination: false).whenComplete(
-        closeAll,
-      ),
+      clientReader
+          .pipeTo(upstream.socket, closeDestination: false)
+          .whenComplete(closeAll),
     );
     unawaited(
-      upstream.reader.pipeTo(client, closeDestination: false).whenComplete(
-        closeAll,
-      ),
+      upstream.reader
+          .pipeTo(client, closeDestination: false)
+          .whenComplete(closeAll),
     );
   }
 

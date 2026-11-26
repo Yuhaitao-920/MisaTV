@@ -31,8 +31,14 @@ final _reImportDefault = RegExp(
   'import\\s+($_idSrc)\\s+from\\s*[\'"]([^\'"]+)[\'"]\\s*;?',
   unicode: true,
 );
-final _reExportFunc = RegExp('export\\s+(async\\s+)?function\\s+($_idSrc)', unicode: true);
-final _reExportVar = RegExp('export\\s+(const|let|var)\\s+($_idSrc)', unicode: true);
+final _reExportFunc = RegExp(
+  'export\\s+(async\\s+)?function\\s+($_idSrc)',
+  unicode: true,
+);
+final _reExportVar = RegExp(
+  'export\\s+(const|let|var)\\s+($_idSrc)',
+  unicode: true,
+);
 final _reExportDefault = RegExp(r'export\s+default\s*');
 final _reExportFrom = RegExp(
   'export\\s*\\{([\\s\\S]*?)\\}\\s*from\\s*[\'"]([^\'"]+)[\'"]\\s*;?',
@@ -40,7 +46,10 @@ final _reExportFrom = RegExp(
 );
 final _reExportLocal = RegExp(r'export\s*\{([\s\S]*?)\}\s*;?');
 final _reImportSideEffect = RegExp('import\\s*[\'"]([^\'"]+)[\'"]\\s*;?');
-final _reSpecifier = RegExp('^($_idSrc)(?:\\s+as\\s+($_idSrc))?\$', unicode: true);
+final _reSpecifier = RegExp(
+  '^($_idSrc)(?:\\s+as\\s+($_idSrc))?\$',
+  unicode: true,
+);
 
 class _SpecPair {
   const _SpecPair(this.prop, this.name);
@@ -60,7 +69,10 @@ List<_SpecPair> _splitSpecifiers(String raw) {
 }
 
 String _jsonStr(String s) {
-  final escaped = s.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n');
+  final escaped = s
+      .replaceAll(r'\', r'\\')
+      .replaceAll('"', r'\"')
+      .replaceAll('\n', r'\n');
   return '"$escaped"';
 }
 
@@ -68,7 +80,8 @@ String _jsonStr(String s) {
 /// `(function(module, exports, require, __filename){ ... })` 里执行的 CJS 代码。
 String transformToCjs(String source, String moduleName) {
   try {
-    if (!RegExp(_hasModuleSyntax).hasMatch(source) && !source.contains('export default')) {
+    if (!RegExp(_hasModuleSyntax).hasMatch(source) &&
+        !source.contains('export default')) {
       return source;
     }
     var code = source;
@@ -82,7 +95,9 @@ String transformToCjs(String source, String moduleName) {
       final tmp = '_m${seq++}';
       final lines = ['const $tmp = require(${_jsonStr(spec)});'];
       for (final it in _splitSpecifiers(names)) {
-        lines.add('module.exports[${_jsonStr(it.name)}] = $tmp[${_jsonStr(it.prop)}];');
+        lines.add(
+          'module.exports[${_jsonStr(it.name)}] = $tmp[${_jsonStr(it.prop)}];',
+        );
       }
       return lines.join('\n');
     });
@@ -107,7 +122,10 @@ String transformToCjs(String source, String moduleName) {
       }
       return lines.join('\n');
     });
-    code = code.replaceAllMapped(_reImportNs, (m) => 'const ${m.group(1)} = require(${_jsonStr(m.group(2)!)});');
+    code = code.replaceAllMapped(
+      _reImportNs,
+      (m) => 'const ${m.group(1)} = require(${_jsonStr(m.group(2)!)});',
+    );
     code = code.replaceAllMapped(_reImportNamed, (m) {
       final names = m.group(1)!;
       final spec = m.group(2)!;
@@ -125,7 +143,10 @@ String transformToCjs(String source, String moduleName) {
       return 'const $tmp = require(${_jsonStr(spec)});\n'
           'const $def = $tmp != null && $tmp.default !== undefined ? $tmp.default : $tmp;';
     });
-    code = code.replaceAllMapped(_reImportSideEffect, (m) => 'require(${_jsonStr(m.group(1)!)});');
+    code = code.replaceAllMapped(
+      _reImportSideEffect,
+      (m) => 'require(${_jsonStr(m.group(1)!)});',
+    );
 
     // 4) export default
     code = code.replaceAll(_reExportDefault, 'module.exports.default = ');

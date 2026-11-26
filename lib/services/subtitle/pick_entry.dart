@@ -48,8 +48,10 @@ String _norm(String s) {
 
 /// 取条目的扩展名（小写，无扩展名返回空串）。
 String extOf(String name) {
-  final m = RegExp(r'\.([a-z0-9]{1,5})$', caseSensitive: false)
-      .firstMatch(name.trim());
+  final m = RegExp(
+    r'\.([a-z0-9]{1,5})$',
+    caseSensitive: false,
+  ).firstMatch(name.trim());
   return m == null ? '' : m.group(1)!.toLowerCase();
 }
 
@@ -80,7 +82,11 @@ bool _isNoise(String name, int size) {
 }
 
 /// 单条目打分（越高越应被选中；负无穷 = 直接排除）。
-double scoreEntry(String name, int size, [PickOptions opts = const PickOptions()]) {
+double scoreEntry(
+  String name,
+  int size, [
+  PickOptions opts = const PickOptions(),
+]) {
   if (_isNoise(name, size)) return double.negativeInfinity;
   final ext = extOf(name);
   final base = _extScore[ext];
@@ -140,20 +146,17 @@ List<T> pickSubtitleEntries<T extends PickableEntry>(
   PickOptions opts = const PickOptions(),
   int n = 3,
 }) {
-  final scored = <({T entry, double score})>[
-    for (final e in entries)
-      (entry: e, score: scoreEntry(e.name, e.bytes.length, opts)),
-  ].where((x) => x.score.isFinite).toList()
-    ..sort((a, b) {
-      final byScore = b.score.compareTo(a.score);
-      return byScore != 0
-          ? byScore
-          : b.entry.bytes.length.compareTo(a.entry.bytes.length);
-    });
-  return scored
-      .take(n < 1 ? 1 : n)
-      .map((x) => x.entry)
-      .toList();
+  final scored =
+      <({T entry, double score})>[
+        for (final e in entries)
+          (entry: e, score: scoreEntry(e.name, e.bytes.length, opts)),
+      ].where((x) => x.score.isFinite).toList()..sort((a, b) {
+        final byScore = b.score.compareTo(a.score);
+        return byScore != 0
+            ? byScore
+            : b.entry.bytes.length.compareTo(a.entry.bytes.length);
+      });
+  return scored.take(n < 1 ? 1 : n).map((x) => x.entry).toList();
 }
 
 /// 选最优条目；全部被排除返回 null。

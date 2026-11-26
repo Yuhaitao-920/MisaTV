@@ -65,7 +65,10 @@ void main() {
 
     test('首段跨度不超过 8MB 的原样保留', () {
       expect(LocalRelay.clampRange('bytes=0-${7 * mb}'), 'bytes=0-${7 * mb}');
-      expect(LocalRelay.clampRange('bytes=0-${8 * mb - 1}'), 'bytes=0-${8 * mb - 1}');
+      expect(
+        LocalRelay.clampRange('bytes=0-${8 * mb - 1}'),
+        'bytes=0-${8 * mb - 1}',
+      );
       expect(LocalRelay.clampRange('bytes=0-1023'), 'bytes=0-1023');
       // ffmpeg 的 probesize 请求常在 1MB 上下，不能被放大
       expect(LocalRelay.clampRange('bytes=0-1048575'), 'bytes=0-1048575');
@@ -103,6 +106,15 @@ void main() {
         'bytes=${100 * mb}-${132 * mb - 1}',
       );
     });
-    test('clampRange respects totalLength', () { expect(LocalRelay.clampRange('bytes=990763446-', totalLength: 992037521), 'bytes=990763446-992037520'); expect(LocalRelay.clampRange('bytes=0-', totalLength: 1024), 'bytes=0-1023'); });
+    test('clampRange respects totalLength', () {
+      expect(
+        LocalRelay.clampRange('bytes=990763446-', totalLength: 992037521),
+        'bytes=990763446-992037520',
+      );
+      expect(
+        LocalRelay.clampRange('bytes=0-', totalLength: 1024),
+        'bytes=0-1023',
+      );
     });
+  });
 }

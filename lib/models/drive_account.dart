@@ -20,28 +20,31 @@ class DriveAccount {
     String? username,
     int? updatedAt,
     Map<String, String>? extra,
-  }) =>
-      DriveAccount(
-        provider: provider,
-        cookie: cookie ?? this.cookie,
-        username: username ?? this.username,
-        updatedAt: updatedAt ?? this.updatedAt,
-        extra: extra ?? this.extra,
-      );
+  }) => DriveAccount(
+    provider: provider,
+    cookie: cookie ?? this.cookie,
+    username: username ?? this.username,
+    updatedAt: updatedAt ?? this.updatedAt,
+    extra: extra ?? this.extra,
+  );
 
   Map<String, dynamic> toJson() => {
-        'provider': provider,
-        'cookie': cookie,
-        'username': username,
-        'updatedAt': updatedAt,
-        if (extra.isNotEmpty) 'extra': extra,
-      };
+    'provider': provider,
+    'cookie': cookie,
+    'username': username,
+    'updatedAt': updatedAt,
+    if (extra.isNotEmpty) 'extra': extra,
+  };
 
   factory DriveAccount.fromJson(Map<String, dynamic> json) => DriveAccount(
-        provider: (json['provider'] ?? '').toString(),
-        cookie: (json['cookie'] ?? '').toString(),
-        username: (json['username'] ?? '').toString(),
-        updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
-        extra: (json['extra'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? const {},
-      );
+    provider: (json['provider'] ?? '').toString(),
+    cookie: (json['cookie'] ?? '').toString(),
+    username: (json['username'] ?? '').toString(),
+    updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
+    extra:
+        (json['extra'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), v.toString()),
+        ) ??
+        const {},
+  );
 }

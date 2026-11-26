@@ -30,15 +30,13 @@ void main() {
     });
 
     test('四段（缺 seKey）不识别——交回 jar 兜底，不白等网络', () {
-      const raw =
-          '67698425202++1100830236519++773303697958675++name.mp4';
+      const raw = '67698425202++1100830236519++773303697958675++name.mp4';
       expect(extractBaiduSharedFile(raw), isNull);
       expect(looksLikeBaiduShare(raw), isFalse);
     });
 
     test('前三位必须是纯数字', () {
-      const bad =
-          'abc++1100830236519++773303697958675++n.mp4++sekey=';
+      const bad = 'abc++1100830236519++773303697958675++n.mp4++sekey=';
       expect(extractBaiduSharedFile(bad), isNull);
     });
 
@@ -52,10 +50,7 @@ void main() {
     });
 
     test('URL 不参与', () {
-      expect(
-        extractBaiduSharedFile('https://pan.baidu.com/s/1abc'),
-        isNull,
-      );
+      expect(extractBaiduSharedFile('https://pan.baidu.com/s/1abc'), isNull);
     });
   });
 }

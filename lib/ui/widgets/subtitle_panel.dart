@@ -7,10 +7,7 @@ import '../../services/subtitle/subtitle_service.dart';
 ///
 /// 后者用于记忆（下次同一集自动载入），所以必须带出来。
 class SubtitlePick {
-  const SubtitlePick({
-    required this.file,
-    required this.candidate,
-  });
+  const SubtitlePick({required this.file, required this.candidate});
 
   final SubtitleFile file;
 
@@ -115,9 +112,7 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
   }
 
   /// 压缩包内多条字幕时，让用户在弹窗里挑一条。
-  Future<SubtitleFile?> _chooseFromPackage(
-    List<SubtitleChoice> choices,
-  ) async {
+  Future<SubtitleFile?> _chooseFromPackage(List<SubtitleChoice> choices) async {
     final theme = Theme.of(context);
     return showDialog<SubtitleFile>(
       context: context,
@@ -184,9 +179,8 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
       final picked = await _chooseFromPackage(cached);
       if (!mounted) return;
       if (picked != null) {
-        Navigator.of(context).pop(
-          SubtitlePick(file: picked, candidate: candidate),
-        );
+        Navigator.of(context)
+            .pop(SubtitlePick(file: picked, candidate: candidate));
       }
       return;
     }
@@ -207,9 +201,8 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
       final picked = await _chooseFromPackage(e.choices);
       if (!mounted) return;
       if (picked != null) {
-        Navigator.of(context).pop(
-          SubtitlePick(file: picked, candidate: candidate),
-        );
+        Navigator.of(context)
+            .pop(SubtitlePick(file: picked, candidate: candidate));
       }
     } catch (e) {
       if (!mounted) return;
@@ -247,12 +240,14 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                         const SizedBox(height: 3),
                         Text(
                           widget.query.title.isEmpty
-                            ? '当前资源'
-                            : widget.query.title,
+                              ? '当前资源'
+                              : widget.query.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.70),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.70,
+                            ),
                           ),
                         ),
                       ],
@@ -293,8 +288,7 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                   suffixIcon: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_kw.text.trim() !=
-                          widget.query.effectiveTitle.trim())
+                      if (_kw.text.trim() != widget.query.effectiveTitle.trim())
                         IconButton(
                           tooltip: '还原自动推断的名字',
                           icon: const Icon(Icons.undo_rounded, size: 18),
@@ -338,7 +332,9 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                 padding: const EdgeInsets.all(20),
                 child: Text(
                   _error,
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
                 ),
               )
             else if (_items.isEmpty)
@@ -360,12 +356,17 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                     final cached = widget.service.cachedChoices(item);
                     final isCached = cached != null && cached.isNotEmpty;
                     return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       title: Text(
                         item.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       subtitle: Text(
                         '${item.providerName} · ${item.language.isEmpty ? '未知语言' : item.language}'
@@ -378,19 +379,23 @@ class _SubtitleSheetState extends State<_SubtitleSheet> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: isCached
-                              ? theme.colorScheme.primary
-                              : null,
+                          color: isCached ? theme.colorScheme.primary : null,
                         ),
                       ),
                       trailing: busy
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : Icon(
                               isCached
                                   ? Icons.checklist_rounded
                                   : Icons.download_rounded,
                               size: 20,
-                              color: isCached ? theme.colorScheme.primary : null,
+                              color: isCached
+                                  ? theme.colorScheme.primary
+                                  : null,
                             ),
                       onTap: busy ? null : () => _apply(item),
                     );

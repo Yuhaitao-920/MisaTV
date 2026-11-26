@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'app.dart';
+import 'ui/detail_full.dart';
+import 'ui/flow_receiver.dart';
 import 'core/logging/app_log.dart';
 import 'core/net/app_http.dart';
 import 'core/net/proxy_runtime.dart';
@@ -43,7 +45,32 @@ void main(List<String> args) {
   });
 }
 
-Future<void> _bootstrap(List<String> args) async {
+/// TV 精简版的启动入口，由 `main_tv.dart` 调用。
+///
+/// [rootBuilder] 决定根界面：TV 版传 `TvShell`，且 `main_tv.dart`
+/// **不 import app_shell.dart**，于是常规 UI 页面不会进编译产物。
+void runKniephosTv(
+  List<String> args,
+  Widget Function() rootBuilder, {
+  void Function()? installDetailOpener,
+}) {
+  runZonedGuarded(
+    () => _bootstrap(
+      args,
+      rootBuilder: rootBuilder,
+      installDetailOpener: installDetailOpener,
+    ),
+    (error, stack) {
+      AppLog.e('zone', '未捕获异常', error, stack);
+    },
+  );
+}
+
+Future<void> _bootstrap(
+  List<String> args, {
+  Widget Function()? rootBuilder,
+  void Function()? installDetailOpener,
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
   // 内嵌 libmpv（media_kit）必须在 runApp 之前初始化，否则首次播放会抛未初始化错误。
   MediaKit.ensureInitialized();
@@ -147,6 +174,29 @@ Future<void> _bootstrap(List<String> args) async {
   // 播放失败时由 AppState 按需刷新网盘会话（夸克 `/member` 补发新 `__puus`）。
   sourceService.jar.refreshDriveSession = state.refreshDriveSession;
   await state.init();
+  // 沉浸界面点海报时跳哪个详情页：全功能版用完整的 DetailPage，
+  // TV 版让入口传入 installTvDetailOpener（见 ui/detail_tv.dart）。
+  //
+  // 注意这里**不能**无条件调用 installFullDetailOpener：那会让 detail_full.dart
+  // 进 TV 构建的依赖闭包，把 4152 行的常规详情页又拖回来。
+  (installDetailOpener ?? installFullDetailOpener)();
+  // 设备流转接收端：别的设备推过来时用它打开播放器。
+  // 没有 context，靠全局 navigatorKey；未初始化时回调里会拒收并给出提示。
+  //
+  // 流转是一次性的（像投屏）：不在这里常驻开启 UDP 发现，也不持久化开关。
+  // 发现只在用户点「流转」时临时启动、用完收起。
+  FlowReceiver.install(state, navigatorKey: appNavigatorKey);
+  // 常驻「被动就绪」：只在本机监听 HTTP 端点并应答别人的流转探测，
+  // **不广播**。这样即使本机从没点过流转，别的设备也能在列表里找到它；
+  // 反过来，本机点流转前不会有任何外发流量。
+  //
+  // 失败（端口被占用等）只记日志：流转不可用不该影响正常启动。
+  unawaited(
+    state.startLanSyncServer().catchError((Object e) {
+      AppLog.w('lan', '局域网接收端点启动失败（不影响启动）：$e');
+      return 0;
+    }),
+  );
   // 老板键 / 托盘：桌面端初始化；热键被占用等情况只记日志，不影响启动。
   //
   // 注意：托盘图标**不能**在这里同步创建。Windows 上原生托盘需要窗口与消息
@@ -265,7 +315,7 @@ Future<void> _bootstrap(List<String> args) async {
     onClosed: state.reloadUserDataFromStore,
   );
 
-  runApp(KniephosApp(state: state));
+  runApp(KniephosApp(state: state, rootBuilder: rootBuilder));
   // 首帧之后才初始化托盘 / 老板键：此时窗口与消息循环都已就绪，
   // 原生托盘 API 才能安全调用（原因见上面 `bossKey` 处的注释）。
   if (bossKey != null) {

@@ -82,14 +82,8 @@ void main() {
       expect(review.reviewUrl, contains('xlcaptcha'));
       expect(review.message, '需要短信验证');
 
-      expect(
-        parseXunleiLoginResponse({'errorCode': '1007'}).needSms,
-        isTrue,
-      );
-      expect(
-        parseXunleiLoginResponse({'verifyType': 'MEA'}).needSms,
-        isTrue,
-      );
+      expect(parseXunleiLoginResponse({'errorCode': '1007'}).needSms, isTrue);
+      expect(parseXunleiLoginResponse({'verifyType': 'MEA'}).needSms, isTrue);
     });
 
     test('普通错误保留可读提示', () {
@@ -119,7 +113,10 @@ void main() {
         device,
       );
       expect(url, contains('deviceid='));
-      expect(Uri.decodeQueryComponent(url.split('deviceid=').last), startsWith('div101.'));
+      expect(
+        Uri.decodeQueryComponent(url.split('deviceid=').last),
+        startsWith('div101.'),
+      );
       expect(
         xunleiReviewUrlWithDevice(url, device),
         url,

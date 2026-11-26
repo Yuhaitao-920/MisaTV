@@ -54,21 +54,17 @@ void main() {
         'f': 'wogg',
       };
       final raw = base64Encode(
-        utf8.encode(jsonEncode(<String, String>{
-          'a': 'baidu',
-          'b': jsonEncode(inner),
-        })),
+        utf8.encode(
+          jsonEncode(<String, String>{'a': 'baidu', 'b': jsonEncode(inner)}),
+        ),
       );
       final file = extractBaiduSharedFile(raw);
       expect(file, isNotNull);
       final orders = baiduShareIdOrders(file!.shareId, file.uk);
-      expect(
-        orders.map((o) => '${o.shareId}/${o.uk}').toSet(),
-        <String>{
-          '271762599896626/3576627086',
-          '3576627086/271762599896626',
-        },
-      );
+      expect(orders.map((o) => '${o.shareId}/${o.uk}').toSet(), <String>{
+        '271762599896626/3576627086',
+        '3576627086/271762599896626',
+      });
     });
   });
 }

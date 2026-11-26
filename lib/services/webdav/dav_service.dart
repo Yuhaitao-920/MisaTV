@@ -275,7 +275,10 @@ class DavService {
 
         final wantPath = hrefToPath(target, base);
         final basePath = davBasePath(base);
-        final self = stripDavBase(wantPath, basePath).replaceAll(RegExp(r'/+$'), '');
+        final self = stripDavBase(
+          wantPath,
+          basePath,
+        ).replaceAll(RegExp(r'/+$'), '');
         final current = self.isEmpty ? '/' : self;
         final entries = <DavEntry>[];
         for (final item in raw) {
@@ -288,7 +291,9 @@ class DavService {
           final fallbackName = norm.isEmpty
               ? ''
               : norm.substring(norm.lastIndexOf('/') + 1);
-          final name = item.displayName.isNotEmpty ? item.displayName : fallbackName;
+          final name = item.displayName.isNotEmpty
+              ? item.displayName
+              : fallbackName;
           if (name.isEmpty) continue;
           String url;
           try {

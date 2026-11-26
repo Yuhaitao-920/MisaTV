@@ -154,7 +154,11 @@ String _fixedStrip(double x, int scale) {
   return t.isEmpty ? '0' : t;
 }
 
-void _addFrameRateFeatures(Set<String> features, double frameRate, int maxFrames) {
+void _addFrameRateFeatures(
+  Set<String> features,
+  double frameRate,
+  int maxFrames,
+) {
   for (var frame = 1; frame <= maxFrames; frame++) {
     // Java：divide(rate, 10, HALF_UP) → remainder(ONE)
     final q = (((frame / frameRate) * 1e10).round() / 1e10);
@@ -235,7 +239,8 @@ String _resolveRef(String base, String ref) {
 
 String _toAbsoluteUrl(String base, String url) {
   final line = url.trim();
-  if (line.isEmpty || RegExp(r'^https?://', caseSensitive: false).hasMatch(line)) {
+  if (line.isEmpty ||
+      RegExp(r'^https?://', caseSensitive: false).hasMatch(line)) {
     return line;
   }
   return _resolveRef(base, line);
@@ -258,8 +263,9 @@ bool _shouldResolve(String line) {
       _hasUriAttribute(item);
 }
 
-String _shouldResolveLine(String base, String line) =>
-    _hasUriAttribute(line) ? _resolveUriLine(base, line) : _resolveRef(base, line);
+String _shouldResolveLine(String base, String line) => _hasUriAttribute(line)
+    ? _resolveUriLine(base, line)
+    : _resolveRef(base, line);
 
 /// 逐行把相对地址补成绝对（M3u8.java:492-499，CRLF 归一为 LF、每行结尾补 \n）
 String _resolveContent(String tsUrlPre, String content) {
@@ -508,19 +514,23 @@ String _pathPrefixOf(String url) {
 /// 非主导短组判定（M3u8.java:702-723）
 bool _shouldDropGroup(_Group group, _Group main) {
   if (identical(group, main) || group.segmentCount == 0) return false;
-  final shortGroup = group.segmentCount <= 2 ||
+  final shortGroup =
+      group.segmentCount <= 2 ||
       (main.totalDuration > 0 &&
           group.totalDuration > 0 &&
           group.totalDuration < main.totalDuration * 0.18);
   final differentHost =
       main.host.isNotEmpty && group.host.isNotEmpty && main.host != group.host;
-  final differentPath = main.pathPrefix.isNotEmpty &&
+  final differentPath =
+      main.pathPrefix.isNotEmpty &&
       group.pathPrefix.isNotEmpty &&
       main.pathPrefix != group.pathPrefix;
-  final hasAdFeature = group.adLikeCount > 0 ||
+  final hasAdFeature =
+      group.adLikeCount > 0 ||
       _hasAdDomain(group.host) ||
       _isAdSegmentUri(group.pathPrefix);
-  final adLike = hasAdFeature ||
+  final adLike =
+      hasAdFeature ||
       differentHost ||
       (group.segmentCount <= 2 && differentPath);
   return shortGroup && adLike;

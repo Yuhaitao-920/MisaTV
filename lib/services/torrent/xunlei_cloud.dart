@@ -273,7 +273,9 @@ String xunleiJwtSub(String token) {
   try {
     final parts = token.split('.');
     if (parts.length < 2) return '';
-    final decoded = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+    final decoded = utf8.decode(
+      base64Url.decode(base64Url.normalize(parts[1])),
+    );
     final json = jsonDecode(decoded);
     if (json is Map) return _textOf(json['sub']);
   } catch (_) {}
@@ -439,18 +441,19 @@ class XunleiCloudService {
       throw const XunleiCloudException('请填写迅雷账号和密码');
     }
     final device = await _ensureDevice();
-    final body = xunleiLoginBody(
-      deviceId: device.deviceId,
-      peerId: device.peerId,
-      clientVersion: xunleiLoginClientVersion,
-      sdkVersion: xunleiLoginSdkVersion,
-    )..addAll({
-      'userName': name,
-      'passWord': password,
-      'verifyKey': '',
-      'verifyCode': '',
-      'isMd5Pwd': '0',
-    });
+    final body =
+        xunleiLoginBody(
+          deviceId: device.deviceId,
+          peerId: device.peerId,
+          clientVersion: xunleiLoginClientVersion,
+          sdkVersion: xunleiLoginSdkVersion,
+        )..addAll({
+          'userName': name,
+          'passWord': password,
+          'verifyKey': '',
+          'verifyCode': '',
+          'isMd5Pwd': '0',
+        });
     final reply = await _send(
       'POST',
       Uri.parse(xunleiCoreLoginUrl),
@@ -532,18 +535,19 @@ class XunleiCloudService {
       throw const XunleiCloudException('请填写手机号和短信验证码');
     }
     final device = await _ensureDevice();
-    final body = xunleiLoginBody(
-      deviceId: device.deviceId,
-      peerId: device.peerId,
-      clientVersion: xunleiSmsClientVersion,
-      sdkVersion: xunleiSmsSdkVersion,
-      creditKey: creditKey,
-    )..addAll({
-      'mobile': phone,
-      'smsCode': smsCode,
-      'token': smsToken,
-      'register': '0',
-    });
+    final body =
+        xunleiLoginBody(
+          deviceId: device.deviceId,
+          peerId: device.peerId,
+          clientVersion: xunleiSmsClientVersion,
+          sdkVersion: xunleiSmsSdkVersion,
+          creditKey: creditKey,
+        )..addAll({
+          'mobile': phone,
+          'smsCode': smsCode,
+          'token': smsToken,
+          'register': '0',
+        });
     final reply = await _send(
       'POST',
       Uri.parse(xunleiSmsLoginUrl),
@@ -650,7 +654,9 @@ class XunleiCloudService {
       },
     );
     final accessToken = _textOf(reply['access_token'] ?? reply['accessToken']);
-    final refreshToken = _textOf(reply['refresh_token'] ?? reply['refreshToken']);
+    final refreshToken = _textOf(
+      reply['refresh_token'] ?? reply['refreshToken'],
+    );
     if (accessToken.isEmpty || refreshToken.isEmpty) {
       throw XunleiCloudException(_loginError(reply));
     }

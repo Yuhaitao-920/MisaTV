@@ -15,10 +15,7 @@ void main() {
     test('默认关闭：create 直接抛异常', () {
       final service = SpiderDebugService();
       expect(service.enabled, isFalse);
-      expect(
-        () => service.create(),
-        throwsA(isA<SpiderDebugException>()),
-      );
+      expect(() => service.create(), throwsA(isA<SpiderDebugException>()));
     });
 
     test('开启后可以创建会话，id 足够长', () {
@@ -32,10 +29,7 @@ void main() {
       final service = SpiderDebugService(maxSessions: 2)..enabled = true;
       service.create();
       service.create();
-      expect(
-        () => service.create(),
-        throwsA(isA<SpiderDebugException>()),
-      );
+      expect(() => service.create(), throwsA(isA<SpiderDebugException>()));
     });
 
     test('未知 session 返回 null（不能靠猜 id 操作别人会话）', () {
@@ -57,8 +51,7 @@ void main() {
   group('TTL 过期', () {
     test('空闲超过 TTL 的会话被 find 清理', () {
       var now = DateTime(2026, 1, 1, 12);
-      final service = SpiderDebugService(clock: () => now)
-        ..enabled = true;
+      final service = SpiderDebugService(clock: () => now)..enabled = true;
       final session = service.create();
 
       // 未过期：还能拿到。
@@ -123,11 +116,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(session.busy, isTrue);
       expect(
-        () => session.run(
-          runner: _echoRunner(),
-          method: 'home',
-          args: const {},
-        ),
+        () =>
+            session.run(runner: _echoRunner(), method: 'home', args: const {}),
         throwsA(isA<SpiderDebugException>()),
       );
       gate.complete();
@@ -203,11 +193,8 @@ void main() {
     test('会话关闭后拒绝执行', () async {
       final session = SpiderDebugSession(id: 's1')..close();
       expect(
-        () => session.run(
-          runner: _echoRunner(),
-          method: 'home',
-          args: const {},
-        ),
+        () =>
+            session.run(runner: _echoRunner(), method: 'home', args: const {}),
         throwsA(isA<SpiderDebugException>()),
       );
     });
@@ -215,10 +202,7 @@ void main() {
 
   group('请求解析', () {
     test('只接受白名单 method', () {
-      expect(
-        parseSpiderDebugRequest(const {'method': 'home'}).method,
-        'home',
-      );
+      expect(parseSpiderDebugRequest(const {'method': 'home'}).method, 'home');
       expect(
         () => parseSpiderDebugRequest(const {'method': 'init'}),
         throwsA(isA<SpiderDebugException>()),
@@ -235,8 +219,7 @@ void main() {
         throwsA(isA<SpiderDebugException>()),
       );
       expect(
-        () =>
-            parseSpiderDebugRequest(const {'method': 'home', 'timeout': 301}),
+        () => parseSpiderDebugRequest(const {'method': 'home', 'timeout': 301}),
         throwsA(isA<SpiderDebugException>()),
       );
       expect(

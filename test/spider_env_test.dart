@@ -26,18 +26,27 @@ void main() {
     );
 
     // 1. wex 裸 cookie 文件
-    expect(File(p.join(cache, 'files', 'TV', '.quarkcookie')).readAsStringSync(), quark);
-    expect(File(p.join(cache, 'files', 'TV', '.ucpancookie')).readAsStringSync(), uc);
+    expect(
+      File(p.join(cache, 'files', 'TV', '.quarkcookie')).readAsStringSync(),
+      quark,
+    );
+    expect(
+      File(p.join(cache, 'files', 'TV', '.ucpancookie')).readAsStringSync(),
+      uc,
+    );
 
     // 2. SharedPreferences 种子（含 UC TV Token 与强制 Java 多线程）
-    final seed = File(p.join(cache, 'shared_prefs', 'seed.txt')).readAsStringSync();
+    final seed = File(p.join(cache, 'shared_prefs', 'seed.txt'))
+        .readAsStringSync();
     expect(seed, contains('Wex_quark_cookie\t$quark'));
     expect(seed, contains('Wex_ucpan_token\ttok'));
     expect(seed, contains('Wex_ucpan_device_id\tdev'));
     expect(seed, contains('pan.thread_proxy_mode\tjava'));
 
     // 3. Pizazz 临时目录（quark/uc 需三字段非空）
-    final pizazz = File(p.join(root.path, 'tvbox-ext', 'TVBox', 'quark_cookie.txt'));
+    final pizazz = File(
+      p.join(root.path, 'tvbox-ext', 'TVBox', 'quark_cookie.txt'),
+    );
     final pizazzBody = jsonDecode(pizazz.readAsStringSync()) as Map;
     expect(pizazzBody['cookie'], quark);
     expect((pizazzBody['nickname'] as String).isNotEmpty, isTrue);
@@ -68,7 +77,10 @@ void main() {
       tmpDir: root.path,
       dataDir: root.path,
     );
-    expect(File(p.join(root.path, 'tvfan', 'Cloud-drive.txt')).existsSync(), isTrue);
+    expect(
+      File(p.join(root.path, 'tvfan', 'Cloud-drive.txt')).existsSync(),
+      isTrue,
+    );
 
     // 第二次同步时 quark 已解绑 → 文件/凭据都要消失
     await SpiderEnv.sync(
@@ -77,12 +89,24 @@ void main() {
       tmpDir: root.path,
       dataDir: root.path,
     );
-    expect(File(p.join(cache, 'files', 'TV', '.quarkcookie')).existsSync(), isFalse);
-    expect(File(p.join(cache, 'shared_prefs', 'seed.txt')).readAsStringSync(),
-        isNot(contains('Wex_quark_cookie')));
-    expect(File(p.join(root.path, 'tvbox-ext', 'TVBox', 'quark_cookie.txt')).existsSync(), isFalse);
+    expect(
+      File(p.join(cache, 'files', 'TV', '.quarkcookie')).existsSync(),
+      isFalse,
+    );
+    expect(
+      File(p.join(cache, 'shared_prefs', 'seed.txt')).readAsStringSync(),
+      isNot(contains('Wex_quark_cookie')),
+    );
+    expect(
+      File(p.join(root.path, 'tvbox-ext', 'TVBox', 'quark_cookie.txt'))
+          .existsSync(),
+      isFalse,
+    );
     final cloud = File(p.join(root.path, 'tvfan', 'Cloud-drive.txt'));
-    expect((jsonDecode(cloud.readAsStringSync()) as Map).containsKey('quarkCookie'), isFalse);
+    expect(
+      (jsonDecode(cloud.readAsStringSync()) as Map).containsKey('quarkCookie'),
+      isFalse,
+    );
   });
 
   test('哔哩 / 115 落到 TVBox 站点 Cookie 通道', () async {
@@ -116,8 +140,8 @@ void main() {
       File(p.join(cache, 'files', 'TV', '.115cookie')).readAsStringSync(),
       pan115,
     );
-    final seed =
-        File(p.join(cache, 'shared_prefs', 'seed.txt')).readAsStringSync();
+    final seed = File(p.join(cache, 'shared_prefs', 'seed.txt'))
+        .readAsStringSync();
     expect(seed, contains('Wex_115_cookie\t$pan115'));
 
     // 解绑后写入空文件（不是删除）：中继对缺失文件回 404 + 中文正文，
@@ -132,10 +156,7 @@ void main() {
       File(p.join(root.path, 'TVBox', 'bili_cookie.txt')).readAsStringSync(),
       '',
     );
-    expect(
-      File(p.join(root.path, 'TVBox', '115.txt')).readAsStringSync(),
-      '',
-    );
+    expect(File(p.join(root.path, 'TVBox', '115.txt')).readAsStringSync(), '');
     expect(
       File(p.join(cache, 'files', 'TV', '.115cookie')).existsSync(),
       isFalse,

@@ -41,7 +41,12 @@ void main() {
     });
 
     test('空 ua 也能往返', () {
-      const bean = LiveBean(name: 'x', api: '', type: '0', url: 'http://a.test/l');
+      const bean = LiveBean(
+        name: 'x',
+        api: '',
+        type: '0',
+        url: 'http://a.test/l',
+      );
       final round = LiveBean.fromJson(bean.toJson());
       expect(round.ua, isEmpty);
     });

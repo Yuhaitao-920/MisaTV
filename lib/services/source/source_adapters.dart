@@ -36,11 +36,8 @@ class CmsSourceAdapter extends SourceAdapter {
   ) => cms.category(site, tid, pg, filters);
 
   @override
-  Future<VodDetail?> detail(
-    SourceBean site,
-    String id, {
-    String name = '',
-  }) => cms.detail(site, id);
+  Future<VodDetail?> detail(SourceBean site, String id, {String name = ''}) =>
+      cms.detail(site, id);
 
   @override
   Future<List<VodItem>> search(SourceBean site, String keyword) =>
@@ -75,11 +72,8 @@ class JsSourceAdapter extends SourceAdapter {
   ) => js.category(site, tid, pg, filters);
 
   @override
-  Future<VodDetail?> detail(
-    SourceBean site,
-    String id, {
-    String name = '',
-  }) => js.detail(site, id);
+  Future<VodDetail?> detail(SourceBean site, String id, {String name = ''}) =>
+      js.detail(site, id);
 
   @override
   Future<List<VodItem>> search(SourceBean site, String keyword) =>
@@ -120,11 +114,8 @@ class PySourceAdapter extends SourceAdapter {
   ) => py.category(site, tid, pg, filters);
 
   @override
-  Future<VodDetail?> detail(
-    SourceBean site,
-    String id, {
-    String name = '',
-  }) => py.detail(site, id);
+  Future<VodDetail?> detail(SourceBean site, String id, {String name = ''}) =>
+      py.detail(site, id);
 
   @override
   Future<List<VodItem>> search(SourceBean site, String keyword) =>
@@ -165,11 +156,8 @@ class JarSourceAdapter extends SourceAdapter {
   ) => jar.category(site, tid, pg, filters);
 
   @override
-  Future<VodDetail?> detail(
-    SourceBean site,
-    String id, {
-    String name = '',
-  }) => jar.detail(site, id);
+  Future<VodDetail?> detail(SourceBean site, String id, {String name = ''}) =>
+      jar.detail(site, id);
 
   @override
   Future<List<VodItem>> search(SourceBean site, String keyword) =>
@@ -210,11 +198,8 @@ class KazumiSourceAdapter extends SourceAdapter {
   ) => kazumi.category(site, tid, pg);
 
   @override
-  Future<VodDetail?> detail(
-    SourceBean site,
-    String id, {
-    String name = '',
-  }) => kazumi.detail(site, id, name: name);
+  Future<VodDetail?> detail(SourceBean site, String id, {String name = ''}) =>
+      kazumi.detail(site, id, name: name);
 
   @override
   Future<List<VodItem>> search(SourceBean site, String keyword) =>

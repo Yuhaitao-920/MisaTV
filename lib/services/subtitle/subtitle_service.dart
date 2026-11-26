@@ -31,9 +31,7 @@ List<SubtitleCandidate> sortSubtitleCandidates(
   final want = title.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
   int zhOf(SubtitleCandidate c) {
     final s = '${c.language} ${c.detail} ${c.subname}';
-    return RegExp(r'简|繁|中文|中英|双语|zh', caseSensitive: false).hasMatch(s)
-        ? 0
-        : 1;
+    return RegExp(r'简|繁|中文|中英|双语|zh', caseSensitive: false).hasMatch(s) ? 0 : 1;
   }
 
   int exactOf(SubtitleCandidate c) {
@@ -42,16 +40,17 @@ List<SubtitleCandidate> sortSubtitleCandidates(
     return t.isNotEmpty && t == want ? 0 : 1;
   }
 
-  final rows = <({SubtitleCandidate c, int i, int zh, int exact})>[
-    for (var i = 0; i < list.length; i++)
-      (c: list[i], i: i, zh: zhOf(list[i]), exact: exactOf(list[i])),
-  ]..sort((a, b) {
-      final byZh = a.zh.compareTo(b.zh);
-      if (byZh != 0) return byZh;
-      final byExact = a.exact.compareTo(b.exact);
-      if (byExact != 0) return byExact;
-      return a.i.compareTo(b.i);
-    });
+  final rows =
+      <({SubtitleCandidate c, int i, int zh, int exact})>[
+        for (var i = 0; i < list.length; i++)
+          (c: list[i], i: i, zh: zhOf(list[i]), exact: exactOf(list[i])),
+      ]..sort((a, b) {
+        final byZh = a.zh.compareTo(b.zh);
+        if (byZh != 0) return byZh;
+        final byExact = a.exact.compareTo(b.exact);
+        if (byExact != 0) return byExact;
+        return a.i.compareTo(b.i);
+      });
   return rows.map((x) => x.c).toList();
 }
 
@@ -241,45 +240,50 @@ class SubtitleService {
       if (type == SubtitleProviderType.assrt) {
         final token = (tokens[assrtProviderId] ?? '').trim();
         if (token.isEmpty) continue;
-        pending.add(_isolate(
-          () => searchAssrt(
-            http: _http,
-            token: token,
-            query: query,
-            keywords: ctx.keywords,
-          ).timeout(_assrtTimeout),
-          name: 'assrt',
-        ));
+        pending.add(
+          _isolate(
+            () => searchAssrt(
+              http: _http,
+              token: token,
+              query: query,
+              keywords: ctx.keywords,
+            ).timeout(_assrtTimeout),
+            name: 'assrt',
+          ),
+        );
       } else {
         // 网页源：把「探测 → 检索」整条塞进一个 future，让探测与其他源**并行**。
         //   旧写法在组装列表时就 `await _reachable(...)`，探测（连不上要约 2s）
         //   会把 assrt 的请求整个往后推，UI 于是先白等 2 秒再取字幕。
-        pending.add(_isolate(() async {
-          if (!await _reachable(catBase)) return const <SubtitleCandidate>[];
-          return searchSubtitleCat(
-            http: _http,
-            query: query,
-            keywords: ctx.keywords,
-          ).timeout(_htmlTimeout);
-        }, name: 'subtitlecat'));
+        pending.add(
+          _isolate(() async {
+            if (!await _reachable(catBase)) return const <SubtitleCandidate>[];
+            return searchSubtitleCat(
+              http: _http,
+              query: query,
+              keywords: ctx.keywords,
+            ).timeout(_htmlTimeout);
+          }, name: 'subtitlecat'),
+        );
       }
     }
     for (final api in _readCustomApis()) {
-      pending.add(_isolate(
-        () => searchCustomSubtitleApi(_http, api, query).timeout(_htmlTimeout),
-        name: 'custom',
-      ));
+      pending.add(
+        _isolate(
+          () =>
+              searchCustomSubtitleApi(_http, api, query).timeout(_htmlTimeout),
+          name: 'custom',
+        ),
+      );
     }
     if (pending.isEmpty) return const <SubtitleCandidate>[];
 
     // 谁先回就先攒：慢源不再阻塞已就绪的结果（整体最多等到最长超时）。
     final all = <SubtitleCandidate>[];
     await Future.wait(
-      pending.map(
-        (f) async {
-          all.addAll(await f);
-        },
-      ),
+      pending.map((f) async {
+        all.addAll(await f);
+      }),
     );
     final result = sortSubtitleCandidates(all, ctx.title);
     if (result.isNotEmpty) _searchCache[cacheKey] = result;
@@ -349,9 +353,7 @@ class SubtitleService {
     if (type == SubtitleProviderType.assrt) {
       final token = (_readTokens()[assrtProviderId] ?? '').trim();
       if (token.isEmpty) {
-        throw const SubtitleException(
-          '尚未配置 assrt token，请先在「配置 → 外挂字幕」中填写',
-        );
+        throw const SubtitleException('尚未配置 assrt token，请先在「配置 → 外挂字幕」中填写');
       }
       return assrtDownload(
         _http,

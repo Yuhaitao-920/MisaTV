@@ -129,9 +129,7 @@ void main() {
     expect(b.history.any((e) => e.name == '测试影片'), isTrue);
   });
 
-  testWidgets('只有一个 WebDAV 服务器时同步页自动选中，不再要求手动选择', (
-    tester,
-  ) async {
+  testWidgets('只有一个 WebDAV 服务器时同步页自动选中，不再要求手动选择', (tester) async {
     final app = await _newApp();
     await app.saveDavServer(
       DavServer(

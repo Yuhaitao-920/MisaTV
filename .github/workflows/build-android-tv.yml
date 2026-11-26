@@ -1,0 +1,212 @@
+name: Build Android TV APK
+
+# TV 精简版：只发沉浸观影界面，砍掉常规 UI / 一起看 / DLNA / 外部播放器，
+# 并剔除安卓上无读取者的资源（assets/jvm、assets/aria2）与多余字体。
+#
+# 与 build-android.yml 的关系：
+#   · 共用同一套签名 secret（同一个 keystore，保证以后能覆盖安装）；
+#   · 独立 applicationId（com.kniephos.kniephos.tv），可与全功能版并存；
+#   · Dart 侧用 --dart-define=MISA_TV=true，让不用的页面被 tree-shake。
+
+on:
+  workflow_dispatch:
+    inputs:
+      shell_jars:
+        description: 'Restore optional assets/jvm/shell-real/*.jar from the SHELL_REAL_JARS_B64 secret'
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-tv-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-tv:
+    name: Build MisaTV TV APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python 3.12
+        # TV 版保留 Python 蜘蛛，Chaquopy 的 buildPython 要求 3.12。
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze (non-blocking, report only)
+        run: flutter analyze --no-fatal-infos || true
+
+      - name: Decode Android release keystore
+        # 与全功能版共用同一个 keystore：TV 版是独立包名，但签名一致，
+        # 以后若要改名/合并也不会出现「签名冲突」。
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$KEYSTORE_B64" ]  && missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -z "$STORE_PASSWORD" ] && missing="$missing ANDROID_STORE_PASSWORD"
+          [ -z "$KEY_ALIAS" ]      && missing="$missing ANDROID_KEY_ALIAS"
+          [ -z "$KEY_PASSWORD" ]   && missing="$missing ANDROID_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少签名 secret:$missing"
+            exit 1
+          fi
+          dest="$RUNNER_TEMP/release.jks"
+          printf '%s' "$KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > "$dest"
+          if [ ! -s "$dest" ]; then
+            echo "::error::keystore 解码失败"
+            exit 1
+          fi
+          ls -l "$dest"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$dest"
+            echo "ANDROID_STORE_PASSWORD=$STORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Trim fonts for TV
+        # TV 版只保留 MiSans-Regular：远看分辨不出字重，省约 26 MB。
+        #
+        # 这一步必须**同时**改 pubspec 声明与删文件，原因见脚本头部注释：
+        #   · 只删文件 → "unable to locate asset entry in pubspec.yaml"
+        #   · 只改 pubspec → assets/fonts/ 整个目录仍被打包，省不到体积
+        #
+        # 具体逻辑放在 tool/trim_fonts_for_tv.py（可在本地直接跑、也能单测），
+        # 避免 workflow 里内联 heredoc 与 YAML 缩进互相干扰（已踩过一次）。
+        run: python3 tool/trim_fonts_for_tv.py
+
+      - name: Build TV release APK
+        # MISA_TV=true 让 Dart 侧走 TV 分支：
+        #   · AppShell 强制 ImmersiveShell（不编译常规页面路径）
+        #   · 播放器不显示一起看 / DLNA 入口
+        run: |
+          # 上一步改过 pubspec（字体声明），先刷新依赖再构建。
+          # flutter build 默认也会跑 pub get，这里显式写一次让意图更明确，
+          # 也避免某些 Flutter 版本缓存了旧的 asset 清单。
+          flutter pub get
+          # --target lib/main_tv.dart 是体积优化的关键：
+          # 它只 import ui/shell/tv_shell.dart，不碰 app_shell.dart，
+          # 于是六个常规页面（约 7600 行）不进编译单元。
+          # （Dart 的 tree-shaking 不跨 import 剪枝，靠运行时 if (kMisaTv)
+          #   是省不掉这部分体积的。）
+          # 重试整条构建命令：Maven Central 对 GitHub runner 的共享 IP 限流，
+          # 偶发返回 429。Gradle 内部重试（gradle.properties 的 max.retries）
+          # 只能吸收一部分，遇到「插件仓库被禁用」这种硬失败时仍需整条重来。
+          for attempt in 1 2 3; do
+            echo "--- 构建尝试 $attempt"
+            if flutter build apk --release \
+                 --flavor tv \
+                 --target lib/main_tv.dart \
+                 --target-platform android-arm64 \
+                 --dart-define=MISA_TV=true; then
+              echo "构建成功（第 $attempt 次）"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::第 $attempt 次构建失败，30 秒后重试"
+              sleep 30
+            fi
+          done
+          echo "::error::连续 3 次构建失败"
+          exit 1
+
+      - name: Verify APK is signed with the release keystore
+        shell: bash
+        run: |
+          apk=build/app/outputs/flutter-apk/app-tv-release.apk
+          [ -f "$apk" ] || { echo "::error::找不到 APK"; exit 1; }
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$sdk" ] || [ ! -d "$sdk/build-tools" ]; then
+            sdk="/usr/local/lib/android/sdk"
+          fi
+          bt=$(ls -d "$sdk"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          APKSIGNER_CMD=""
+          for cand in "$bt/apksigner" "$bt/bin/apksigner"; do
+            if [ -x "$cand" ]; then APKSIGNER_CMD="\"$cand\""; break; fi
+          done
+          if [ -z "$APKSIGNER_CMD" ]; then
+            jar=$(find "$bt" -name 'apksigner.jar' 2>/dev/null | head -1)
+            [ -n "$jar" ] && APKSIGNER_CMD="java -jar \"$jar\""
+          fi
+          [ -n "$APKSIGNER_CMD" ] || { echo "::error::未找到 apksigner"; exit 1; }
+          info=$(eval "$APKSIGNER_CMD verify --print-certs '$apk'" 2>&1)
+          echo "$info"
+          if echo "$info" | grep -qi "Android Debug"; then
+            echo "::error::APK 是 debug 签名"
+            exit 1
+          fi
+          echo "签名校验通过"
+
+      - name: Report APK size
+        run: |
+          apk=build/app/outputs/flutter-apk/app-tv-release.apk
+          size=$(stat -c%s "$apk")
+          echo "APK 大小: $((size/1024/1024)) MB"
+          echo "### TV APK 体积：$((size/1024/1024)) MB" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify no JVM/aria2 assets
+        # 断言裁剪生效：安卓端不需要这些，打进去就是浪费。
+        run: |
+          apk=build/app/outputs/flutter-apk/app-tv-release.apk
+          bad=$(unzip -l "$apk" | awk '{print $4}' | grep -E '^assets/(jvm|aria2)/' || true)
+          if [ -n "$bad" ]; then
+            echo "$bad"
+            echo "::error::APK 里仍有 assets/jvm 或 assets/aria2"
+            exit 1
+          fi
+          echo "裁剪校验通过（无 jvm / aria2 资源）"
+
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-tv-release.apk \
+             build/app/outputs/flutter-apk/MisaTV-TV-arm64.apk
+
+      - name: Upload TV APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: misatv-android-tv
+          path: build/app/outputs/flutter-apk/MisaTV-TV-arm64.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 挂到 Release 资产
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          gh release upload "$tag" \
+            build/app/outputs/flutter-apk/MisaTV-TV-arm64.apk \
+            --repo "${{ github.repository }}" --clobber

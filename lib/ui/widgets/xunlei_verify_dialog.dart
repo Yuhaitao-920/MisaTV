@@ -63,7 +63,8 @@ class _XunleiVerifyDialogState extends State<_XunleiVerifyDialog> {
     // 必须与 reviewurl 里的 App 一致），不是 v3/login 的新版 25.0.5.25。
     final version = jsonEncode(xunleiClientVersion);
     final device = jsonEncode(widget.deviceSign);
-    final script = '''
+    final script =
+        '''
 (function(){
   try {
     window.env = 'android';

@@ -20,7 +20,10 @@ void main() {
       expect(isPlayableMediaUrl('   '), isFalse);
       expect(isPlayableMediaUrl('/mizhicdn/video/error.mp4'), isFalse);
       expect(isPlayableMediaUrl('https://cdn.example.com/error.mp4'), isFalse);
-      expect(isPlayableMediaUrl('parse_api=https://a.com&url=b&token=1'), isFalse);
+      expect(
+        isPlayableMediaUrl('parse_api=https://a.com&url=b&token=1'),
+        isFalse,
+      );
       expect(isPlayableMediaUrl('第1集\$https://a.com/1.mp4'), isFalse);
       expect(isPlayableMediaUrl('/play/segment.ts'), isFalse);
     });
@@ -28,20 +31,29 @@ void main() {
 
   group('蜘蛛播放结果归一化', () {
     test('正常直链可播', () {
-      final play = normalizeSpiderPlay('{"parse":0,"url":"https://a.com/1.m3u8"}', 'flag');
+      final play = normalizeSpiderPlay(
+        '{"parse":0,"url":"https://a.com/1.m3u8"}',
+        'flag',
+      );
       expect(play.playable, isTrue);
       expect(play.url, 'https://a.com/1.m3u8');
     });
 
     test('parse:0 但地址是选集参数时不给播放器', () {
-      final play = normalizeSpiderPlay('{"parse":0,"url":"parse_api=x&url=y&token=1"}', 'flag');
+      final play = normalizeSpiderPlay(
+        '{"parse":0,"url":"parse_api=x&url=y&token=1"}',
+        'flag',
+      );
       expect(play.playable, isFalse);
       expect(play.url, isEmpty);
       expect(play.message, isNotEmpty);
     });
 
     test('错误占位视频被拒绝', () {
-      final play = normalizeSpiderPlay('{"parse":0,"url":"https://a.com/mizhicdn/video/error.mp4"}', 'flag');
+      final play = normalizeSpiderPlay(
+        '{"parse":0,"url":"https://a.com/mizhicdn/video/error.mp4"}',
+        'flag',
+      );
       expect(play.playable, isFalse);
     });
 
@@ -56,7 +68,8 @@ void main() {
     });
 
     test('蜘蛛声明 parse 也优先识别磁力链接', () {
-      const magnet = 'magnet:?xt=urn:btih:bfe6f2023fcc74a9be606b30e3a89ed0a4a3d999';
+      const magnet =
+          'magnet:?xt=urn:btih:bfe6f2023fcc74a9be606b30e3a89ed0a4a3d999';
       final play = normalizeSpiderPlay('{"parse":1,"url":"$magnet"}', 'flag');
       expect(play.externalLink, magnet);
       expect(play.parse, 0);
@@ -65,7 +78,7 @@ void main() {
     test('parse=1 保留 header，网页嗅探要用源内 UA / Referer', () {
       final play = normalizeSpiderPlay(
         '{"parse":1,"url":"https://www.pandalive.co.kr/play/1",'
-        '"header":{"User-Agent":"UA","Referer":"https://www.pandalive.co.kr/"}}',
+            '"header":{"User-Agent":"UA","Referer":"https://www.pandalive.co.kr/"}}',
         'IVS',
       );
       expect(play.parse, 1);
@@ -80,7 +93,9 @@ void main() {
     test('首页有条目 → ok-content', () {
       final health = SourceHealth.fromHome(
         _site(type: 1),
-        CmsResult(items: const [VodItem(id: '1', name: '影片')]),
+        CmsResult(
+          items: const [VodItem(id: '1', name: '影片')],
+        ),
       );
       expect(health.status, 'ok-content');
       expect(health.ok, isTrue);
@@ -103,7 +118,9 @@ void main() {
     test('只有分类 → ok-classes', () {
       final health = SourceHealth.fromHome(
         _site(type: 1),
-        CmsResult(classes: const [SortClass(id: '1', name: '电影')]),
+        CmsResult(
+          classes: const [SortClass(id: '1', name: '电影')],
+        ),
       );
       expect(health.status, 'ok-classes');
       expect(health.ok, isTrue);
@@ -116,7 +133,10 @@ void main() {
     });
 
     test('蜘蛛空主页但已有 ext → empty', () {
-      final health = SourceHealth.fromHome(_site(ext: '{"siteUrl":"https://a.com"}'), const CmsResult());
+      final health = SourceHealth.fromHome(
+        _site(ext: '{"siteUrl":"https://a.com"}'),
+        const CmsResult(),
+      );
       expect(health.status, 'empty');
       expect(health.ok, isFalse);
     });

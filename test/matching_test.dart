@@ -9,10 +9,7 @@ import 'package:kniephos/services/matching/title_matching.dart';
 void main() {
   group('标题归一化', () {
     test('去掉元数据标签、发布噪点与更新状态', () {
-      expect(
-        movieSearchTitle('[4K] 庆余年 第二季 更新至30集'),
-        '庆余年 第二季',
-      );
+      expect(movieSearchTitle('[4K] 庆余年 第二季 更新至30集'), '庆余年 第二季');
       expect(movieSearchTitle('庆余年.S02E05.2024.HDR'), '庆余年.2024');
       expect(movieSearchTitle('《庆余年》第05集'), '庆余年');
     });
@@ -142,10 +139,7 @@ void main() {
     });
 
     test('候选显示支持中文数字集号', () {
-      expect(
-        formatCandidateLabel(title: '某剧 第二季 第十二集'),
-        '某剧 · 第2季 · 第12集',
-      );
+      expect(formatCandidateLabel(title: '某剧 第二季 第十二集'), '某剧 · 第2季 · 第12集');
       expect(seasonOf('第二季'), 2);
     });
 

@@ -19,7 +19,8 @@ int _clamp(int v, int min, int max) => v < min ? min : (v > max ? max : v);
 
 /// JS `parseFloat` 口径：取前导数字部分（允许前导空白与尾随噪声）。
 double? _parseFloat(String s) {
-  final m = RegExp(r'^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?').firstMatch(s);
+  final m = RegExp(r'^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?')
+      .firstMatch(s);
   if (m == null) return null;
   return double.tryParse(m.group(0)!.trim());
 }
@@ -65,7 +66,10 @@ List<DanmakuItem> parseDanmakuXml(String xml) {
   final out = <DanmakuItem>[];
   // ① 自闭合 <d …/> 统一成空对（内容空 → 丢弃，避免正则吞后续弹幕）；
   // ② p 属性宽松提取：属性顺序任意、单双引号均可。
-  final normalized = xml.replaceAllMapped(_selfClosingD, (m) => '<d${m.group(1)}></d>');
+  final normalized = xml.replaceAllMapped(
+    _selfClosingD,
+    (m) => '<d${m.group(1)}></d>',
+  );
   for (final m in _dElement.allMatches(normalized)) {
     final attrs = m.group(1)!;
     final pm = _pAttr.firstMatch(attrs);
@@ -78,14 +82,14 @@ List<DanmakuItem> parseDanmakuXml(String xml) {
     if (type == null) continue;
     final sizeRaw = _parseInt(p.length > 2 ? p[2] : '') ?? 25;
     final size = _clamp(sizeRaw == 0 ? 25 : sizeRaw, 12, 40);
-    final color = _toHexColor(
-      (p.length > 3 ? _parseInt(p[3]) : null) ?? 0,
-    );
+    final color = _toHexColor((p.length > 3 ? _parseInt(p[3]) : null) ?? 0);
     // 内容：剥 CDATA 再反转义，去 \r 与空串。
     var text = m.group(2)!.replaceAllMapped(_cdata, (c) => c.group(1)!);
     text = unescapeXml(text).replaceAll('\r', '');
     if (text.trim().isEmpty) continue;
-    out.add(DanmakuItem(time: time, type: type, text: text, size: size, color: color));
+    out.add(
+      DanmakuItem(time: time, type: type, text: text, size: size, color: color),
+    );
   }
   return out;
 }
@@ -117,10 +121,14 @@ List<DanmakuItem> parseDanmakuJson(String jsonText) {
     if (time == null || !time.isFinite) continue;
     final type = _toType(_parseInt(attrs.length > 1 ? attrs[1] : '') ?? 0);
     if (type == null) continue;
-    final color = _toHexColor(_parseInt(attrs.length > 2 ? attrs[2] : '') ?? 16777215);
+    final color = _toHexColor(
+      _parseInt(attrs.length > 2 ? attrs[2] : '') ?? 16777215,
+    );
     final text = (c['m'] ?? '').toString();
     if (text.trim().isEmpty) continue;
-    out.add(DanmakuItem(time: time, type: type, text: text, size: 25, color: color));
+    out.add(
+      DanmakuItem(time: time, type: type, text: text, size: 25, color: color),
+    );
   }
   return out;
 }

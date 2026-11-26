@@ -28,10 +28,7 @@ extension _PlayerPartyExt on _PlayerPageState {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-              child: Text(
-                '一起看',
-                style: Theme.of(ctx).textTheme.titleLarge,
-              ),
+              child: Text('一起看', style: Theme.of(ctx).textTheme.titleLarge),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -271,18 +268,15 @@ extension _PlayerPartyExt on _PlayerPageState {
         remote.episodeIndex < _episodes.length &&
         !_resolving) {
       unawaited(
-        _openEpisode(
-          index: remote.episodeIndex,
-          startMs: remote.positionMs,
-        ),
+        _openEpisode(index: remote.episodeIndex, startMs: remote.positionMs),
       );
       _toast('房主切换到了第 ${remote.episodeIndex + 1} 集');
       return;
     }
     final controller = _controller;
     if (controller == null) return;
-    final drift =
-        (controller.value.position.inMilliseconds - remote.positionMs).abs();
+    final drift = (controller.value.position.inMilliseconds - remote.positionMs)
+        .abs();
     if (drift > 4000 && !remote.playing) {
       unawaited(controller.seekTo(Duration(milliseconds: remote.positionMs)));
     } else if (drift > 8000) {

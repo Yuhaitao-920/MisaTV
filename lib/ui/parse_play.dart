@@ -65,12 +65,8 @@ Future<PlayResult> resolveParsedPlay(
     target,
     // 蜘蛛返回的 UA / Referer 也要带进嗅探窗口：PandaLive 这类站点用桌面
     // UA 会拿到验证页，必须有源内 UA 才可能出 m3u8。
-    sniff: (url) => sniffWebMedia(
-      context,
-      url,
-      click: site.click,
-      headers: play.headers,
-    ),
+    sniff: (url) =>
+        sniffWebMedia(context, url, click: site.click, headers: play.headers),
   );
   if (hit == null) {
     return PlayResult(

@@ -8,6 +8,7 @@ class SyncSettings {
     this.remotePath = defaultRemotePath,
     this.lastSyncAt = 0,
     this.lanToken = '',
+    this.deviceId = '',
   });
 
   /// 远端同步文件的默认路径（相对 WebDAV 服务器基址）。
@@ -28,18 +29,36 @@ class SyncSettings {
   /// 局域网配对码：同一局域网的设备用它连本机同步服务。
   final String lanToken;
 
+  /// 本机稳定标识（首次使用时生成并持久化）。
+  ///
+  /// 设备流转靠它去重：用主机名/IP 都不行——IP 会变，主机名可能重复。
+  /// 留空时由 [ensureDeviceId] 生成。
+  final String deviceId;
+
+  /// 没有 deviceId 时生成一个并返回新实例（首次启动 / 旧档案升级走这里）。
+  SyncSettings ensureDeviceId() {
+    if (deviceId.trim().isNotEmpty) return this;
+    final rand = Random.secure();
+    final value =
+        'dev-${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}-'
+        '${rand.nextInt(1 << 32).toRadixString(36)}';
+    return copyWith(deviceId: value);
+  }
+
   SyncSettings copyWith({
     String? deviceName,
     String? davServerId,
     String? remotePath,
     int? lastSyncAt,
     String? lanToken,
+    String? deviceId,
   }) => SyncSettings(
     deviceName: deviceName ?? this.deviceName,
     davServerId: davServerId ?? this.davServerId,
     remotePath: remotePath ?? this.remotePath,
     lastSyncAt: lastSyncAt ?? this.lastSyncAt,
     lanToken: lanToken ?? this.lanToken,
+    deviceId: deviceId ?? this.deviceId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -48,6 +67,7 @@ class SyncSettings {
     'remotePath': remotePath,
     'lastSyncAt': lastSyncAt,
     'lanToken': lanToken,
+    'deviceId': deviceId,
   };
 
   factory SyncSettings.fromJson(Map<String, dynamic> json) {
@@ -58,6 +78,7 @@ class SyncSettings {
       remotePath: path.isEmpty ? defaultRemotePath : path,
       lastSyncAt: (json['lastSyncAt'] as num?)?.toInt() ?? 0,
       lanToken: (json['lanToken'] ?? '').toString(),
+      deviceId: (json['deviceId'] ?? '').toString(),
     );
   }
 
@@ -78,6 +99,9 @@ String newSyncPairingToken() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   final random = Random.secure();
   return String.fromCharCodes(
-    List.generate(8, (_) => alphabet.codeUnitAt(random.nextInt(alphabet.length))),
+    List.generate(
+      8,
+      (_) => alphabet.codeUnitAt(random.nextInt(alphabet.length)),
+    ),
   );
 }

@@ -124,10 +124,7 @@ void main() {
         RelayAccessPolicy.isPrivateTarget('http://127.0.0.1:8080/admin'),
         isTrue,
       );
-      expect(
-        RelayAccessPolicy.isPrivateTarget('https://192.168.1.1/'),
-        isTrue,
-      );
+      expect(RelayAccessPolicy.isPrivateTarget('https://192.168.1.1/'), isTrue);
       expect(
         RelayAccessPolicy.isPrivateTarget('https://example.com/a.m3u8'),
         isFalse,

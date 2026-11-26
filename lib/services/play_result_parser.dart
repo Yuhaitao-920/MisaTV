@@ -24,7 +24,11 @@ PlayResult normalizeSpiderPlay(String text, String flag) {
     return PlayResult(url: '', flag: flag, message: '蜘蛛返回了无法识别的播放信息');
   }
   if (decoded is Map && decoded['__error'] != null) {
-    return PlayResult(url: '', flag: flag, message: '蜘蛛返回错误：${decoded['__error']}');
+    return PlayResult(
+      url: '',
+      flag: flag,
+      message: '蜘蛛返回错误：${decoded['__error']}',
+    );
   }
   if (decoded is List) {
     for (final item in decoded) {
@@ -57,7 +61,9 @@ PlayResult normalizeSpiderPlay(String text, String flag) {
   }
   final map = Map<String, dynamic>.from(decoded);
   final declared = map['parse'];
-  final parse = declared == null || '$declared'.isEmpty ? 0 : int.tryParse('$declared') ?? 0;
+  final parse = declared == null || '$declared'.isEmpty
+      ? 0
+      : int.tryParse('$declared') ?? 0;
   final msg = (map['msg'] ?? '').toString().trim();
 
   final rawUrl = map['url'];
@@ -66,11 +72,19 @@ PlayResult normalizeSpiderPlay(String text, String flag) {
       final candidate = item.toString().trim();
       if (isPlayableMediaUrl(candidate)) return directPlay(candidate, flag);
     }
-    return PlayResult(url: '', flag: flag, message: msg.isEmpty ? '蜘蛛没有返回可播放地址' : msg);
+    return PlayResult(
+      url: '',
+      flag: flag,
+      message: msg.isEmpty ? '蜘蛛没有返回可播放地址' : msg,
+    );
   }
   var url = (rawUrl ?? '').toString().trim();
   if (url.isEmpty) {
-    return PlayResult(url: '', flag: flag, message: msg.isEmpty ? '蜘蛛没有返回播放地址' : msg);
+    return PlayResult(
+      url: '',
+      flag: flag,
+      message: msg.isEmpty ? '蜘蛛没有返回播放地址' : msg,
+    );
   }
   final plain = splitUrlHeadersClean(url);
   if (RegExp(r'^magnet:', caseSensitive: false).hasMatch(plain) ||
@@ -108,7 +122,11 @@ PlayResult normalizeSpiderPlay(String text, String flag) {
     );
   }
   if (url.startsWith('proxy://')) {
-    return PlayResult(url: '', flag: flag, message: msg.isEmpty ? '该源需要蜘蛛本地代理路由' : msg);
+    return PlayResult(
+      url: '',
+      flag: flag,
+      message: msg.isEmpty ? '该源需要蜘蛛本地代理路由' : msg,
+    );
   }
   if (parse != 0) {
     // 解析目标必须是蜘蛛返回的页面地址（不能只留空让上层拿选集参数当目标）。
@@ -145,12 +163,7 @@ PlayResult normalizeSpiderPlay(String text, String flag) {
       message: msg.isNotEmpty ? msg : '蜘蛛返回的地址不是可播放直链（可能是选集参数或占位视频）',
     );
   }
-  return PlayResult(
-    url: clean,
-    flag: flag,
-    headers: headers,
-    message: msg,
-  );
+  return PlayResult(url: clean, flag: flag, headers: headers, message: msg);
 }
 
 PlayResult directPlay(String raw, String flag) {

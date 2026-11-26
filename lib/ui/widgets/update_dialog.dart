@@ -118,7 +118,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   Widget _progress(ThemeData theme) {
     final ratio = _total > 0 ? (_received / _total).clamp(0.0, 1.0) : null;
-    final percent = ratio == null ? '' : ' · ${(ratio * 100).toStringAsFixed(0)}%';
+    final percent = ratio == null
+        ? ''
+        : ' · ${(ratio * 100).toStringAsFixed(0)}%';
     final size = _total > 0
         ? '${_formatBytes(_received)} / ${_formatBytes(_total)}$percent'
         : '已下载 ${_formatBytes(_received)}';
@@ -144,9 +146,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final notes = _release.notes.isEmpty
-        ? '本次发布没有填写更新说明。'
-        : _release.notes;
+    final notes = _release.notes.isEmpty ? '本次发布没有填写更新说明。' : _release.notes;
     final savedPath = _savedPath;
     return AlertDialog(
       title: Row(
@@ -245,18 +245,13 @@ class _UpdateDialogState extends State<UpdateDialog> {
             label: const Text('打开文件夹'),
           )
         else if (_downloading)
-          const FilledButton(
-            onPressed: null,
-            child: Text('下载中…'),
-          )
+          const FilledButton(onPressed: null, child: Text('下载中…'))
         else
           FilledButton.icon(
             onPressed: _startDownload,
             icon: const Icon(Icons.download_rounded, size: 18),
             label: Text(
-              !_canDownload
-                  ? '打开发布页'
-                  : (_error == null ? '下载' : '重试下载'),
+              !_canDownload ? '打开发布页' : (_error == null ? '下载' : '重试下载'),
             ),
           ),
       ],

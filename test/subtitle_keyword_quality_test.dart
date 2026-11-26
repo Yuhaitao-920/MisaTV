@@ -35,8 +35,7 @@ void main() {
         const SubtitleQuery(
           title: '奥德赛2026（臻彩）',
           episode: 1,
-          rawName:
-              '[82.2GB]2160p.UHD.Blu-ray.Remux.HDR.HEVC.DTS-HD.MA.5.1.mkv【噢/澳·嘚·噻】',
+          rawName: '[82.2GB]2160p.UHD.Blu-ray.Remux.HDR.HEVC.DTS-HD.MA.5.1.mkv【噢/澳·嘚·噻】',
         ),
       );
       expect(q.title, '奥德赛2026');
@@ -48,9 +47,10 @@ void main() {
           reason: '检索词「$kw」带括号残片',
         );
         expect(
-          RegExp(r'^(UHD|Remux|Blu|Bluray|HDR|HEVC|DTS|MA)$',
-                  caseSensitive: false)
-              .hasMatch(kw),
+          RegExp(
+            r'^(UHD|Remux|Blu|Bluray|HDR|HEVC|DTS|MA)$',
+            caseSensitive: false,
+          ).hasMatch(kw),
           isFalse,
           reason: '检索词「$kw」是纯画质词',
         );
@@ -90,8 +90,12 @@ void main() {
     });
   });
 
-  group('集号不能吃容量/分辨率', () {    test('容量方括号里的数字不是集号', () {
-      expect(extractEp('[82.2GB]2160p.UHD.Blu-ray.Remux.HDR.HEVC.mkv'), isNot('82'));
+  group('集号不能吃容量/分辨率', () {
+    test('容量方括号里的数字不是集号', () {
+      expect(
+        extractEp('[82.2GB]2160p.UHD.Blu-ray.Remux.HDR.HEVC.mkv'),
+        isNot('82'),
+      );
       expect(extractEp('[1.9GB]S01E02.mkv'), '2');
     });
 

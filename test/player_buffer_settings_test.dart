@@ -61,10 +61,8 @@ void main() {
     });
 
     test('copyWith 不传时保留已有缓冲设置', () {
-      final settings = PlayerSettings.fromJson({}).copyWith(
-        bufferMinSec: 3,
-        streamCache: true,
-      );
+      final settings = PlayerSettings.fromJson({})
+          .copyWith(bufferMinSec: 3, streamCache: true);
       final again = settings.copyWith(volume: 0.5);
       expect(again.bufferMinSec, 3.0);
       expect(again.streamCache, isTrue);

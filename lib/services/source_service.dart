@@ -229,12 +229,7 @@ class SourceService {
     // Kazumi 规则：剧集地址是播放页 → parse=1，由上游网页嗅探出媒体直链；
     // 选集接口直接给 m3u8/mp4 时按直链播放。
     if (adapter.family == SourceFamily.kazumi) {
-      return await adapter.play(
-            site,
-            flag,
-            raw,
-            vipFlags: config.flags,
-          ) ??
+      return await adapter.play(site, flag, raw, vipFlags: config.flags) ??
           const PlayResult(url: '', message: 'Kazumi 规则未返回播放地址');
     }
 

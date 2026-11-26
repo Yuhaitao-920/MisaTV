@@ -12,9 +12,10 @@ String normalizeWidth(String value) {
 }
 
 /// 紧凑键：小写并去掉所有非字母数字，用于比较与去重。
-String compactTitle(String value) => normalizeWidth(
-  value,
-).toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), '');
+String compactTitle(String value) =>
+    normalizeWidth(value)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), '');
 
 const Map<String, int> _chineseDigits = {
   '零': 0,

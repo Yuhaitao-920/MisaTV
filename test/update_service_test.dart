@@ -34,7 +34,10 @@ void main() {
     expect(UpdateService.compareVersions('1.2.1000', '1.2.3'), greaterThan(0));
     expect(UpdateService.compareVersions('1.2.3', '1.2.1000'), lessThan(0));
     // minor 超过 1000 同理。
-    expect(UpdateService.compareVersions('1.1000.0', '1.3.999'), greaterThan(0));
+    expect(
+      UpdateService.compareVersions('1.1000.0', '1.3.999'),
+      greaterThan(0),
+    );
     // 正常进位：0.10.0 > 0.9.9（字符串比较会判错，这里必须走数值）。
     expect(UpdateService.compareVersions('0.10.0', '0.9.10'), greaterThan(0));
   });
@@ -43,14 +46,26 @@ void main() {
     expect(UpdateService.compareVersions('1.2.3.4', '1.2.3'), greaterThan(0));
     expect(UpdateService.compareVersions('1', '1.0.0'), 0);
     // 非数字段按 0 处理，不抛异常。
-    expect(() => UpdateService.compareVersions('abc', '1.0.0'), returnsNormally);
+    expect(
+      () => UpdateService.compareVersions('abc', '1.0.0'),
+      returnsNormally,
+    );
     expect(UpdateService.compareVersions('', '0.0.0'), 0);
   });
 
   test('版本比较：预发布标记', () {
-    expect(UpdateService.compareVersions('1.0.0-alpha', '1.0.0-beta'), lessThan(0));
-    expect(UpdateService.compareVersions('1.0.0-beta.2', '1.0.0-beta.1'), greaterThan(0));
-    expect(UpdateService.compareVersions('1.0.0', '1.0.0-beta'), greaterThan(0));
+    expect(
+      UpdateService.compareVersions('1.0.0-alpha', '1.0.0-beta'),
+      lessThan(0),
+    );
+    expect(
+      UpdateService.compareVersions('1.0.0-beta.2', '1.0.0-beta.1'),
+      greaterThan(0),
+    );
+    expect(
+      UpdateService.compareVersions('1.0.0', '1.0.0-beta'),
+      greaterThan(0),
+    );
   });
 
   test('构建号不参与比较（产品决策：只改 +N 不发更新提示）', () {

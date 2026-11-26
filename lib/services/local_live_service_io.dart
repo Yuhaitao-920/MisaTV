@@ -28,7 +28,9 @@ class LocalLiveService {
     final name = p.basenameWithoutExtension(source.path);
     final safe = _safeName(name);
     final ext = p.extension(source.path).toLowerCase();
-    final target = File(p.join(dir.path, '${safe}_${DateTime.now().millisecondsSinceEpoch}$ext'));
+    final target = File(
+      p.join(dir.path, '${safe}_${DateTime.now().millisecondsSinceEpoch}$ext'),
+    );
     await target.writeAsString(text);
     return LocalLiveImport(name: name, filePath: target.path);
   }

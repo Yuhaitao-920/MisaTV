@@ -10,7 +10,11 @@ import '../../models/site_config.dart';
 ///   ② 网页型接口（type 0）交给 UI 注入的网页嗅探；
 ///   ③ 直接嗅探原始地址（无接口时的兜底）。
 class ParseResolution {
-  const ParseResolution({required this.url, this.headers = const {}, this.via = ''});
+  const ParseResolution({
+    required this.url,
+    this.headers = const {},
+    this.via = '',
+  });
   final String url;
   final Map<String, String> headers;
   final String via;
@@ -39,7 +43,10 @@ class ParseService {
     SniffFn? sniff,
   }) async {
     final url = unwrapRelayUrl(target.trim());
-    if (url.isEmpty || !RegExp(r'^https?://', caseSensitive: false).hasMatch(url)) return null;
+    if (url.isEmpty ||
+        !RegExp(r'^https?://', caseSensitive: false).hasMatch(url)) {
+      return null;
+    }
     if (isMediaUrl(url)) return ParseResolution(url: url, via: 'already-media');
 
     final deadline = DateTime.now().add(_budget);
@@ -50,7 +57,8 @@ class ParseService {
       return RegExp(r'^https?://', caseSensitive: false).hasMatch(p.url.trim());
     }).toList();
 
-    for (final p in list.where((p) => p.type == 1 || p.type == 2).take(_maxJsonParses)) {
+    for (final p
+        in list.where((p) => p.type == 1 || p.type == 2).take(_maxJsonParses)) {
       if (!left()) break;
       final hit = await _tryJsonParse(p, url);
       if (hit != null) return hit;
@@ -63,13 +71,21 @@ class ParseService {
         if (page.isEmpty) continue;
         final hit = await sniff(page);
         if (hit != null && !isErrorVideoUrl(hit.url)) {
-          return ParseResolution(url: hit.url, headers: hit.headers, via: 'sniff:${p.name}');
+          return ParseResolution(
+            url: hit.url,
+            headers: hit.headers,
+            via: 'sniff:${p.name}',
+          );
         }
       }
       if (left()) {
         final hit = await sniff(url);
         if (hit != null && !isErrorVideoUrl(hit.url)) {
-          return ParseResolution(url: hit.url, headers: hit.headers, via: 'sniff:direct');
+          return ParseResolution(
+            url: hit.url,
+            headers: hit.headers,
+            via: 'sniff:direct',
+          );
         }
       }
     }
@@ -83,7 +99,11 @@ class ParseService {
       final res = await http.getText(url, timeout: _jsonTimeout);
       final hit = extractParseResult(res.body);
       if (hit != null) {
-        return ParseResolution(url: hit.url, headers: hit.headers, via: 'json:${parse.name}');
+        return ParseResolution(
+          url: hit.url,
+          headers: hit.headers,
+          via: 'json:${parse.name}',
+        );
       }
     } catch (_) {
       // GET 失败继续试 POST
@@ -96,7 +116,11 @@ class ParseService {
       );
       final hit = extractParseResult(res.body);
       if (hit != null) {
-        return ParseResolution(url: hit.url, headers: hit.headers, via: 'json:${parse.name}');
+        return ParseResolution(
+          url: hit.url,
+          headers: hit.headers,
+          via: 'json:${parse.name}',
+        );
       }
     } catch (_) {
       // 单接口失败不影响其它接口
@@ -105,13 +129,19 @@ class ParseService {
   }
 
   static String unwrapRelayUrl(String url) {
-    if (!RegExp(r'^https?://(127\.0\.0\.1|localhost):\d+/play', caseSensitive: false).hasMatch(url)) {
+    if (!RegExp(
+      r'^https?://(127\.0\.0\.1|localhost):\d+/play',
+      caseSensitive: false,
+    ).hasMatch(url)) {
       return url;
     }
     try {
       final uri = Uri.parse(url);
       final inner = uri.queryParameters['url'];
-      if (inner != null && RegExp(r'^https?://', caseSensitive: false).hasMatch(inner)) return inner;
+      if (inner != null &&
+          RegExp(r'^https?://', caseSensitive: false).hasMatch(inner)) {
+        return inner;
+      }
     } catch (_) {
       // 非法 query 原样返回
     }
@@ -121,18 +151,23 @@ class ParseService {
   static bool isMediaUrl(String url) {
     final value = url.trim();
     if (value.isEmpty || isErrorVideoUrl(value)) return false;
-    return RegExp(r'\.(m3u8|mp4|flv|mkv|mov|m4v|mp2t|ts|m4s)([?#]|$)', caseSensitive: false)
-        .hasMatch(value);
+    return RegExp(
+      r'\.(m3u8|mp4|flv|mkv|mov|m4v|mp2t|ts|m4s)([?#]|$)',
+      caseSensitive: false,
+    ).hasMatch(value);
   }
 
   static bool isErrorVideoUrl(String url) =>
-      url.toLowerCase().contains('error.mp4') || url.toLowerCase().contains('/mizhicdn/video/error');
+      url.toLowerCase().contains('error.mp4') ||
+      url.toLowerCase().contains('/mizhicdn/video/error');
 
   static String buildParseUrl(String parseUrl, String target) {
     final base = parseUrl.trim();
     final value = target.trim();
     if (base.isEmpty || value.isEmpty) return '';
-    if (base.contains('{url}')) return base.replaceAll('{url}', Uri.encodeQueryComponent(value));
+    if (base.contains('{url}')) {
+      return base.replaceAll('{url}', Uri.encodeQueryComponent(value));
+    }
     if (RegExp(r'[=?&/]$').hasMatch(base)) return '$base$value';
     return '$base${base.contains('?') ? '&' : '?'}url=${Uri.encodeQueryComponent(value)}';
   }
@@ -192,7 +227,12 @@ class ParseService {
         var score = 0;
         if (isMediaUrl(t)) score += 4;
         if (_urlKeys.contains(key.toLowerCase())) score += 2;
-        if (RegExp(r'\.(html?|php|jsp|aspx?)([?#]|$)', caseSensitive: false).hasMatch(t)) score -= 3;
+        if (RegExp(
+          r'\.(html?|php|jsp|aspx?)([?#]|$)',
+          caseSensitive: false,
+        ).hasMatch(t)) {
+          score -= 3;
+        }
         hits.add((url: t, score: score));
         return;
       }
@@ -235,7 +275,10 @@ class ParseService {
     visit(root, 0);
     final keep = <String, String>{};
     for (final entry in all.entries) {
-      if (RegExp(r'^(cookie|ua|user-agent|referer)$', caseSensitive: false).hasMatch(entry.key)) {
+      if (RegExp(
+        r'^(cookie|ua|user-agent|referer)$',
+        caseSensitive: false,
+      ).hasMatch(entry.key)) {
         keep[entry.key] = entry.value;
       }
     }

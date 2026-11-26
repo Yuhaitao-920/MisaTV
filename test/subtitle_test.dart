@@ -31,14 +31,16 @@ List<int> utf16leBytes(String s) {
   return out;
 }
 
-const String assText = '[Script Info]\n'
+const String assText =
+    '[Script Info]\n'
     'ScriptType: v4.00+\n'
     '\n'
     '[Events]\n'
     'Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\i1}你好\\N世界\n'
     'Dialogue: 0,0:00:04.00,0:00:02.00,Default,,0,0,0,,倒序应被丢弃\n';
 
-const String srtText = '1\n'
+const String srtText =
+    '1\n'
     '00:00:01,000 --> 00:00:03,500\n'
     '你好\n'
     '世界\n'
@@ -47,13 +49,15 @@ const String srtText = '1\n'
     '00:00:04.250 --> 00:00:06,000\n'
     'Hi\n';
 
-const String assrtSearchJson = '{"status":0,"sub":{"subs":['
+const String assrtSearchJson =
+    '{"status":0,"sub":{"subs":['
     '{"id":123,"native_name":"繁花","videoname":"繁花.S01E01.1080p.mkv",'
     '"subtype":"ASS","release_site":"subhd","lang":{"desc":"简中"}},'
     '{"id":"456","native_name":"繁花 沪语","lang":{"desc":"简体"}}'
     ']}}';
 
-const String assrtDetailJson = '{"status":0,"sub":{"subs":[{'
+const String assrtDetailJson =
+    '{"status":0,"sub":{"subs":[{'
     '"url":"https://file0.assrt.net/download/pkg.zip",'
     '"filename":"繁花.zip",'
     '"filelist":['
@@ -61,7 +65,8 @@ const String assrtDetailJson = '{"status":0,"sub":{"subs":[{'
     '{"url":"https://file0.assrt.net/download/ep1.ass","f":"繁花.EP01.ass"}'
     ']}]}}';
 
-const String catSearchHtml = '<table>'
+const String catSearchHtml =
+    '<table>'
     '<tr><td><a href="subs/1594/Fan.Hua.html">繁花</a></td>'
     '<td>Size 143 KB</td><td>Downloads 7 downloads</td>'
     '<td>Languages 3 languages</td></tr>'
@@ -70,7 +75,8 @@ const String catSearchHtml = '<table>'
     '<tr><td><a href="subs/1594/Fan.Hua-zh-CN.srt">繁花</a></td></tr>'
     '</table>';
 
-const String catDetailHtml = '<table>'
+const String catDetailHtml =
+    '<table>'
     '<tr><td>English</td>'
     '<td><a href="subs/1594/Fan.Hua-en.srt">Download</a></td></tr>'
     '<tr><td>Chinese (Simplified)</td>'
@@ -146,7 +152,20 @@ void main() {
     // GBK 库的初始化（那正是偶发崩溃的来源），二是样本本身就是回归样本。
     test('非 UTF-8 → GBK 兜底', () {
       // “中文字幕测试”的 GBK 字节：D6D0 CEC4 D7D6 C4BB B2E2 CAD4
-      const bytes = [214, 208, 206, 196, 215, 214, 196, 187, 178, 226, 202, 212];
+      const bytes = [
+        214,
+        208,
+        206,
+        196,
+        215,
+        214,
+        196,
+        187,
+        178,
+        226,
+        202,
+        212,
+      ];
       expect(utf8.decode(bytes, allowMalformed: true), isNot('中文字幕测试'));
       expect(SubtitleText.decode(bytes), '中文字幕测试');
     });
@@ -177,7 +196,8 @@ void main() {
     });
 
     test('parseVtt 跳过 NOTE 区块', () {
-      const vtt = 'WEBVTT\n\nNOTE 这是注释\n\n'
+      const vtt =
+          'WEBVTT\n\nNOTE 这是注释\n\n'
           '1\n00:00:01.000 --> 00:00:02.000\n你好\n';
       final cues = parseVtt(vtt);
       expect(cues.length, 1);
@@ -253,22 +273,24 @@ void main() {
       final rar = <int>[0x52, 0x61, 0x72, 0x21, 0, 0];
       expect(
         () => extractArchiveEntries(rar),
-        throwsA(isA<SubtitleException>().having(
-          (e) => e.message,
-          'message',
-          contains('需要异步解包'),
-        )),
+        throwsA(
+          isA<SubtitleException>().having(
+            (e) => e.message,
+            'message',
+            contains('需要异步解包'),
+          ),
+        ),
       );
-      final sevenZip = <int>[
-        0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 0,
-      ];
+      final sevenZip = <int>[0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 0];
       expect(
         () => extractArchiveEntries(sevenZip),
-        throwsA(isA<SubtitleException>().having(
-          (e) => e.message,
-          'message',
-          contains('7Z'),
-        )),
+        throwsA(
+          isA<SubtitleException>().having(
+            (e) => e.message,
+            'message',
+            contains('7Z'),
+          ),
+        ),
       );
     });
 
@@ -285,10 +307,7 @@ void main() {
     });
 
     test('subtitleFromBytes：纯文本直接解码', () {
-      final file = subtitleFromBytes(
-        utf8.encode(srtText),
-        fileName: '繁花.srt',
-      );
+      final file = subtitleFromBytes(utf8.encode(srtText), fileName: '繁花.srt');
       expect(file.name, '繁花.srt');
       expect(file.format, 'srt');
       expect(file.text, contains('你好'));
@@ -320,21 +339,23 @@ void main() {
     test('HTTP 400 / 业务错误给中文原因', () {
       expect(
         () => parseAssrtSearch('', statusCode: 400),
-        throwsA(isA<SubtitleException>().having(
-          (e) => e.message,
-          'message',
-          contains('关键词过短'),
-        )),
+        throwsA(
+          isA<SubtitleException>().having(
+            (e) => e.message,
+            'message',
+            contains('关键词过短'),
+          ),
+        ),
       );
       expect(
-        () => parseAssrtSearch(
-          '{"status":1,"errmsg":"invalid token"}',
+        () => parseAssrtSearch('{"status":1,"errmsg":"invalid token"}'),
+        throwsA(
+          isA<SubtitleException>().having(
+            (e) => e.message,
+            'message',
+            contains('invalid token'),
+          ),
         ),
-        throwsA(isA<SubtitleException>().having(
-          (e) => e.message,
-          'message',
-          contains('invalid token'),
-        )),
       );
     });
   });
@@ -495,8 +516,7 @@ void main() {
       final api = CustomSubtitleApi(
         id: 'custom:0',
         name: '自己的字幕源',
-        urlTemplate:
-            'https://sub.example.com/api?title={title}&ep={episode}',
+        urlTemplate: 'https://sub.example.com/api?title={title}&ep={episode}',
       );
       const query = SubtitleQuery(title: '繁花', year: 2023, episode: 11);
 
@@ -527,7 +547,10 @@ void main() {
       final candidates = await searchCustomSubtitleApi(jsonHttp, api, query);
       expect(candidates.length, 1);
       expect(candidates.first.providerId, 'custom:0');
-      expect(candidates.first.downloadUrl, 'https://sub.example.com/files/1.srt');
+      expect(
+        candidates.first.downloadUrl,
+        'https://sub.example.com/files/1.srt',
+      );
       expect(candidates.first.language, '简中');
 
       final file = await downloadCustomSubtitleApi(
@@ -543,11 +566,7 @@ void main() {
         name: '直链源',
         urlTemplate: 'https://sub.example.com/direct.srt',
       );
-      final direct = await searchCustomSubtitleApi(
-        jsonHttp,
-        directApi,
-        query,
-      );
+      final direct = await searchCustomSubtitleApi(jsonHttp, directApi, query);
       expect(direct.length, 1);
       expect(direct.first.format, 'srt');
       final directFile = await downloadCustomSubtitleApi(
@@ -559,29 +578,26 @@ void main() {
     });
 
     test('中文候选优先排序', () {
-      final sorted = sortSubtitleCandidates(
-        const <SubtitleCandidate>[
-          SubtitleCandidate(
-            providerId: 'subtitlecat',
-            providerName: 'SubtitleCat',
-            id: '1',
-            title: '繁花',
-            language: '英文',
-            format: 'srt',
-            downloadUrl: '',
-          ),
-          SubtitleCandidate(
-            providerId: 'subtitlecat',
-            providerName: 'SubtitleCat',
-            id: '2',
-            title: '繁花',
-            language: '简中',
-            format: 'srt',
-            downloadUrl: '',
-          ),
-        ],
-        '繁花',
-      );
+      final sorted = sortSubtitleCandidates(const <SubtitleCandidate>[
+        SubtitleCandidate(
+          providerId: 'subtitlecat',
+          providerName: 'SubtitleCat',
+          id: '1',
+          title: '繁花',
+          language: '英文',
+          format: 'srt',
+          downloadUrl: '',
+        ),
+        SubtitleCandidate(
+          providerId: 'subtitlecat',
+          providerName: 'SubtitleCat',
+          id: '2',
+          title: '繁花',
+          language: '简中',
+          format: 'srt',
+          downloadUrl: '',
+        ),
+      ], '繁花');
       expect(sorted.first.language, '简中');
     });
   });

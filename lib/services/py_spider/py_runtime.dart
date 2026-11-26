@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 
 import '../bundled_runtime.dart';
+
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/logging/app_log.dart';

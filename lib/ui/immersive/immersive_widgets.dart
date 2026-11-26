@@ -9,7 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/vod.dart';
 import '../../services/discover/cover_images.dart';
 import '../../services/fonts/hero_fonts.dart';
-import '../pages/detail_page.dart';
+import '../detail_opener.dart';
 import '../widgets/mouse_drag_scroll.dart';
 import 'designed_title.dart';
 import 'hero_title_style.dart';
@@ -349,11 +349,8 @@ class _ImmersiveBackdropState extends State<ImmersiveBackdrop> {
     if (key == _key) return;
     _key = key;
     // 固定 TMDB 优先：先高分辨率横图，再剧照，最后走其它来源兜底。
-    _future = AppScope.of(context).artworkService.backdrop(
-      artwork,
-      year: widget.year,
-      altTitle: altTitle,
-    );
+    _future = AppScope.of(context).artworkService
+        .backdrop(artwork, year: widget.year, altTitle: altTitle);
   }
 
   @override
@@ -653,10 +650,7 @@ class _ImmersiveCardState extends State<ImmersiveCard> {
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Color(0xB3000000),
-                                ],
+                                colors: [Colors.transparent, Color(0xB3000000)],
                                 stops: [0.55, 1],
                               ),
                             ),
@@ -1208,7 +1202,7 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                               );
                               final heroTextMaxWidth = m.compact || m.short
                                   ? MediaQuery.sizeOf(context).width -
-                                      m.heroInset * 2
+                                        m.heroInset * 2
                                   : double.infinity;
                               // 横屏手机：竖排标题与右侧信息并排，标题不能占满整行。
                               final verticalTitleWidth = m.short
@@ -1220,7 +1214,9 @@ class _ImmersiveHeroState extends State<ImmersiveHero> {
                                 descriptionWidth: plan.vertical
                                     ? (m.short
                                           ? heroTextMaxWidth * 0.36
-                                          : (m.compact ? heroTextMaxWidth : 560))
+                                          : (m.compact
+                                                ? heroTextMaxWidth
+                                                : 560))
                                     : (m.compact || m.short
                                           ? heroTextMaxWidth
                                           : 760),
@@ -1391,12 +1387,10 @@ void openImmersiveItem(
     app.requestSearch(item.name);
     return;
   }
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) =>
-          DetailPage(item: item, autoPlay: autoPlay, fromStart: fromStart),
-    ),
-  );
+  // 详情页的具体实现由各入口注入（见 ui/detail_opener.dart）：
+  // 全功能版是 pages/detail_page.dart，TV 版是 tv_detail_page.dart。
+  // 这里只依赖注入点，避免把 4000 多行的常规详情页拖进 TV 构建。
+  openImmersiveDetail(context, item, autoPlay: autoPlay, fromStart: fromStart);
 }
 
 /// 沉浸模式统一的上下文菜单：长按、遥控器菜单键、右键都会打开它。

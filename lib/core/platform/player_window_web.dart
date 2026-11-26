@@ -17,10 +17,7 @@ Future<void> registerMainPlayerWindowBridge({
   required Future<void> Function() onClosed,
 }) async {}
 
-Future<void> notifyMainPlayerWindow(
-  String method, {
-  Object? arguments,
-}) async {}
+Future<void> notifyMainPlayerWindow(String method, {Object? arguments}) async {}
 
 Future<void> registerPlayerWindowControls({
   required Future<void> Function() onClose,

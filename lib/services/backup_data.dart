@@ -46,7 +46,9 @@ class BackupData {
   }
 
   static Map<String, dynamic> _fromWinBox(Map<String, dynamic> map) {
-    final settings = map['settings'] is Map ? Map<String, dynamic>.from(map['settings'] as Map) : <String, dynamic>{};
+    final settings = map['settings'] is Map
+        ? Map<String, dynamic>.from(map['settings'] as Map)
+        : <String, dynamic>{};
     final userConfig = _decodeUserConfig(settings['userConfig']);
     if (userConfig == null) {
       throw const FormatException('备份里缺少设置内容（settings.userConfig）');
@@ -60,14 +62,23 @@ class BackupData {
         final provider = entry.key.toString().trim();
         final cookie = entry.value?.toString().trim() ?? '';
         if (provider.isEmpty || cookie.isEmpty) continue;
-        drives.add(DriveAccount(provider: provider, cookie: cookie, updatedAt: now).toJson());
+        drives.add(
+          DriveAccount(
+            provider: provider,
+            cookie: cookie,
+            updatedAt: now,
+          ).toJson(),
+        );
       }
     }
     result['driveAccounts'] = drives;
     return result;
   }
 
-  static Map<String, dynamic> _fromUserConfig(Map<String, dynamic> userConfig, {required String sourceUrl}) {
+  static Map<String, dynamic> _fromUserConfig(
+    Map<String, dynamic> userConfig, {
+    required String sourceUrl,
+  }) {
     final profiles = <Map<String, dynamic>>[];
     final rawProfiles = userConfig['profiles'];
     if (rawProfiles is List) {
@@ -76,44 +87,62 @@ class BackupData {
         final map = Map<String, dynamic>.from(entry);
         final rawJson = _decodeJsonString(map['json']);
         if (rawJson == null) continue;
-        final sites = rawJson['sites'] is List ? rawJson['sites'] as List : const [];
-        final lives = rawJson['lives'] is List ? rawJson['lives'] as List : const [];
+        final sites = rawJson['sites'] is List
+            ? rawJson['sites'] as List
+            : const [];
+        final lives = rawJson['lives'] is List
+            ? rawJson['lives'] as List
+            : const [];
         final name = (map['name'] ?? '').toString().trim();
-        profiles.add(ConfigProfile(
-          id: (map['id'] ?? '').toString().trim().isEmpty
-              ? 'legacy${DateTime.now().millisecondsSinceEpoch}${profiles.length}'
-              : map['id'].toString(),
-          name: name.isEmpty ? 'Win-Box 配置 ${profiles.length + 1}' : name,
-          url: (map['apiUrl'] ?? sourceUrl).toString(),
-          rawJson: jsonEncode(rawJson),
-          importedAt: DateTime.tryParse((map['importedAt'] ?? '').toString()) ?? DateTime.now(),
-          siteCount: sites.length,
-          liveCount: lives.length,
-        ).toJson());
+        profiles.add(
+          ConfigProfile(
+            id: (map['id'] ?? '').toString().trim().isEmpty
+                ? 'legacy${DateTime.now().millisecondsSinceEpoch}${profiles.length}'
+                : map['id'].toString(),
+            name: name.isEmpty ? 'Win-Box 配置 ${profiles.length + 1}' : name,
+            url: (map['apiUrl'] ?? sourceUrl).toString(),
+            rawJson: jsonEncode(rawJson),
+            importedAt:
+                DateTime.tryParse((map['importedAt'] ?? '').toString()) ??
+                DateTime.now(),
+            siteCount: sites.length,
+            liveCount: lives.length,
+          ).toJson(),
+        );
       }
     }
 
     if (profiles.isEmpty) {
-      final sites = userConfig['sources'] is List ? userConfig['sources'] as List : const [];
-      final lives = userConfig['lives'] is List ? userConfig['lives'] as List : const [];
+      final sites = userConfig['sources'] is List
+          ? userConfig['sources'] as List
+          : const [];
+      final lives = userConfig['lives'] is List
+          ? userConfig['lives'] as List
+          : const [];
       if (sites.isNotEmpty || lives.isNotEmpty) {
-        final global = userConfig['global'] is Map ? Map<String, dynamic>.from(userConfig['global'] as Map) : const <String, dynamic>{};
+        final global = userConfig['global'] is Map
+            ? Map<String, dynamic>.from(userConfig['global'] as Map)
+            : const <String, dynamic>{};
         final rawJson = {
           'sites': sites,
           'lives': lives,
-          'parses': userConfig['parses'] is List ? userConfig['parses'] : const [],
+          'parses': userConfig['parses'] is List
+              ? userConfig['parses']
+              : const [],
           'spider': global['spider'] ?? userConfig['spider'] ?? '',
           'flags': global['flags'] ?? userConfig['flags'] ?? const [],
         };
-        profiles.add(ConfigProfile(
-          id: 'legacy${DateTime.now().millisecondsSinceEpoch}',
-          name: 'Win-Box 备份',
-          url: (userConfig['apiUrl'] ?? sourceUrl).toString(),
-          rawJson: jsonEncode(rawJson),
-          importedAt: DateTime.now(),
-          siteCount: sites.length,
-          liveCount: lives.length,
-        ).toJson());
+        profiles.add(
+          ConfigProfile(
+            id: 'legacy${DateTime.now().millisecondsSinceEpoch}',
+            name: 'Win-Box 备份',
+            url: (userConfig['apiUrl'] ?? sourceUrl).toString(),
+            rawJson: jsonEncode(rawJson),
+            importedAt: DateTime.now(),
+            siteCount: sites.length,
+            liveCount: lives.length,
+          ).toJson(),
+        );
       }
     }
 
@@ -121,7 +150,9 @@ class BackupData {
     final active = profiles.any((p) => p['id'] == activeOld)
         ? activeOld
         : (profiles.isNotEmpty ? profiles.first['id'] as String : null);
-    final ui = userConfig['ui'] is Map ? Map<String, dynamic>.from(userConfig['ui'] as Map) : const <String, dynamic>{};
+    final ui = userConfig['ui'] is Map
+        ? Map<String, dynamic>.from(userConfig['ui'] as Map)
+        : const <String, dynamic>{};
 
     return {
       'kind': kind,
@@ -141,12 +172,16 @@ class BackupData {
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
       if (map.containsKey('sources') || map.containsKey('profiles')) return map;
-      if (map.containsKey('user-config')) return _decodeUserConfig(map['user-config']);
+      if (map.containsKey('user-config')) {
+        return _decodeUserConfig(map['user-config']);
+      }
       return null;
     }
     final decoded = _decodeJsonString(raw);
     if (decoded != null) {
-      if (decoded.containsKey('sources') || decoded.containsKey('profiles')) return decoded;
+      if (decoded.containsKey('sources') || decoded.containsKey('profiles')) {
+        return decoded;
+      }
     }
     return null;
   }

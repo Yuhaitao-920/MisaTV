@@ -20,7 +20,10 @@ class AppTitleBar extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45), width: 0.6),
+            bottom: BorderSide(
+              color: theme.dividerColor.withValues(alpha: 0.45),
+              width: 0.6,
+            ),
           ),
         ),
         child: Row(
@@ -66,7 +69,9 @@ class AppTitleBar extends StatelessWidget {
               valueListenable: windowMaximized,
               builder: (context, maximized, _) {
                 return _CaptionButton(
-                  icon: maximized ? Icons.filter_none_rounded : Icons.crop_square_rounded,
+                  icon: maximized
+                      ? Icons.filter_none_rounded
+                      : Icons.crop_square_rounded,
                   tooltip: maximized ? '还原' : '最大化',
                   onTap: toggleMaximizeAppWindow,
                 );
@@ -163,14 +168,21 @@ class _CaptionButtonState extends State<_CaptionButton> {
                 right: 52,
                 child: IgnorePointer(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xF01F231B),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       widget.tooltip,
-                      style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.2),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        height: 1.2,
+                      ),
                     ),
                   ),
                 ),

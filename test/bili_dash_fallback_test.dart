@@ -36,7 +36,7 @@ void main() {
     test('从 query 里解出 aid / cid', () {
       final ids = BiliDashFallback.parseIds(
         'http://127.0.0.1:19973/proxy?do=bili&aid=116901208397383'
-            '&cid=39854541041&qn=32&type=mpd',
+        '&cid=39854541041&qn=32&type=mpd',
       );
       expect(ids?.aid, 116901208397383);
       expect(ids?.cid, 39854541041);
@@ -77,8 +77,11 @@ void main() {
                   ],
                 },
               });
-        return http.Response(body, 200,
-            headers: {'content-type': 'application/json'});
+        return http.Response(
+          body,
+          200,
+          headers: {'content-type': 'application/json'},
+        );
       });
       return (http: AppHttp(client: client), seen: seen);
     }

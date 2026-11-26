@@ -71,11 +71,8 @@ void main() {
         '',
       );
       expect(
-        SourceBean.fromJson(<String, dynamic>{
-          'key': 'k',
-          'type': 3,
-          'ext': 0,
-        }).ext,
+        SourceBean.fromJson(<String, dynamic>{'key': 'k', 'type': 3, 'ext': 0})
+            .ext,
         '0',
       );
     });

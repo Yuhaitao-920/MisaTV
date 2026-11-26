@@ -92,7 +92,8 @@ String normalizeTitle(String name) {
     if (epIdx > 0) title = title.substring(0, epIdx);
   }
   // 去集名（“标题 - 集名”而无数字时）
-  final pure = RegExp(r'^(.*?)\s*[-—–]\s*([^-—–]{1,20})$').firstMatch(title.trim());
+  final pure = RegExp(r'^(.*?)\s*[-—–]\s*([^-—–]{1,20})$')
+      .firstMatch(title.trim());
   if (pure != null && (pure.group(1) ?? '').length >= 2) {
     title = pure.group(1)!;
   }
@@ -156,8 +157,7 @@ String normalizeTitle(String name) {
 }
 
 /// 是否含连续 ≥2 个汉字。
-bool _hasCjkRun(String text) =>
-    RegExp(r'[\u4e00-\u9fff]{2,}').hasMatch(text);
+bool _hasCjkRun(String text) => RegExp(r'[\u4e00-\u9fff]{2,}').hasMatch(text);
 
 /// 从方括号 / 【】段里取最长的连续汉字段（`【L-兰香如故】` → `兰香如故`）。
 String _cjkRunInBlocks(String name) {
@@ -183,6 +183,7 @@ final RegExp _qualityRe = RegExp(
   r'flac|opus|60fps|50fps|hq|hd|fhd|uhd|sd)',
   caseSensitive: false,
 );
+
 /// 画质 / 音轨 / 版本标签词：出现在标题里就是噪声。
 ///
 /// ★ 「真彩」和「臻彩」是两个不同写法，源站两种都在用：
@@ -202,7 +203,9 @@ List<String> titleVariants(String title) {
   final t = title.trim();
   if (t.isEmpty) return const <String>[];
   final out = <String>[t];
-  final noSpace = t.replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[·/]'), '');
+  final noSpace = t
+      .replaceAll(RegExp(r'\s+'), '')
+      .replaceAll(RegExp(r'[·/]'), '');
   if (noSpace.isNotEmpty && noSpace != t) out.add(noSpace);
   final parts = t.split(RegExp(r'\s+'));
   if (parts.length > 1 && parts.last.length > 1) {

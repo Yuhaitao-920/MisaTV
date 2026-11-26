@@ -52,11 +52,11 @@ class VodWindowSession {
         flag: (json['flag'] ?? '').toString(),
         episodeIndex: (json['episodeIndex'] as num?)?.toInt() ?? 0,
         episodes: [
-          for (final item in (json['episodes'] is List
-              ? json['episodes'] as List
-              : const []))
-            if (item is Map)
-              Episode.fromJson(Map<String, dynamic>.from(item)),
+          for (final item
+              in (json['episodes'] is List
+                  ? json['episodes'] as List
+                  : const []))
+            if (item is Map) Episode.fromJson(Map<String, dynamic>.from(item)),
         ],
         initialPlay: json['initialPlay'] is Map
             ? PlayResult.fromJson(
@@ -95,46 +95,42 @@ class LiveWindowSession {
     if (epg != null) 'epg': epg!.toJson(),
     'groups': groups.map((e) => e.toJson()).toList(),
     'epgEntries': {
-      for (final entry in epgEntries.entries)
-        entry.key: entry.value.toJson(),
+      for (final entry in epgEntries.entries) entry.key: entry.value.toJson(),
     },
     'initialGroup': initialGroup,
   };
 
-  factory LiveWindowSession.fromJson(Map<String, dynamic> json) =>
-      LiveWindowSession(
-        bean: LiveBean.fromJson(
-          Map<String, dynamic>.from(json['bean'] as Map? ?? const {}),
-        ),
-        channel: LiveChannel.fromJson(
-          Map<String, dynamic>.from(json['channel'] as Map? ?? const {}),
-        ),
-        initialLine: LiveLine.fromJson(
-          Map<String, dynamic>.from(json['initialLine'] as Map? ?? const {}),
-        ),
-        epg: json['epg'] is Map
-            ? EpgEntry.fromJson(Map<String, dynamic>.from(json['epg'] as Map))
-            : null,
-        groups: [
-          for (final item in (json['groups'] is List
-              ? json['groups'] as List
-              : const []))
-            if (item is Map)
-              LiveGroup.fromJson(Map<String, dynamic>.from(item)),
-        ],
-        epgEntries: {
-          for (final entry
-              in (json['epgEntries'] is Map
-                      ? json['epgEntries'] as Map
-                      : const {})
-                  .entries)
-            if (entry.value is Map)
-              entry.key.toString(): EpgEntry.fromJson(
-                Map<String, dynamic>.from(entry.value as Map),
-              ),
-        },
-        initialGroup: (json['initialGroup'] ?? '').toString(),
-      );
+  factory LiveWindowSession.fromJson(
+    Map<String, dynamic> json,
+  ) => LiveWindowSession(
+    bean: LiveBean.fromJson(
+      Map<String, dynamic>.from(json['bean'] as Map? ?? const {}),
+    ),
+    channel: LiveChannel.fromJson(
+      Map<String, dynamic>.from(json['channel'] as Map? ?? const {}),
+    ),
+    initialLine: LiveLine.fromJson(
+      Map<String, dynamic>.from(json['initialLine'] as Map? ?? const {}),
+    ),
+    epg: json['epg'] is Map
+        ? EpgEntry.fromJson(Map<String, dynamic>.from(json['epg'] as Map))
+        : null,
+    groups: [
+      for (final item
+          in (json['groups'] is List ? json['groups'] as List : const []))
+        if (item is Map) LiveGroup.fromJson(Map<String, dynamic>.from(item)),
+    ],
+    epgEntries: {
+      for (final entry
+          in (json['epgEntries'] is Map ? json['epgEntries'] as Map : const {})
+              .entries)
+        if (entry.value is Map)
+          entry.key.toString(): EpgEntry.fromJson(
+            Map<String, dynamic>.from(entry.value as Map),
+          ),
+    },
+    initialGroup: (json['initialGroup'] ?? '').toString(),
+  );
 }
 
 /// 独立播放器窗口的启动参数前缀；后面跟载荷 JSON 文件的绝对路径。

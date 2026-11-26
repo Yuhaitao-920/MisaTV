@@ -28,8 +28,15 @@ DohConnectionFactory createDohConnectionFactory() {
   final resolver = _DohResolver();
   return (uri, proxyHost, proxyPort) async {
     if (proxyHost != null && proxyHost.isNotEmpty) {
-      final socket = await Socket.connect(proxyHost, proxyPort ?? 80, timeout: const Duration(seconds: 12));
-      return ConnectionTask.fromSocket<Socket>(Future.value(socket), socket.destroy);
+      final socket = await Socket.connect(
+        proxyHost,
+        proxyPort ?? 80,
+        timeout: const Duration(seconds: 12),
+      );
+      return ConnectionTask.fromSocket<Socket>(
+        Future.value(socket),
+        socket.destroy,
+      );
     }
     final host = uri.host;
     String address = host;
@@ -41,9 +48,15 @@ DohConnectionFactory createDohConnectionFactory() {
     // connectionFactory 返回裸 Socket 时 HttpClient 不会再套 TLS，必须自己包。
     if (uri.scheme == 'https') {
       final secure = await SecureSocket.secure(socket, host: host);
-      return ConnectionTask.fromSocket<Socket>(Future.value(secure), secure.destroy);
+      return ConnectionTask.fromSocket<Socket>(
+        Future.value(secure),
+        secure.destroy,
+      );
     }
-    return ConnectionTask.fromSocket<Socket>(Future.value(socket), socket.destroy);
+    return ConnectionTask.fromSocket<Socket>(
+      Future.value(socket),
+      socket.destroy,
+    );
   };
 }
 
@@ -56,17 +69,24 @@ http.Client createDohClient() {
 
 Future<Socket> _connect(String address, String host, int port) async {
   final parsed = InternetAddress.tryParse(address);
-  if (parsed != null) return Socket.connect(parsed, port, timeout: const Duration(seconds: 12));
+  if (parsed != null) {
+    return Socket.connect(parsed, port, timeout: const Duration(seconds: 12));
+  }
   final addresses = await InternetAddress.lookup(host);
   if (addresses.isEmpty) throw const SocketException('DNS 无结果');
-  return Socket.connect(addresses.first, port, timeout: const Duration(seconds: 12));
+  return Socket.connect(
+    addresses.first,
+    port,
+    timeout: const Duration(seconds: 12),
+  );
 }
 
 class _DohResolver {
   HttpClient? _client;
   final Map<String, String?> _cache = {};
 
-  HttpClient get _http => _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 6);
+  HttpClient get _http =>
+      _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 6);
 
   Future<String?> resolve(String host) async {
     if (_cache.containsKey(host)) return _cache[host];
@@ -79,11 +99,16 @@ class _DohResolver {
 
   Future<String?> _query(String server, String host) async {
     try {
-      final uri = Uri.parse('$server?name=${Uri.encodeQueryComponent(host)}&type=A');
+      final uri = Uri.parse(
+        '$server?name=${Uri.encodeQueryComponent(host)}&type=A',
+      );
       final req = await _http.getUrl(uri).timeout(const Duration(seconds: 6));
       req.headers.set(HttpHeaders.acceptHeader, 'application/dns-json');
       final res = await req.close().timeout(const Duration(seconds: 6));
-      final text = await utf8.decoder.bind(res).join().timeout(const Duration(seconds: 6));
+      final text = await utf8.decoder
+          .bind(res)
+          .join()
+          .timeout(const Duration(seconds: 6));
       if (res.statusCode != 200) return null;
       final decoded = jsonDecode(text);
       final answers = decoded is Map ? decoded['Answer'] : null;

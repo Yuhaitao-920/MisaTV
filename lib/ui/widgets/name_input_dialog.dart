@@ -168,6 +168,179 @@ class _PyImportTargetDialogState extends State<_PyImportTargetDialog> {
   }
 }
 
+/// 导入本地直播源（TXT / M3U）的目标：已有直播订阅 id 为空表示创建新订阅。
+class LiveImportTarget {
+  const LiveImportTarget({this.profileId, required this.name});
+
+  final String? profileId;
+  final String name;
+}
+
+/// 导入本地 TXT / M3U 直播源：可选择并入已有直播订阅，或新建一个直播订阅。
+///
+/// 与 [showPyImportTargetDialog] 同一套语义：以前本地 TXT 只能变成一条独立
+/// 线路（`localLives`），多份文件就散成一堆线路；现在可以像点播 PY 源那样
+/// 归到某个订阅下，重复导入同名同地址的线路就地合并。
+Future<LiveImportTarget?> showLiveImportTargetDialog(
+  BuildContext context, {
+  required List<ConfigProfile> profiles,
+  String? initialProfileId,
+  required String suggestedName,
+  required int fileCount,
+}) {
+  return showDialog<LiveImportTarget>(
+    context: context,
+    builder: (_) => _LiveImportTargetDialog(
+      profiles: profiles,
+      initialProfileId: initialProfileId,
+      suggestedName: suggestedName,
+      fileCount: fileCount,
+    ),
+  );
+}
+
+class _LiveImportTargetDialog extends StatefulWidget {
+  const _LiveImportTargetDialog({
+    required this.profiles,
+    required this.initialProfileId,
+    required this.suggestedName,
+    required this.fileCount,
+  });
+
+  final List<ConfigProfile> profiles;
+  final String? initialProfileId;
+  final String suggestedName;
+  final int fileCount;
+
+  @override
+  State<_LiveImportTargetDialog> createState() =>
+      _LiveImportTargetDialogState();
+}
+
+class _LiveImportTargetDialogState extends State<_LiveImportTargetDialog> {
+  static const String _newProfile = '__new__';
+
+  late String _selected =
+      widget.profiles.any((p) => p.id == widget.initialProfileId)
+      ? widget.initialProfileId!
+      : _newProfile;
+  late final TextEditingController _name = TextEditingController(
+    text: widget.suggestedName,
+  );
+  String _error = '';
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_selected == _newProfile) {
+      final name = _name.text.trim();
+      if (name.isEmpty) {
+        setState(() => _error = '请输入新订阅名称');
+        return;
+      }
+      Navigator.of(context).pop(LiveImportTarget(name: name));
+      return;
+    }
+    ConfigProfile? target;
+    for (final profile in widget.profiles) {
+      if (profile.id == _selected) {
+        target = profile;
+        break;
+      }
+    }
+    if (target == null) {
+      setState(() => _error = '请选择要导入的订阅');
+      return;
+    }
+    Navigator.of(context)
+        .pop(LiveImportTarget(profileId: target.id, name: target.name));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('导入本地直播源'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.fileCount == 1
+                  ? '已选择 1 个直播源文件。'
+                  : '已选择 ${widget.fileCount} 个直播源文件。',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            InputDecorator(
+              decoration: const InputDecoration(labelText: '导入到'),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selected,
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem(
+                      value: _newProfile,
+                      child: Text('创建新订阅'),
+                    ),
+                    for (final profile in widget.profiles)
+                      DropdownMenuItem(
+                        value: profile.id,
+                        child: Text(
+                          '${profile.name}（${profile.liveCount} 条线路）',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() {
+                    _selected = value ?? _newProfile;
+                    _error = '';
+                  }),
+                ),
+              ),
+            ),
+            if (_selected == _newProfile) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _name,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: '新订阅名称'),
+                onSubmitted: (_) => _submit(),
+              ),
+            ],
+            if (_error.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(_selected == _newProfile ? '创建并导入' : '导入'),
+        ),
+      ],
+    );
+  }
+}
+
 /// 站点多选后移动到另一个点播订阅。
 Future<String?> showMoveSitesTargetDialog(
   BuildContext context, {

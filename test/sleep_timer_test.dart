@@ -6,19 +6,25 @@ void main() {
     test('设定后状态正确，剩余时间随时钟减少', () {
       var now = DateTime(2026, 1, 1, 23, 0);
       var fired = 0;
-      final timer = SleepTimer(
-        clock: () => now,
-        onExpire: () => fired++,
-      );
+      final timer = SleepTimer(clock: () => now, onExpire: () => fired++);
       timer.startForDuration(const Duration(minutes: 30));
 
       expect(timer.active, isTrue);
       expect(timer.state.mode, SleepTimerMode.duration);
-      expect(timer.state.remainingMs(now.millisecondsSinceEpoch), 30 * 60 * 1000);
+      expect(
+        timer.state.remainingMs(now.millisecondsSinceEpoch),
+        30 * 60 * 1000,
+      );
 
       now = now.add(const Duration(minutes: 10));
-      expect(timer.state.remainingMs(now.millisecondsSinceEpoch), 20 * 60 * 1000);
-      expect(timer.state.progress(now.millisecondsSinceEpoch), closeTo(1 / 3, 0.01));
+      expect(
+        timer.state.remainingMs(now.millisecondsSinceEpoch),
+        20 * 60 * 1000,
+      );
+      expect(
+        timer.state.progress(now.millisecondsSinceEpoch),
+        closeTo(1 / 3, 0.01),
+      );
       expect(fired, 0);
 
       timer.dispose();

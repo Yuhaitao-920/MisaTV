@@ -22,7 +22,8 @@ class UcTvTokenService {
   static const _codeUrl = 'https://open-api-drive.uc.cn/oauth/code';
   static const _exchangeUrl = 'http://api.extscreen.com/ucdrive/token';
 
-  final HttpClient _client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+  final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 15);
 
   void close() => _client.close(force: true);
 
@@ -86,7 +87,10 @@ class UcTvTokenService {
       headers: _headers('GET', '/oauth/authorize'),
     );
     final status = _int(json?['status'], -1);
-    final qr = (json?['qr_data'] ?? '').toString().replaceAll(RegExp(r'[\r\n]'), '');
+    final qr = (json?['qr_data'] ?? '').toString().replaceAll(
+      RegExp(r'[\r\n]'),
+      '',
+    );
     final queryToken = (json?['query_token'] ?? '').toString();
     if (status != 0 || qr.isEmpty || queryToken.isEmpty) {
       throw UcTvException('UC TV 取码失败：${json?['error_info'] ?? '响应异常'}');
@@ -128,14 +132,19 @@ class UcTvTokenService {
     if (status == 0 && code.isNotEmpty) return UcTvPollResult.ok(code);
     final errno = _int(json['errno'], 0);
     final info = (json['error_info'] ?? '').toString();
-    if (errno == 11003 || info.contains('未确认')) return const UcTvPollResult.wait();
+    if (errno == 11003 || info.contains('未确认')) {
+      return const UcTvPollResult.wait();
+    }
     if (info.contains('过期') || info.contains('失效')) {
       return UcTvPollResult.expired(info.isEmpty ? '二维码已过期，请刷新' : info);
     }
     return UcTvPollResult.error(info.isEmpty ? '轮询异常（status=$status）' : info);
   }
 
-  Future<UcTvExchangeResult> exchange(UcTvQrSession session, String code) async {
+  Future<UcTvExchangeResult> exchange(
+    UcTvQrSession session,
+    String code,
+  ) async {
     final body = jsonEncode({
       'req_id': session.reqId,
       'app_ver': '1.6.8',
@@ -152,9 +161,15 @@ class UcTvTokenService {
       'code': code,
     });
     try {
-      final req = await _client.postUrl(Uri.parse(_exchangeUrl)).timeout(const Duration(seconds: 20));
+      final req = await _client
+          .postUrl(Uri.parse(_exchangeUrl))
+          .timeout(const Duration(seconds: 20));
       req.headers.set('User-Agent', _ua);
-      req.headers.contentType = ContentType('application', 'json', charset: 'utf-8');
+      req.headers.contentType = ContentType(
+        'application',
+        'json',
+        charset: 'utf-8',
+      );
       final bytes = utf8.encode(body);
       req.headers.contentLength = bytes.length;
       req.add(bytes);
@@ -163,11 +178,14 @@ class UcTvTokenService {
       final json = _tryJson(text);
       final data = json?['data'];
       final access = data is Map ? (data['access_token'] ?? '').toString() : '';
-      final refresh = data is Map ? (data['refresh_token'] ?? '').toString() : '';
+      final refresh = data is Map
+          ? (data['refresh_token'] ?? '').toString()
+          : '';
       if (access.isNotEmpty && refresh.isNotEmpty) {
         return UcTvExchangeResult.ok(text);
       }
-      final info = data is Map && (data['error_info'] ?? '').toString().isNotEmpty
+      final info =
+          data is Map && (data['error_info'] ?? '').toString().isNotEmpty
           ? data['error_info'].toString()
           : (json?['message'] ?? 'HTTP ${res.statusCode}').toString();
       return UcTvExchangeResult.error('UC TV 兑换失败：$info');
@@ -180,7 +198,9 @@ class UcTvTokenService {
     String url, {
     Map<String, String> headers = const {},
   }) async {
-    final req = await _client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 20));
+    final req = await _client
+        .getUrl(Uri.parse(url))
+        .timeout(const Duration(seconds: 20));
     headers.forEach((k, v) => req.headers.set(k, v));
     final res = await req.close().timeout(const Duration(seconds: 20));
     final text = await res.transform(utf8.decoder).join();
@@ -189,7 +209,10 @@ class UcTvTokenService {
 
   static String _query(Map<String, String> params) {
     return params.entries
-        .map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+        .map(
+          (e) =>
+              '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+        )
         .join('&');
   }
 
@@ -227,8 +250,10 @@ class UcTvPollResult {
 
   const UcTvPollResult.wait() : this._(UcTvPollState.wait);
   const UcTvPollResult.ok(String code) : this._(UcTvPollState.ok, code: code);
-  const UcTvPollResult.expired(String hint) : this._(UcTvPollState.expired, hint: hint);
-  const UcTvPollResult.error(String hint) : this._(UcTvPollState.error, hint: hint);
+  const UcTvPollResult.expired(String hint)
+    : this._(UcTvPollState.expired, hint: hint);
+  const UcTvPollResult.error(String hint)
+    : this._(UcTvPollState.error, hint: hint);
 
   final UcTvPollState state;
   final String? code;

@@ -20,12 +20,7 @@ void main() {
       },
       sourceKey: 's1',
     );
-    const site = SourceBean(
-      key: 's1',
-      name: '示例源',
-      type: 1,
-      api: 'http://api',
-    );
+    const site = SourceBean(key: 's1', name: '示例源', type: 1, api: 'http://api');
     final payload = PlayerWindowPayload.vod(
       VodWindowSession(
         detail: detail,
@@ -122,8 +117,10 @@ void main() {
       ),
       r'E:\data\player-windows\session-1.json',
     );
-    expect(standalonePlayerPayloadPath('  misa-player:C:/tmp/s.json  '),
-        'C:/tmp/s.json');
+    expect(
+      standalonePlayerPayloadPath('  misa-player:C:/tmp/s.json  '),
+      'C:/tmp/s.json',
+    );
     expect(standalonePlayerPayloadPath(null), isNull);
     expect(standalonePlayerPayloadPath(''), isNull);
     expect(standalonePlayerPayloadPath('misa-player:   '), isNull);

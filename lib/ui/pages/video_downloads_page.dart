@@ -140,11 +140,7 @@ class _VideoDownloadsPageState extends State<VideoDownloadsPage> {
     });
   }
 
-  void _toast(
-    String message, {
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
+  void _toast(String message, {String? actionLabel, VoidCallback? onAction}) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -232,9 +228,7 @@ class _VideoDownloadsPageState extends State<VideoDownloadsPage> {
     if (manager.records.isEmpty) return;
     final ok = await _confirm(
       deleteFiles ? '删除全部下载' : '清除全部下载记录',
-      deleteFiles
-          ? '将删除全部下载记录及其本地文件，无法恢复。'
-          : '只清除下载记录，已下载的文件会保留在下载目录。',
+      deleteFiles ? '将删除全部下载记录及其本地文件，无法恢复。' : '只清除下载记录，已下载的文件会保留在下载目录。',
       deleteFiles ? '全部删除' : '清除记录',
     );
     if (!ok) return;
@@ -298,14 +292,8 @@ class _VideoDownloadsPageState extends State<VideoDownloadsPage> {
                   }
                 },
                 itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'clear',
-                    child: Text('清除全部记录（保留文件）'),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text('删除全部（含文件）'),
-                  ),
+                  PopupMenuItem(value: 'clear', child: Text('清除全部记录（保留文件）')),
+                  PopupMenuItem(value: 'delete', child: Text('删除全部（含文件）')),
                 ],
               ),
             ],
@@ -366,13 +354,10 @@ class _VideoDownloadsPageState extends State<VideoDownloadsPage> {
                                   speed: _speedOf(record.id),
                                   onPause: () {
                                     manager.pause(record.id);
-                                    _toast(
-                                      '已暂停，可从「更多操作」继续下载',
-                                    );
+                                    _toast('已暂停，可从「更多操作」继续下载');
                                   },
-                                  onResume: () => _act(
-                                    () => manager.resume(record.id),
-                                  ),
+                                  onResume: () =>
+                                      _act(() => manager.resume(record.id)),
                                   onOpenFolder: () => openDownloadFolder(
                                     record.directory.isEmpty
                                         ? dir
@@ -461,9 +446,7 @@ class _VideoDownloadsPageState extends State<VideoDownloadsPage> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.folder_open_rounded),
                   title: const Text('下载目录'),
-                  subtitle: Text(
-                    dir.isEmpty ? '未启用（需要先开启边播边缓存）' : dir,
-                  ),
+                  subtitle: Text(dir.isEmpty ? '未启用（需要先开启边播边缓存）' : dir),
                   trailing: dir.isEmpty
                       ? null
                       : IconButton(
@@ -592,9 +575,7 @@ class _SummaryCard extends StatelessWidget {
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 220),
                         child: Text(
-                          active > 0
-                              ? '$active 个任务下载中 · $subtitle'
-                              : subtitle,
+                          active > 0 ? '$active 个任务下载中 · $subtitle' : subtitle,
                           key: ValueKey('summary-sub-$active-$subtitle'),
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
@@ -703,10 +684,7 @@ class _HintBanner extends StatelessWidget {
           Icon(icon, size: 18, color: color),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(fontSize: 12, color: color),
-            ),
+            child: Text(message, style: TextStyle(fontSize: 12, color: color)),
           ),
         ],
       ),
@@ -749,11 +727,7 @@ class _CountBadge extends StatelessWidget {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 200),
       child: visible
-          ? Text(
-              text,
-              key: ValueKey(text),
-              style: theme.textTheme.labelSmall,
-            )
+          ? Text(text, key: ValueKey(text), style: theme.textTheme.labelSmall)
           : const SizedBox.shrink(key: ValueKey('empty')),
     );
   }
@@ -797,11 +771,7 @@ class _StatusChip extends StatelessWidget {
                 : Padding(
                     key: ValueKey(status),
                     padding: const EdgeInsets.only(right: 4),
-                    child: Icon(
-                      _statusIcon(status),
-                      size: 12,
-                      color: color,
-                    ),
+                    child: Icon(_statusIcon(status), size: 12, color: color),
                   ),
           ),
           Text(
@@ -1047,8 +1017,7 @@ class _RecordTile extends StatelessWidget {
                 const PopupMenuItem(value: 'resume', child: Text('继续下载')),
               if (completed)
                 const PopupMenuItem(value: 'folder', child: Text('打开文件夹')),
-              if (active || record.canResume)
-                const PopupMenuDivider(),
+              if (active || record.canResume) const PopupMenuDivider(),
               const PopupMenuItem(value: 'delete', child: Text('删除文件并移除记录')),
               // 进行中的任务需要先暂停：直接移除会连带删掉 .part。
               if (!active)
@@ -1065,11 +1034,7 @@ class _RecordTile extends StatelessWidget {
 }
 
 class _OrphanTile extends StatelessWidget {
-  const _OrphanTile({
-    super.key,
-    required this.file,
-    required this.onDelete,
-  });
+  const _OrphanTile({super.key, required this.file, required this.onDelete});
 
   final LocalDownloadFile file;
   final VoidCallback onDelete;

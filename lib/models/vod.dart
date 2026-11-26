@@ -183,8 +183,7 @@ class VodDetail {
         if (list is! List) continue;
         episodes[entry.key.toString()] = [
           for (final item in list)
-            if (item is Map)
-              Episode.fromJson(Map<String, dynamic>.from(item)),
+            if (item is Map) Episode.fromJson(Map<String, dynamic>.from(item)),
         ];
       }
     }
@@ -200,12 +199,14 @@ class VodDetail {
       des: (json['des'] ?? '').toString(),
       remarks: (json['remarks'] ?? '').toString(),
       flags: [
-        for (final item in (json['flags'] is List ? json['flags'] as List : const []))
+        for (final item
+            in (json['flags'] is List ? json['flags'] as List : const []))
           item.toString(),
       ],
       episodes: episodes,
       folders: [
-        for (final item in (json['folders'] is List ? json['folders'] as List : const []))
+        for (final item
+            in (json['folders'] is List ? json['folders'] as List : const []))
           if (item is Map) VodItem.fromJson(Map<String, dynamic>.from(item)),
       ],
       sourceKey: (json['sourceKey'] ?? '').toString(),
@@ -305,7 +306,9 @@ class PlayResult {
     playUrl: (json['playUrl'] ?? '').toString(),
     flag: (json['flag'] ?? '').toString(),
     headers: {
-      for (final entry in (json['headers'] is Map ? json['headers'] as Map : const {}).entries)
+      for (final entry
+          in (json['headers'] is Map ? json['headers'] as Map : const {})
+              .entries)
         entry.key.toString(): entry.value.toString(),
     },
     message: (json['message'] ?? '').toString(),

@@ -18,12 +18,7 @@ class SkipSegment {
 }
 
 class SkipRecord extends SkipSegment {
-  const SkipRecord({
-    super.intro,
-    super.outro,
-    this.at = 0,
-    this.from = '',
-  });
+  const SkipRecord({super.intro, super.outro, this.at = 0, this.from = ''});
 
   /// 写入时间（毫秒），用于「本资源最近一次设置」排序。
   final int at;
@@ -33,15 +28,19 @@ class SkipRecord extends SkipSegment {
 
   @override
   Map<String, dynamic> toJson() => {
-        'intro': intro,
-        'outro': outro,
-        'at': at,
-        if (from.isNotEmpty) 'from': from,
-      };
+    'intro': intro,
+    'outro': outro,
+    'at': at,
+    if (from.isNotEmpty) 'from': from,
+  };
 }
 
 class SkipResolved {
-  const SkipResolved({required this.intro, required this.outro, this.inheritedFrom = ''});
+  const SkipResolved({
+    required this.intro,
+    required this.outro,
+    this.inheritedFrom = '',
+  });
 
   final int intro;
   final int outro;
@@ -67,7 +66,9 @@ SkipRecord? normalizeSkipRecord(Object? raw) {
   final intro = clampSkipSeconds(raw['intro']);
   final outro = clampSkipSeconds(raw['outro']);
   if (intro <= 0 && outro <= 0) return null;
-  final at = raw['at'] is num ? (raw['at'] as num).toInt() : int.tryParse('${raw['at'] ?? ''}') ?? 0;
+  final at = raw['at'] is num
+      ? (raw['at'] as num).toInt()
+      : int.tryParse('${raw['at'] ?? ''}') ?? 0;
   return SkipRecord(
     intro: intro,
     outro: outro,
@@ -101,7 +102,11 @@ String skipStoreKey(String resource, String episode) =>
 ///
 /// 以前是「本集记录优先、无记录才继承」，导致旧数据里个别集自己的记录会把
 /// 资源级设置挡住；现在统一按资源级设置生效，该资源的每一集取到同一组秒数。
-SkipResolved? resolveSkip(Map<String, SkipRecord> store, String resource, String episode) {
+SkipResolved? resolveSkip(
+  Map<String, SkipRecord> store,
+  String resource,
+  String episode,
+) {
   final latest = latestSkipOfResource(store, resource);
   if (latest == null) return null;
   return SkipResolved(
@@ -109,9 +114,7 @@ SkipResolved? resolveSkip(Map<String, SkipRecord> store, String resource, String
     outro: latest.record.outro,
     inheritedFrom: latest.episode == episode.trim()
         ? ''
-        : (latest.record.from.isNotEmpty
-              ? latest.record.from
-              : latest.episode),
+        : (latest.record.from.isNotEmpty ? latest.record.from : latest.episode),
   );
 }
 

@@ -122,12 +122,7 @@ typedef _GetLastErrorDart = int Function();
 
 /// DPAPI 的最小 FFI 封装：只做字节数组级别的加解密。
 class _Dpapi {
-  _Dpapi._(
-    this._protect,
-    this._unprotect,
-    this._localFree,
-    this._getLastError,
-  );
+  _Dpapi._(this._protect, this._unprotect, this._localFree, this._getLastError);
 
   factory _Dpapi.open() {
     final crypt32 = DynamicLibrary.open('crypt32.dll');

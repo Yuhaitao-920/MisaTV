@@ -410,14 +410,8 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  Future<void> _openCatchup(
-    LiveChannel channel,
-    List<EpgProgram> programs,
-  ) => showLiveCatchupSheet(
-    context,
-    channel: channel,
-    programs: programs,
-  );
+  Future<void> _openCatchup(LiveChannel channel, List<EpgProgram> programs) =>
+      showLiveCatchupSheet(context, channel: channel, programs: programs);
 
   Future<void> _play(
     BuildContext context,
@@ -790,10 +784,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                 icon: const Icon(Icons.schedule_rounded, size: 18),
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                  minWidth: 28,
-                  minHeight: 28,
-                ),
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               ),
             const Icon(Icons.play_arrow_rounded, size: 20),
           ],

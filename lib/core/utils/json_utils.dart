@@ -53,7 +53,8 @@ String stripJsonComments(String input) {
     }
     if (c == '/' && next == '*') {
       i += 2;
-      while (i < input.length && !(input[i] == '*' && i + 1 < input.length && input[i + 1] == '/')) {
+      while (i < input.length &&
+          !(input[i] == '*' && i + 1 < input.length && input[i + 1] == '/')) {
         i++;
       }
       i += 2;
@@ -327,7 +328,10 @@ String fixMisplacedQuotes(String input) {
         token = 'none';
         continue;
       }
-      if ((token == 'number' || token == 'value' || token == 'ident' || token == 'close') &&
+      if ((token == 'number' ||
+              token == 'value' ||
+              token == 'ident' ||
+              token == 'close') &&
           (next == ',' || next == '}' || next == ']')) {
         continue;
       }
@@ -404,7 +408,9 @@ dynamic parseJsonLenient(String text) {
       return jsonDecode(candidate(raw));
     } catch (_) {}
   }
-  throw FormatException('不是合法 JSON 对象：${raw.substring(0, raw.length > 80 ? 80 : raw.length)}');
+  throw FormatException(
+    '不是合法 JSON 对象：${raw.substring(0, raw.length > 80 ? 80 : raw.length)}',
+  );
 }
 
 String safeString(Map<String, dynamic>? o, String key, [String def = '']) {

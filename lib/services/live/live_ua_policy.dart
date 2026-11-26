@@ -20,7 +20,8 @@ import 'dart:convert';
 /// **实际取流的地址**再解一次，不能只信列表阶段的结果。
 String resolveLiveStreamUa(String url, {String currentUa = ''}) {
   final policy = LiveUaPolicy.current;
-  return policy.matchRule(url) ?? policy.resolve(url, subscriptionUa: currentUa);
+  return policy.matchRule(url) ??
+      policy.resolve(url, subscriptionUa: currentUa);
 }
 
 /// 大小写不敏感地取请求头。
@@ -40,10 +41,7 @@ String liveHeaderValue(Map<String, String> headers, String name) {
 ///
 /// `package:http` 发包时会把头名统一转小写，同一个 Map 里同时存在
 /// `user-agent` 与 `User-Agent` 时哪一个生效取决于遍历顺序 —— 必须先去重。
-Map<String, String> withLiveHeader(
-  Map<String, String> headers,
-  String value,
-) {
+Map<String, String> withLiveHeader(Map<String, String> headers, String value) {
   return {
     for (final e in headers.entries)
       if (e.key.toLowerCase() != 'user-agent') e.key: e.value,

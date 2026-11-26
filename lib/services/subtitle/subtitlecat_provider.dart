@@ -130,21 +130,27 @@ List<CatRow> parseCatSearch(String html) {
     final url = _abs(href);
     if (out.any((r) => r.url == url)) continue;
     final rowText = _cleanText(_rowHtmlAt(rows, m.start));
-    final dl = RegExp(r'Downloads?\s*(\d+)', caseSensitive: false)
-        .firstMatch(rowText);
-    final lg = RegExp(r'Languages?\s*(\d+)', caseSensitive: false)
-        .firstMatch(rowText);
+    final dl = RegExp(
+      r'Downloads?\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(rowText);
+    final lg = RegExp(
+      r'Languages?\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(rowText);
     final sz = RegExp(
       r'Size\s*([\d.]+\s*[KMG]B)',
       caseSensitive: false,
     ).firstMatch(rowText);
-    out.add(CatRow(
-      url: url,
-      name: name,
-      size: sz == null ? '' : sz.group(1)!,
-      downloads: dl == null ? 0 : int.tryParse(dl.group(1)!) ?? 0,
-      languages: lg == null ? 0 : int.tryParse(lg.group(1)!) ?? 0,
-    ));
+    out.add(
+      CatRow(
+        url: url,
+        name: name,
+        size: sz == null ? '' : sz.group(1)!,
+        downloads: dl == null ? 0 : int.tryParse(dl.group(1)!) ?? 0,
+        languages: lg == null ? 0 : int.tryParse(lg.group(1)!) ?? 0,
+      ),
+    );
   }
   return out;
 }
@@ -160,22 +166,27 @@ List<CatLangRow> parseCatDetail(String html) {
     final url = _abs(href);
     if (out.any((r) => r.url == url)) continue;
     final rowHtml = _rowHtmlAt(rows, m.start);
-    final td = RegExp(r'<td\b[^>]*>([\s\S]*?)</td>', caseSensitive: false)
-        .firstMatch(rowHtml);
+    final td = RegExp(
+      r'<td\b[^>]*>([\s\S]*?)</td>',
+      caseSensitive: false,
+    ).firstMatch(rowHtml);
     final lang = _cleanText(td == null ? '' : td.group(1) ?? '');
-    out.add(CatLangRow(
-      lang: lang.isEmpty ? catFileNameFromUrl(url).replaceFirst(
-        RegExp(r'\.srt$', caseSensitive: false),
-        '',
-      ) : lang,
-      url: url,
-    ));
+    out.add(
+      CatLangRow(
+        lang: lang.isEmpty
+            ? catFileNameFromUrl(url)
+                  .replaceFirst(RegExp(r'\.srt$', caseSensitive: false), '')
+            : lang,
+        url: url,
+      ),
+    );
   }
   return out;
 }
 
 /// 语言优先级：简中 > 繁中 > 其它中文 > 英文；都没有则取第一条。
-final List<({RegExp re, String label})> _langOrder = <({RegExp re, String label})>[
+final List<({RegExp re, String label})>
+_langOrder = <({RegExp re, String label})>[
   (
     re: RegExp(r'zh-cn|chinese \(simplified\)|简体|简中', caseSensitive: false),
     label: '简中',
@@ -184,14 +195,8 @@ final List<({RegExp re, String label})> _langOrder = <({RegExp re, String label}
     re: RegExp(r'zh-tw|chinese \(traditional\)|繁體|繁体|繁中', caseSensitive: false),
     label: '繁中',
   ),
-  (
-    re: RegExp(r'-zh([-_.]|$)|chinese|中文', caseSensitive: false),
-    label: '中文',
-  ),
-  (
-    re: RegExp(r'-en([-_.]|$)|english|英文', caseSensitive: false),
-    label: '英文',
-  ),
+  (re: RegExp(r'-zh([-_.]|$)|chinese|中文', caseSensitive: false), label: '中文'),
+  (re: RegExp(r'-en([-_.]|$)|english|英文', caseSensitive: false), label: '英文'),
 ];
 
 /// 按语言优先级挑一条可下载直链（纯函数）。
@@ -226,22 +231,23 @@ bool catRelevant(String name, List<String> keywords) {
 }
 
 /// 过滤 + 排序（精确/前缀命中优先，其次下载量高者）+ 截断（纯函数）。
-List<CatRow> rankCatRows(List<CatRow> rows, List<String> keywords, {int limit = 6}) {
+List<CatRow> rankCatRows(
+  List<CatRow> rows,
+  List<String> keywords, {
+  int limit = 6,
+}) {
   final kws = keywords.map(_normText).where((k) => k.length >= 2).toList();
-  final scored = rows
-      .where((r) => catRelevant(r.name, keywords))
-      .map((row) {
+  final scored =
+      rows.where((r) => catRelevant(r.name, keywords)).map((row) {
         final n = _normText(row.name);
         final exact = kws.any((k) => n == k)
             ? 0
             : (kws.any((k) => n.startsWith(k)) ? 1 : 2);
         return (row: row, exact: exact, dl: row.downloads);
-      })
-      .toList()
-    ..sort((a, b) {
-      final byExact = a.exact.compareTo(b.exact);
-      return byExact != 0 ? byExact : b.dl.compareTo(a.dl);
-    });
+      }).toList()..sort((a, b) {
+        final byExact = a.exact.compareTo(b.exact);
+        return byExact != 0 ? byExact : b.dl.compareTo(a.dl);
+      });
   return scored.take(limit).map((x) => x.row).toList();
 }
 
@@ -262,7 +268,9 @@ Future<List<SubtitleCandidate>> searchSubtitleCat({
   required List<String> keywords,
 }) async {
   final seen = <String, SubtitleCandidate>{};
-  final ep = query.episode == null ? extractEp(query.rawName) : query.episode.toString();
+  final ep = query.episode == null
+      ? extractEp(query.rawName)
+      : query.episode.toString();
   for (final kw in keywords.take(3)) {
     final html = await http.getText(
       '$catBase/index.php?search=${Uri.encodeQueryComponent(kw)}',

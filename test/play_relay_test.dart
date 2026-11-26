@@ -10,7 +10,10 @@ void main() {
       expect(AppState.needsRelayForPlay(play, ''), isFalse);
       // 蜘蛛自己的本机取流代理不需要再套一层中继。
       expect(
-        AppState.needsRelayForPlay(const PlayResult(url: 'http://127.0.0.1:1234/proxy'), 'quark'),
+        AppState.needsRelayForPlay(
+          const PlayResult(url: 'http://127.0.0.1:1234/proxy'),
+          'quark',
+        ),
         isFalse,
       );
     });
@@ -18,20 +21,33 @@ void main() {
     test('header / m3u8 / 去广告仍然走中继', () {
       expect(
         AppState.needsRelayForPlay(
-          const PlayResult(url: 'https://a.test/x.mp4', headers: {'Referer': 'x'}),
+          const PlayResult(
+            url: 'https://a.test/x.mp4',
+            headers: {'Referer': 'x'},
+          ),
           '',
         ),
         isTrue,
       );
       expect(
-        AppState.needsRelayForPlay(const PlayResult(url: 'https://a.test/x.m3u8'), ''),
+        AppState.needsRelayForPlay(
+          const PlayResult(url: 'https://a.test/x.m3u8'),
+          '',
+        ),
         isTrue,
       );
       expect(
-        AppState.needsRelayForPlay(const PlayResult(url: 'https://a.test/x.mp4'), '', purify: true),
+        AppState.needsRelayForPlay(
+          const PlayResult(url: 'https://a.test/x.mp4'),
+          '',
+          purify: true,
+        ),
         isTrue,
       );
-      expect(AppState.needsRelayForPlay(const PlayResult(url: ''), ''), isFalse);
+      expect(
+        AppState.needsRelayForPlay(const PlayResult(url: ''), ''),
+        isFalse,
+      );
     });
 
     test('本机取流地址带 header / 去广告也不套中继', () {

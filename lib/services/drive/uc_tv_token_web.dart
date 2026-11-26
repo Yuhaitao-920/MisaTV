@@ -14,7 +14,10 @@ class UcTvTokenService {
     throw UnsupportedError('UC TV 授权仅支持桌面端与移动端');
   }
 
-  Future<UcTvExchangeResult> exchange(UcTvQrSession session, String code) async {
+  Future<UcTvExchangeResult> exchange(
+    UcTvQrSession session,
+    String code,
+  ) async {
     throw UnsupportedError('UC TV 授权仅支持桌面端与移动端');
   }
 }
@@ -38,8 +41,10 @@ class UcTvPollResult {
 
   const UcTvPollResult.wait() : this._(UcTvPollState.wait);
   const UcTvPollResult.ok(String code) : this._(UcTvPollState.ok, code: code);
-  const UcTvPollResult.expired(String hint) : this._(UcTvPollState.expired, hint: hint);
-  const UcTvPollResult.error(String hint) : this._(UcTvPollState.error, hint: hint);
+  const UcTvPollResult.expired(String hint)
+    : this._(UcTvPollState.expired, hint: hint);
+  const UcTvPollResult.error(String hint)
+    : this._(UcTvPollState.error, hint: hint);
 
   final UcTvPollState state;
   final String? code;

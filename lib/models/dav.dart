@@ -19,29 +19,34 @@ class DavServer {
   final String username;
   final String password;
 
-  DavServer copyWith({String? name, String? url, String? username, String? password}) => DavServer(
-        id: id,
-        name: name ?? this.name,
-        url: url ?? this.url,
-        username: username ?? this.username,
-        password: password ?? this.password,
-      );
+  DavServer copyWith({
+    String? name,
+    String? url,
+    String? username,
+    String? password,
+  }) => DavServer(
+    id: id,
+    name: name ?? this.name,
+    url: url ?? this.url,
+    username: username ?? this.username,
+    password: password ?? this.password,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'url': url,
-        'username': username,
-        'password': password,
-      };
+    'id': id,
+    'name': name,
+    'url': url,
+    'username': username,
+    'password': password,
+  };
 
   factory DavServer.fromJson(Map<String, dynamic> json) => DavServer(
-        id: (json['id'] ?? '').toString(),
-        name: (json['name'] ?? '').toString(),
-        url: (json['url'] ?? '').toString(),
-        username: (json['username'] ?? '').toString(),
-        password: (json['password'] ?? '').toString(),
-      );
+    id: (json['id'] ?? '').toString(),
+    name: (json['name'] ?? '').toString(),
+    url: (json['url'] ?? '').toString(),
+    username: (json['username'] ?? '').toString(),
+    password: (json['password'] ?? '').toString(),
+  );
 }
 
 /// 目录项（PROPFIND Depth:1 的一行）。
@@ -81,7 +86,8 @@ class DavBrowseResult {
 String wrapDavPlayUrl(String baseUrl, String url, String serverId) {
   final base = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
   if (base.isEmpty || serverId.trim().isEmpty) return url;
-  final query = Uri(queryParameters: {'url': url, 'dav': serverId.trim()}).query;
+  final query = Uri(queryParameters: {'url': url, 'dav': serverId.trim()})
+      .query;
   return '$base/play?$query';
 }
 
@@ -89,7 +95,10 @@ String wrapDavPlayUrl(String baseUrl, String url, String serverId) {
 ///
 /// mp4/m4v/webm/ts/m3u8/flv 内联；mkv/avi/rmvb/mov… 走外部播放器接力。
 bool isDavInlinePlayable(String name) {
-  return RegExp(r'\.(mp4|m4v|webm|ts|m3u8|flv)$', caseSensitive: false).hasMatch((name).trim());
+  return RegExp(
+    r'\.(mp4|m4v|webm|ts|m3u8|flv)$',
+    caseSensitive: false,
+  ).hasMatch((name).trim());
 }
 
 /// 该文件名是否像视频（列表图标 / 排序提示用）。
@@ -118,6 +127,8 @@ String davSizeLabel(int size) {
     value /= 1024;
     unit++;
   }
-  final text = value >= 100 || unit == 0 ? value.round().toString() : value.toStringAsFixed(1);
+  final text = value >= 100 || unit == 0
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
   return '$text ${units[unit]}';
 }

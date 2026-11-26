@@ -12,7 +12,6 @@ import 'video_window_fit.dart';
 /// 桌面自绘标题栏仅在 Windows 启用（其余桌面保留系统窗口装饰）。
 final bool hasCustomWindowChrome = Platform.isWindows;
 
-
 /// 关窗时（自绘按钮 / 系统 X / Alt+F4）先跑这里注册的清理，再结束进程。
 Future<void> Function()? _shutdownHook;
 
@@ -492,7 +491,10 @@ Future<void> fitAppWindowToVideo(double videoWidth, double videoHeight) async {
     }
     await windowManager.setSize(restore);
     if (position != null) await windowManager.setPosition(position);
-    AppLog.i('window', '横版视频 → 窗口还原 ${restore.width.round()}x${restore.height.round()}');
+    AppLog.i(
+      'window',
+      '横版视频 → 窗口还原 ${restore.width.round()}x${restore.height.round()}',
+    );
   } catch (e, s) {
     AppLog.w('window', '按视频比例调整窗口失败', e, s);
   }

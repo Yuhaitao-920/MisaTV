@@ -86,9 +86,19 @@ class _AppTitleBarObserver extends NavigatorObserver {
 final NavigatorObserver _titleBarObserver = _AppTitleBarObserver();
 
 class KniephosApp extends StatelessWidget {
-  const KniephosApp({super.key, required this.state});
+  const KniephosApp({super.key, required this.state, this.rootBuilder});
 
   final AppState state;
+
+  /// 根界面构造器。
+  ///
+  /// 默认为 [AppShell]（沉浸 + 常规双形态）。TV 精简版的入口
+  /// （`main_tv.dart`）传入 `TvShell`，**并且完全不 import app_shell.dart** ——
+  /// 这样六个常规页面（约 7600 行）不进编译单元，`libapp.so` 才能真的变小。
+  ///
+  /// 为什么不用运行时 `if (kMisaTv)`：`app_shell.dart` 一旦被 import 就会整个
+  /// 编译进产物，运行时分支省不掉体积。
+  final Widget Function()? rootBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +161,7 @@ class KniephosApp extends StatelessWidget {
               return windowFrame(frame);
             },
             // 启动后检查 GitHub release，有新版本就弹窗（见 UpdateGate）。
-            home: const UpdateGate(child: AppShell()),
+            home: UpdateGate(child: rootBuilder?.call() ?? const AppShell()),
           );
         },
       ),

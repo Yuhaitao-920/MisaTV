@@ -69,11 +69,7 @@ void main() {
       // 活跃桶应当是样本更多的那个：新片 4 条 vs 旧片 3 条
       expect(probe.total, newTotal, reason: '活跃桶应取最后写入的那个');
       expect(probe.requests, 4);
-      expect(
-        probe.maxStart,
-        75497472,
-        reason: '旧片的 365MB 不该抬高新片的 maxStart',
-      );
+      expect(probe.maxStart, 75497472, reason: '旧片的 365MB 不该抬高新片的 maxStart');
       expect(
         probe.looksSequentialOnly(),
         isTrue,
@@ -183,4 +179,3 @@ void main() {
     });
   });
 }
-

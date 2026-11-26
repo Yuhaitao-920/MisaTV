@@ -94,10 +94,10 @@ Future<void> _moveInto(Directory from, Directory to) async {
       return;
     }
     // 目标已存在：只在两边都没有偏好文件时才做整目录替换（此时没有数据可丢）。
-    final toHasPrefs =
-        File(p.join(to.path, 'shared_preferences.json')).existsSync();
-    final fromHasPrefs =
-        File(p.join(from.path, 'shared_preferences.json')).existsSync();
+    final toHasPrefs = File(p.join(to.path, 'shared_preferences.json'))
+        .existsSync();
+    final fromHasPrefs = File(p.join(from.path, 'shared_preferences.json'))
+        .existsSync();
     if (!toHasPrefs && !fromHasPrefs && to.listSync().isEmpty) {
       from.renameSync(to.path);
       await _writeMarker(to);
@@ -120,7 +120,8 @@ Future<void> _moveInto(Directory from, Directory to) async {
 
 Future<void> _writeMarker(Directory to) async {
   try {
-    await File(p.join(to.path, '.migrated-portable')).writeAsString('portable', flush: true);
+    await File(p.join(to.path, '.migrated-portable'))
+        .writeAsString('portable', flush: true);
   } catch (_) {}
 }
 
@@ -160,13 +161,15 @@ class _PortablePathProvider extends PathProviderPlatform {
   Future<String?> getApplicationSupportPath() async => root;
 
   @override
-  Future<String?> getApplicationCachePath() => _delegate.getApplicationCachePath();
+  Future<String?> getApplicationCachePath() =>
+      _delegate.getApplicationCachePath();
 
   @override
   Future<String?> getTemporaryPath() => _delegate.getTemporaryPath();
 
   @override
-  Future<String?> getApplicationDocumentsPath() => _delegate.getApplicationDocumentsPath();
+  Future<String?> getApplicationDocumentsPath() =>
+      _delegate.getApplicationDocumentsPath();
 
   @override
   Future<String?> getLibraryPath() => _delegate.getLibraryPath();
@@ -175,10 +178,12 @@ class _PortablePathProvider extends PathProviderPlatform {
   Future<String?> getDownloadsPath() => _delegate.getDownloadsPath();
 
   @override
-  Future<String?> getExternalStoragePath() => _delegate.getExternalStoragePath();
+  Future<String?> getExternalStoragePath() =>
+      _delegate.getExternalStoragePath();
 
   @override
-  Future<List<String>?> getExternalCachePaths() => _delegate.getExternalCachePaths();
+  Future<List<String>?> getExternalCachePaths() =>
+      _delegate.getExternalCachePaths();
 
   @override
   Future<List<String>?> getExternalStoragePaths({StorageDirectory? type}) =>
@@ -289,38 +294,48 @@ class PortablePrefsStore extends SharedPreferencesStorePlatform {
   }
 
   @override
-  Future<bool> clear() =>
-      clearWithParameters(ClearParameters(filter: PreferencesFilter(prefix: _defaultPrefix)));
+  Future<bool> clear() => clearWithParameters(
+    ClearParameters(filter: PreferencesFilter(prefix: _defaultPrefix)),
+  );
 
   @override
-  Future<bool> clearWithPrefix(String prefix) =>
-      clearWithParameters(ClearParameters(filter: PreferencesFilter(prefix: prefix)));
+  Future<bool> clearWithPrefix(String prefix) => clearWithParameters(
+    ClearParameters(filter: PreferencesFilter(prefix: prefix)),
+  );
 
   @override
   Future<bool> clearWithParameters(ClearParameters parameters) async {
     final filter = parameters.filter;
     final data = await _load();
     data.removeWhere(
-      (key, _) => key.startsWith(filter.prefix) && (filter.allowList?.contains(key) ?? true),
+      (key, _) =>
+          key.startsWith(filter.prefix) &&
+          (filter.allowList?.contains(key) ?? true),
     );
     return _save(data);
   }
 
   @override
-  Future<Map<String, Object>> getAll() =>
-      getAllWithParameters(GetAllParameters(filter: PreferencesFilter(prefix: _defaultPrefix)));
+  Future<Map<String, Object>> getAll() => getAllWithParameters(
+    GetAllParameters(filter: PreferencesFilter(prefix: _defaultPrefix)),
+  );
 
   @override
   Future<Map<String, Object>> getAllWithPrefix(String prefix) =>
-      getAllWithParameters(GetAllParameters(filter: PreferencesFilter(prefix: prefix)));
+      getAllWithParameters(
+        GetAllParameters(filter: PreferencesFilter(prefix: prefix)),
+      );
 
   @override
-  Future<Map<String, Object>> getAllWithParameters(GetAllParameters parameters) async {
+  Future<Map<String, Object>> getAllWithParameters(
+    GetAllParameters parameters,
+  ) async {
     final filter = parameters.filter;
     final data = Map<String, Object>.from(await _load());
     data.removeWhere(
       (key, _) =>
-          !key.startsWith(filter.prefix) || !(filter.allowList?.contains(key) ?? true),
+          !key.startsWith(filter.prefix) ||
+          !(filter.allowList?.contains(key) ?? true),
     );
     return data;
   }

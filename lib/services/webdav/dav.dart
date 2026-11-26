@@ -3,13 +3,15 @@ import 'dart:convert';
 import 'package:xml/xml.dart';
 
 /// PROPFIND 请求体：只问展示需要的几个属性。
-const String propfindBody = '<?xml version="1.0" encoding="utf-8"?>'
+const String propfindBody =
+    '<?xml version="1.0" encoding="utf-8"?>'
     '<d:propfind xmlns:d="DAV:"><d:prop>'
     '<d:displayname/><d:getcontentlength/><d:getlastmodified/><d:resourcetype/><d:getcontenttype/>'
     '</d:prop></d:propfind>';
 
 /// 归一服务器基址：去空白与尾斜杠。
-String normalizeDavBase(String url) => (url).trim().replaceAll(RegExp(r'/+$'), '');
+String normalizeDavBase(String url) =>
+    (url).trim().replaceAll(RegExp(r'/+$'), '');
 
 /// 基址 + 服务器路径 → 可请求的绝对 URL（逐段编码，中文/空格文件名安全）。
 ///
@@ -109,7 +111,9 @@ List<DavRawEntry> parsePropfind(String xmlText) {
       }
     }
     final lengthElement = _childElement(prop, 'getcontentlength');
-    final length = lengthElement == null ? 0 : (int.tryParse(_elementText(lengthElement)) ?? 0);
+    final length = lengthElement == null
+        ? 0
+        : (int.tryParse(_elementText(lengthElement)) ?? 0);
     final nameElement = _childElement(prop, 'displayname');
     final mtimeElement = _childElement(prop, 'getlastmodified');
     out.add(
@@ -150,7 +154,8 @@ String hrefToPath(String href, String base) {
 /// PROPFIND 的 href 会带上它 —— 浏览结果统一剥掉，让 UI 与「再次请求」都以基址相对路径为准。
 String davBasePath(String base) {
   try {
-    final path = Uri.parse(normalizeDavBase(base)).path.replaceAll(RegExp(r'/+$'), '');
+    final path = Uri.parse(normalizeDavBase(base)).path
+        .replaceAll(RegExp(r'/+$'), '');
     return path == '/' ? '' : path;
   } catch (_) {
     return '';

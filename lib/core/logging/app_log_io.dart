@@ -113,8 +113,9 @@ class AppLog {
     } catch (_) {}
   }
 
-  static const _androidChannel =
-      MethodChannel('com.kniephos.kniephos/sleep_inhibitor');
+  static const _androidChannel = MethodChannel(
+    'com.kniephos.kniephos/sleep_inhibitor',
+  );
 
   /// Android 端一键导出最新日志文件到公共「下载/MisaTV」目录；
   /// 非 Android 平台返回 null（调用方继续走 openDirectory）。
@@ -128,12 +129,15 @@ class AppLog {
       if (f.existsSync()) target = f;
     }
     if (target == null && _dir != null && _dir!.existsSync()) {
-      final logs = _dir!
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.log'))
-          .toList()
-        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+      final logs =
+          _dir!
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.log'))
+              .toList()
+            ..sort(
+              (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
+            );
       if (logs.isNotEmpty) target = logs.first;
     }
     if (target == null) return '';

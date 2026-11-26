@@ -11,7 +11,8 @@ void main() {
 
     setUp(() {
       root = Directory.systemTemp.createTempSync('kniephos-pkg-');
-      File(p.join(root.path, 'spider.jar')).writeAsBytesSync([0x50, 0x4b, 1, 2]);
+      File(p.join(root.path, 'spider.jar'))
+          .writeAsBytesSync([0x50, 0x4b, 1, 2]);
       File(p.join(root.path, 'logo.png')).writeAsBytesSync([1, 2, 3]);
       File(p.join(root.path, 'ext', 'list.json')).createSync(recursive: true);
       File(p.join(root.path, 'ext', 'list.json')).writeAsStringSync('[]');
@@ -42,12 +43,7 @@ void main() {
             'type': 3,
             'api': 'clan://localhost/my_pkg/spider.jar',
           },
-          {
-            'key': 'c',
-            'name': 'C',
-            'type': 3,
-            'api': 'assets://js/x.js',
-          },
+          {'key': 'c', 'name': 'C', 'type': 3, 'api': 'assets://js/x.js'},
           {
             'key': 'd',
             'name': 'D',
@@ -85,9 +81,82 @@ void main() {
           {'key': 'a', 'name': 'A', 'type': 3, 'api': './missing.py'},
         ],
       });
-      final map = jsonDecode(LocalImportService.rewriteLocalPaths(text, root.path)) as Map;
+      final map = jsonDecode(
+        LocalImportService.rewriteLocalPaths(text, root.path),
+      ) as Map;
       expect(map['spider'], 'missing.jar');
       expect((map['sites'] as List).first['api'], './missing.py');
+    });
+
+    test(r'ext 的 $线路名 后缀保留，前面的路径照常改写', () {
+      // 真实离线包（open-js 的 wanpan.js）写法：ext 是「配置地址$线路名」，
+      // 脚本自己按 `$` 切开取 order。若不把 `$` 当分隔符，整串会被当成
+      // 文件路径 `env.json$闪电` 去找 → 找不到 → 原样退回相对路径 → 404。
+      Directory(p.join(root.path, 'config')).createSync(recursive: true);
+      File(p.join(root.path, 'config', 'env.json')).writeAsStringSync('{}');
+      final text = jsonEncode({
+        'sites': [
+          {
+            'key': 'a',
+            'name': '闪电',
+            'type': 3,
+            'api': './open/wanpan.js',
+            'ext': r'./config/env.json$闪电',
+          },
+          {
+            'key': 'b',
+            'name': '至臻',
+            'type': 3,
+            'api': './open/wanpan.js',
+            'ext': r'./config/env.json$至臻',
+          },
+          {
+            'key': 'c',
+            'name': '无后缀',
+            'type': 3,
+            'api': './open/wanpan.js',
+            'ext': './config/env.json',
+          },
+        ],
+      });
+      final map = jsonDecode(
+        LocalImportService.rewriteLocalPaths(text, root.path),
+      ) as Map<String, dynamic>;
+      final sites = (map['sites'] as List).cast<Map<String, dynamic>>();
+
+      for (final site in sites) {
+        expect(
+          site['ext'],
+          startsWith('file://'),
+          reason: '${site['name']} 的 ext 必须改写成本地地址',
+        );
+      }
+      expect(sites[0]['ext'], endsWith(r'$闪电'));
+      expect(sites[1]['ext'], endsWith(r'$至臻'));
+      expect(sites[2]['ext'], endsWith('env.json'));
+      expect(sites[2]['ext'], isNot(contains(r'$')));
+    });
+
+    test(r'$ 出现在结尾时不当作分隔符', () {
+      Directory(p.join(root.path, 'config')).createSync(recursive: true);
+      File(p.join(root.path, 'config', 'env.json')).writeAsStringSync('{}');
+      final text = jsonEncode({
+        'sites': [
+          {
+            'key': 'a',
+            'name': 'A',
+            'type': 3,
+            'api': './open/x.js',
+            'ext': './config/env.json\$',
+          },
+        ],
+      });
+      final map = jsonDecode(
+        LocalImportService.rewriteLocalPaths(text, root.path),
+      ) as Map<String, dynamic>;
+      final ext = (map['sites'] as List).first['ext'] as String;
+      expect(ext, startsWith('file://'));
+      expect(ext, endsWith(r'$'));
     });
   });
 
@@ -95,8 +164,10 @@ void main() {
     test('优先 config.json，并支持子目录', () {
       final root = Directory.systemTemp.createTempSync('kniephos-find-');
       try {
-        File(p.join(root.path, 'manifest.json')).writeAsStringSync('{"name":"x"}');
-        final sub = Directory(p.join(root.path, 'local'))..createSync(recursive: true);
+        File(p.join(root.path, 'manifest.json'))
+            .writeAsStringSync('{"name":"x"}');
+        final sub = Directory(p.join(root.path, 'local'))
+          ..createSync(recursive: true);
         File(p.join(sub.path, 'config.json')).writeAsStringSync('{"sites":[]}');
         final found = LocalImportService.findSubscriptionJson(root);
         expect(found, isNotNull);
@@ -109,7 +180,8 @@ void main() {
     test('没有 sites / urls / lives 的 JSON 不误选', () {
       final root = Directory.systemTemp.createTempSync('kniephos-find-');
       try {
-        File(p.join(root.path, 'version.json')).writeAsStringSync('{"version":1}');
+        File(p.join(root.path, 'version.json'))
+            .writeAsStringSync('{"version":1}');
         expect(LocalImportService.findSubscriptionJson(root), isNull);
       } finally {
         root.deleteSync(recursive: true);

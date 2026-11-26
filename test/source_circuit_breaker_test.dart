@@ -19,25 +19,16 @@ void main() {
 
   test('不同连续失败次数触发阶梯冷却', () {
     breaker.recordFailure('a', 'timeout');
-    expect(
-      breaker.recordFailure('a', 'timeout'),
-      const Duration(minutes: 15),
-    );
+    expect(breaker.recordFailure('a', 'timeout'), const Duration(minutes: 15));
     expect(breaker.isAvailable('a'), isFalse);
 
     now = now.add(const Duration(minutes: 15));
     expect(breaker.isAvailable('a'), isTrue);
-    expect(
-      breaker.recordFailure('a', 'timeout'),
-      const Duration(hours: 2),
-    );
+    expect(breaker.recordFailure('a', 'timeout'), const Duration(hours: 2));
 
     now = now.add(const Duration(hours: 2));
     expect(breaker.isAvailable('a'), isTrue);
-    expect(
-      breaker.recordFailure('a', 'timeout'),
-      const Duration(hours: 24),
-    );
+    expect(breaker.recordFailure('a', 'timeout'), const Duration(hours: 24));
     expect(breaker.cooldownRemaining('a'), const Duration(hours: 24));
   });
 

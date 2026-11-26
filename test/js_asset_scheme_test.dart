@@ -37,14 +37,8 @@ void main() {
     });
 
     test('去掉 query 与 ;md5; 校验尾缀', () {
-      expect(
-        bundleAssetKeyOf('assets://a/b.js?name=x'),
-        'assets/a/b.js',
-      );
-      expect(
-        bundleAssetKeyOf('assets://a/b.js;md5;abc'),
-        'assets/a/b.js',
-      );
+      expect(bundleAssetKeyOf('assets://a/b.js?name=x'), 'assets/a/b.js');
+      expect(bundleAssetKeyOf('assets://a/b.js;md5;abc'), 'assets/a/b.js');
     });
 
     test('前后多余斜杠不影响结果', () {
@@ -58,5 +52,3 @@ void main() {
     });
   });
 }
-
-

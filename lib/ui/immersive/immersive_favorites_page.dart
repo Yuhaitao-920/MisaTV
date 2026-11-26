@@ -50,13 +50,12 @@ class ImmersiveFavoritesPage extends StatelessWidget {
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.only(bottom: 16),
-                    gridDelegate:
-                        SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: m.posterMaxExtent,
-                          mainAxisExtent: m.cardExtent,
-                          crossAxisSpacing: 18,
-                          mainAxisSpacing: 22,
-                        ),
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: m.posterMaxExtent,
+                      mainAxisExtent: m.cardExtent,
+                      crossAxisSpacing: 18,
+                      mainAxisSpacing: 22,
+                    ),
                     itemCount: items.length,
                     itemBuilder: (context, index) {
                       final item = items[index];

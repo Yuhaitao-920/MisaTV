@@ -4,9 +4,7 @@ import 'package:kniephos/services/jar_spider/spider_failure.dart';
 void main() {
   group('归因：缺少运行时', () {
     test('JVM 缺失', () {
-      final f = classifySpiderFailure(
-        Exception('缺少 JVM 运行时，请先在设置里下载'),
-      );
+      final f = classifySpiderFailure(Exception('缺少 JVM 运行时，请先在设置里下载'));
       expect(f.kind, SpiderFailureKind.runtimeMissing);
       expect(f.actionable, isTrue);
       expect(f.hint, contains('安装'));
@@ -123,7 +121,10 @@ void main() {
   group('文案压缩', () {
     test('多行堆栈压成一行并截断', () {
       final longError = Exception(
-        List.generate(50, (i) => '#$i    some/stack/frame.dart line $i').join('\n'),
+        List.generate(
+          50,
+          (i) => '#$i    some/stack/frame.dart line $i',
+        ).join('\n'),
       );
       final f = classifySpiderFailure(longError);
       expect(f.detail.contains('\n'), isFalse);
@@ -141,9 +142,7 @@ void main() {
     test('同时含「运行时」与「超时」时按运行时归因', () {
       // 真实场景：下载运行时超时，报错里同时出现两者。
       // 用户该做的是去装运行时，而不是去查网络。
-      final f = classifySpiderFailure(
-        Exception('缺少 JVM 运行时；下载超时'),
-      );
+      final f = classifySpiderFailure(Exception('缺少 JVM 运行时；下载超时'));
       expect(f.kind, SpiderFailureKind.runtimeMissing);
     });
   });

@@ -44,10 +44,7 @@ void main() {
       expect(ArtworkService.titleCandidates('犯罪都市(日本版)'), contains('犯罪都市'));
       expect(ArtworkService.titleCandidates('葬送的芙莉莲 第二季'), contains('葬送的芙莉莲'));
       // 资源站常见的营销后缀不能带进搜索引擎，否则豆瓣 / B 站都搜不到。
-      expect(
-        ArtworkService.cleanMetadataTitle('复仇者联盟4 加码臻享版'),
-        '复仇者联盟4',
-      );
+      expect(ArtworkService.cleanMetadataTitle('复仇者联盟4 加码臻享版'), '复仇者联盟4');
       expect(
         ArtworkService.titleCandidates('复仇者联盟4 加码臻享版'),
         contains('复仇者联盟4'),
@@ -120,10 +117,7 @@ void main() {
             'width': '1080',
             'height': '1920',
           },
-          {
-            'thumb': 'https://p2.ssl.qhimgs1.com/t2.jpg',
-            'litetitle': '备选',
-          },
+          {'thumb': 'https://p2.ssl.qhimgs1.com/t2.jpg', 'litetitle': '备选'},
         ],
       });
       expect(parsed, hasLength(2));
@@ -148,20 +142,14 @@ void main() {
       );
       expect(ArtworkService.so360RelevantHit('狂飙', '《狂飙》剧照'), isTrue);
       expect(
-        ArtworkService.so360RelevantHit(
-          '满级茶艺师替妹手撕伪善白莲花',
-          '2018茶企通《最美茶艺师》电视大赛',
-        ),
+        ArtworkService.so360RelevantHit('满级茶艺师替妹手撕伪善白莲花', '2018茶企通《最美茶艺师》电视大赛'),
         isFalse,
       );
       expect(
         ArtworkService.so360RelevantHit('侠探杰克第四季', '侠探杰克 第三季 剧情解析'),
         isFalse,
       );
-      expect(
-        ArtworkService.so360RelevantHit('侠探杰克第四季', '侠探杰克 剧照合集'),
-        isFalse,
-      );
+      expect(ArtworkService.so360RelevantHit('侠探杰克第四季', '侠探杰克 剧照合集'), isFalse);
       expect(
         ArtworkService.so360RelevantHit(
           'Inception',
@@ -172,21 +160,25 @@ void main() {
     });
 
     test('横图精选：排除竖图 / 缩略图 / 年份冲突 / 网盘文 / B站缩略图', () {
-      final best = ArtworkService.pickSo360Backdrop([
-        item('流浪地球 2019 剧照'),
-        item('流浪地球 2023 横版'),
-        item('流浪地球 海报', w: 900, h: 1350),
-        item('流浪地球 缩略图', w: 400, h: 200),
-        item('流浪地球 百度云下载'),
-        item('流浪地球 游戏攻略', w: 1600, h: 900),
-        So360Image(
-          title: '流浪地球 2019 剧照',
-          url: 'https://i1.hdslb.com/bfs/archive/x.jpg',
-          width: 1920,
-          height: 1080,
-        ),
-        item('狂飙 剧照'),
-      ], '流浪地球', year: '2019');
+      final best = ArtworkService.pickSo360Backdrop(
+        [
+          item('流浪地球 2019 剧照'),
+          item('流浪地球 2023 横版'),
+          item('流浪地球 海报', w: 900, h: 1350),
+          item('流浪地球 缩略图', w: 400, h: 200),
+          item('流浪地球 百度云下载'),
+          item('流浪地球 游戏攻略', w: 1600, h: 900),
+          So360Image(
+            title: '流浪地球 2019 剧照',
+            url: 'https://i1.hdslb.com/bfs/archive/x.jpg',
+            width: 1920,
+            height: 1080,
+          ),
+          item('狂飙 剧照'),
+        ],
+        '流浪地球',
+        year: '2019',
+      );
       expect(best?.title, '流浪地球 2019 剧照');
     });
 
@@ -391,10 +383,7 @@ void main() {
           tmdbApiKey: '0123456789abcdef0123456789abcdef',
         ),
       );
-      final url = await service.backdrop(
-        '疯狂舞蹈办公室',
-        year: '2026',
-      );
+      final url = await service.backdrop('疯狂舞蹈办公室', year: '2026');
       expect(url, contains('image.tmdb.org'));
       expect(url, contains('dance.jpg'));
     });

@@ -485,7 +485,9 @@ class TorrentPlay implements BtStreamSource {
       return const BtPlayOutcome.unsupported('本地播放中继未启动，无法把磁力流转给播放器');
     }
     final url = btStreamUrl(relay.baseUrl, session.infoHash, session.fileIndex);
-    final block = Platform.isAndroid ? null : webPlayBlockReason(session.fileName);
+    final block = Platform.isAndroid
+        ? null
+        : webPlayBlockReason(session.fileName);
     if (block == null) {
       return BtPlayOutcome.inline(
         url: url,

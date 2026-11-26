@@ -22,7 +22,8 @@ import 'drive_descriptor.dart';
 import 'quark_session_io.dart' show mergeSetCookies, sanitizeCookie;
 
 /// 桌面客户端身份（与 quark_session_io 的会话探测保持一致）。
-const _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+const _ua =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 '
     'Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
 const _ref = 'https://pan.quark.cn/';
@@ -100,7 +101,11 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
   final desc = parseDriveDescriptor(text);
   if (desc != null) {
     if (desc.provider != 'quark') return null;
-    final pwdId = descriptorField(desc.data, <String>['shareId', 'pwdId', 'sId']);
+    final pwdId = descriptorField(desc.data, <String>[
+      'shareId',
+      'pwdId',
+      'sId',
+    ]);
     if (pwdId.isEmpty) return null;
     return QuarkShareRef(
       pwdId: pwdId,
@@ -130,7 +135,9 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
     try {
       final d = _asMap(jsonDecode(text.trim()));
       if (d != null) {
-        final sid = _str(d['sId']).isNotEmpty ? _str(d['sId']) : _str(d['pwd_id']);
+        final sid = _str(d['sId']).isNotEmpty
+            ? _str(d['sId'])
+            : _str(d['pwd_id']);
         final fid = _str(d['fid']);
         if (sid.isNotEmpty &&
             _digitsRe.hasMatch(sid) == false &&
@@ -171,10 +178,7 @@ QuarkShareRef? extractQuarkShare(String text, {String flag = ''}) {
       r'[?&](?:pwd|password|passcode)=([0-9a-zA-Z]{4})',
       caseSensitive: false,
     ).firstMatch(text);
-    return QuarkShareRef(
-      pwdId: link.group(1)!,
-      passcode: pwd?.group(1) ?? '',
-    );
+    return QuarkShareRef(pwdId: link.group(1)!, passcode: pwd?.group(1) ?? '');
   }
 
   // CAT 系壳（`csp_MoggCAT` 等）的 `~~` 串：只有线路名明确是夸克时才解释。
@@ -223,12 +227,7 @@ QuarkShareRef? _extractQuarkTilde(String text) {
   if (!hexRe.hasMatch(fid)) return null;
   if (!hexRe.hasMatch(token)) return null;
   if (!idRe.hasMatch(pwdId)) return null;
-  return QuarkShareRef(
-    pwdId: pwdId,
-    fileId: fid,
-    fileToken: token,
-    name: name,
-  );
+  return QuarkShareRef(pwdId: pwdId, fileId: fid, fileToken: token, name: name);
 }
 
 /// 全局串行锁：分享会话与 download 下发 Cookie 属共享状态机，并发会互相污染。
@@ -303,9 +302,7 @@ Future<NativeDriveLink> _resolveInner(
       ref: ref,
       stoken: stoken,
       cookie: accountCookie,
-      preferName: episodeName.trim().isNotEmpty
-          ? episodeName.trim()
-          : ref.name,
+      preferName: episodeName.trim().isNotEmpty ? episodeName.trim() : ref.name,
     );
     if (located == null) {
       return NativeDriveLink.failed('分享内未定位到目标文件（可能已失效或集数不匹配）');
@@ -322,17 +319,15 @@ Future<NativeDriveLink> _resolveInner(
   }
 
   // 3) 免转存直链：带分享 token 直接 download，不写本人盘。
-  final direct = await _post(
-    '/file/download',
-    accountCookie,
-    <String, Object?>{
-      'fids': <String>[fid],
-      'fid_token_list': <String>[fileToken],
-      'pwd_id': ref.pwdId,
-      'stoken': stoken,
-    },
+  final direct = await _post('/file/download', accountCookie, <String, Object?>{
+    'fids': <String>[fid],
+    'fid_token_list': <String>[fileToken],
+    'pwd_id': ref.pwdId,
+    'stoken': stoken,
+  });
+  final directUrl = _str(
+    _dig(direct.json, <Object>['data', 0, 'download_url']),
   );
-  final directUrl = _str(_dig(direct.json, <Object>['data', 0, 'download_url']));
   if (directUrl.isEmpty) {
     final detail = _errDetail(direct);
     return NativeDriveLink.failed('未取到下载直链（${_clip(detail, 100)}）');
@@ -436,7 +431,9 @@ Future<_Located?> _locateFile({
     final exact = all.where((f) => f.name == preferName).toList();
     if (exact.length == 1) return exact.first;
     final loose = all
-        .where((f) => f.name.contains(preferName) || preferName.contains(f.name))
+        .where(
+          (f) => f.name.contains(preferName) || preferName.contains(f.name),
+        )
         .toList();
     if (loose.length == 1) return loose.first;
   }
@@ -530,8 +527,7 @@ Future<_HttpResult> _http(
   String? body,
   Map<String, String> headers = const <String, String>{},
 }) async {
-  final client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 12);
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
     final request = await client
         .openUrl(method, uri)

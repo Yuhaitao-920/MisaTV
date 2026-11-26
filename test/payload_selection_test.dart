@@ -106,11 +106,7 @@ void main() {
         containsWanted: packageContains(starPackage, 'WexSomeNewShell'),
         wantedKnown: true,
       );
-      expect(
-        r.accept,
-        isFalse,
-        reason: '默认包不含目标类时必须跳过，让全量扫描找正确的包',
-      );
+      expect(r.accept, isFalse, reason: '默认包不含目标类时必须跳过，让全量扫描找正确的包');
     });
 
     test('star 恰好指向含该类的包时仍然可用', () {

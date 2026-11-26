@@ -42,9 +42,7 @@ void main() {
           clearVersion: '0000000000003000|dev:3',
         ),
         favorites: [_favorite(key: 'a|1', updatedAt: 6000, title: '片名')],
-        skips: {
-          'a|1|第1集': const SkipRecord(intro: 90, outro: 30, at: 7000),
-        },
+        skips: {'a|1|第1集': const SkipRecord(intro: 90, outro: 30, at: 7000)},
       );
       final restored = SyncBundle.fromJson(bundle.toJson());
       expect(restored.deviceName, '客厅');
@@ -66,18 +64,23 @@ void main() {
   group('收藏合并', () {
     test('更新的覆盖本地，旧的忽略', () {
       final result = mergeSyncFavorites(
-        [_favorite(key: 'a', updatedAt: 100), _favorite(key: 'b', updatedAt: 100)],
-        [_favorite(key: 'a', updatedAt: 200, title: '新'), _favorite(key: 'b', updatedAt: 50)],
+        [
+          _favorite(key: 'a', updatedAt: 100),
+          _favorite(key: 'b', updatedAt: 100),
+        ],
+        [
+          _favorite(key: 'a', updatedAt: 200, title: '新'),
+          _favorite(key: 'b', updatedAt: 50),
+        ],
       );
       expect(result.changed, 1);
       expect(result.items.firstWhere((e) => e.key == 'a').title, '新');
     });
 
     test('本地没有的新增', () {
-      final result = mergeSyncFavorites(
-        const [],
-        [_favorite(key: 'x', updatedAt: 1)],
-      );
+      final result = mergeSyncFavorites(const [], [
+        _favorite(key: 'x', updatedAt: 1),
+      ]);
       expect(result.changed, 1);
       expect(result.items.single.key, 'x');
     });
@@ -85,9 +88,7 @@ void main() {
 
   group('片头片尾合并', () {
     test('按写入时间取新', () {
-      final local = {
-        'r|1': const SkipRecord(intro: 10, outro: 0, at: 100),
-      };
+      final local = {'r|1': const SkipRecord(intro: 10, outro: 0, at: 100)};
       final result = mergeSyncSkips(local, {
         'r|1': const SkipRecord(intro: 20, outro: 5, at: 200),
         'r|2': const SkipRecord(intro: 0, outro: 0, at: 50),
@@ -99,9 +100,7 @@ void main() {
     });
 
     test('旧记录不覆盖新记录', () {
-      final local = {
-        'r|1': const SkipRecord(intro: 30, at: 300),
-      };
+      final local = {'r|1': const SkipRecord(intro: 30, at: 300)};
       final result = mergeSyncSkips(local, {
         'r|1': const SkipRecord(intro: 10, at: 100),
       });
@@ -114,7 +113,9 @@ void main() {
     test('版本号原样重建，墓碑与清空都保留', () {
       final snapshot = HistorySyncSnapshot(
         items: [_history(key: 'a', updatedAt: 5000)],
-        itemVersions: {'a': HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:9')},
+        itemVersions: {
+          'a': HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:9'),
+        },
         deletedVersions: {
           'b': HistorySyncVersion.of(updatedAt: 4000, eventId: 'dev:8'),
         },
@@ -123,11 +124,20 @@ void main() {
       final events = historyEventsOf(snapshot);
       expect(events.length, 3);
       final upsert = events.firstWhere((e) => e.op == HistorySyncOp.upsert);
-      expect(upsert.version, HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:9'));
+      expect(
+        upsert.version,
+        HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:9'),
+      );
       final delete = events.firstWhere((e) => e.op == HistorySyncOp.delete);
-      expect(delete.version, HistorySyncVersion.of(updatedAt: 4000, eventId: 'dev:8'));
+      expect(
+        delete.version,
+        HistorySyncVersion.of(updatedAt: 4000, eventId: 'dev:8'),
+      );
       final clear = events.firstWhere((e) => e.op == HistorySyncOp.clearAll);
-      expect(clear.version, HistorySyncVersion.of(updatedAt: 3000, eventId: 'dev:7'));
+      expect(
+        clear.version,
+        HistorySyncVersion.of(updatedAt: 3000, eventId: 'dev:7'),
+      );
     });
 
     test('删除过的条目不会被旧快照复活', () {
@@ -137,7 +147,9 @@ void main() {
         incoming: historyEventsOf(
           HistorySyncSnapshot(
             items: [_history(key: 'a', updatedAt: 5000, positionMs: 999)],
-            itemVersions: {'a': HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:old')},
+            itemVersions: {
+              'a': HistorySyncVersion.of(updatedAt: 5000, eventId: 'dev:old'),
+            },
             deletedVersions: {'a': deleted},
           ),
         ),
@@ -149,9 +161,15 @@ void main() {
 
   group('同步设置归一', () {
     test('远端路径补前导斜杠并去尾斜杠', () {
-      expect(SyncSettings.normalizeRemotePath('MisaTV/sync.json'), '/MisaTV/sync.json');
+      expect(
+        SyncSettings.normalizeRemotePath('MisaTV/sync.json'),
+        '/MisaTV/sync.json',
+      );
       expect(SyncSettings.normalizeRemotePath('/a/b/'), '/a/b');
-      expect(SyncSettings.normalizeRemotePath('   '), SyncSettings.defaultRemotePath);
+      expect(
+        SyncSettings.normalizeRemotePath('   '),
+        SyncSettings.defaultRemotePath,
+      );
     });
 
     test('配对码是 8 位且不含易混字符', () {

@@ -84,7 +84,12 @@ b
     });
 
     test('整片/合集名无集号', () {
-      expect(epOf('Unprotected Murder in Galicia 2026 1080p NF WEB-DL DDP5 1 H 264-SPWEB.chs.srt'), '');
+      expect(
+        epOf(
+          'Unprotected Murder in Galicia 2026 1080p NF WEB-DL DDP5 1 H 264-SPWEB.chs.srt',
+        ),
+        '',
+      );
       expect(epOf('Some Movie 2026 1080p BluRay.srt'), '');
     });
   });

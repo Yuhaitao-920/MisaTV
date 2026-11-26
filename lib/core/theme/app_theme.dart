@@ -1,19 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../app_variant.dart';
+
 class AppTheme {
-  /// 标题字体：MiSans（小米 HyperOS 默认字体，免费商用）。
+  /// 标题字体。
   ///
-  /// 随包只带 400/500/700 三个字重（每个 TTF 压缩后约 5.2 MB，5 档会让 APK
-  /// 多背约 10 MB）。代码里写到 600/800 的地方由字体匹配回退到最近字重，
-  /// 不再单独打包 Demibold / Heavy。
-  static const String fontFamily = 'MiSans';
+  /// 全功能版用 MiSans（小米 HyperOS 默认字体，免费商用），随包只带
+  /// 400/500/700 三个字重（每个 TTF 压缩后约 5.2 MB）。代码里写到 600/800
+  /// 的地方由字体匹配回退到最近字重。
+  ///
+  /// **TV 版不随包字体**：TV 端由 CI 删掉 MiSans 文件（省 5.3 MB），这里改成
+  /// 系统字体。电视远看分辨不出字体差异，用 `null` 让 Flutter 走平台默认，
+  /// 中文由系统的思源/苹方/雅黑渲染，显示完全正常。
+  static String? get fontFamily => kMisaTv ? null : 'MiSans';
 
   /// MiSans 不含 emoji / 部分生僻符号，交给系统字体兜底。
+  ///
+  /// TV 版没有 MiSans，这里只留系统字体（Android 上中文由系统字体渲染）。
   static const List<String> fontFamilyFallback = [
     'Microsoft YaHei UI',
     'Microsoft YaHei',
     'Segoe UI',
     'Segoe UI Emoji',
+    'Noto Sans CJK SC',
+    'sans-serif',
   ];
 
   /// 正文 / 控件字体：Windows 自带的「微软雅黑 UI」。
@@ -26,7 +36,7 @@ class AppTheme {
 
   static const List<String> bodyFontFamilyFallback = [
     'Microsoft YaHei',
-    // 非 Windows 平台没有雅黑时退回随包 MiSans，保证中文不会掉到缺字的字体。
+    // 全功能版回退到随包 MiSans；TV 版没有该字体，会继续往后面的系统字体找。
     'MiSans',
     'Segoe UI',
     'Segoe UI Emoji',

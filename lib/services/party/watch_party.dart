@@ -11,10 +11,7 @@ import 'party_room.dart';
 ///
 /// 房主权威：只有房主的进度会被广播，观众不会反向覆盖，避免多人拖动冲突。
 class WatchPartyService extends ChangeNotifier {
-  WatchPartyService({
-    required this.deviceName,
-    required this.server,
-  });
+  WatchPartyService({required this.deviceName, required this.server});
 
   final String Function() deviceName;
   final LanServer Function() server;
@@ -59,9 +56,7 @@ class WatchPartyService extends ChangeNotifier {
     hostName = myName;
     lastError = '';
     final addresses = await lan.lanAddresses();
-    hostAddresses = [
-      for (final ip in addresses) 'http://$ip:$port',
-    ];
+    hostAddresses = [for (final ip in addresses) 'http://$ip:$port'];
     hostUrl = hostAddresses.isEmpty
         ? 'http://127.0.0.1:$port'
         : hostAddresses.first;
@@ -78,8 +73,7 @@ class WatchPartyService extends ChangeNotifier {
     final room = code.trim().toUpperCase();
     if (base.isEmpty) throw const FormatException('请填写房主地址');
     if (room.isEmpty) throw const FormatException('请填写房间码');
-    final url =
-        '$base/party?code=${Uri.encodeQueryComponent(room)}';
+    final url = '$base/party?code=${Uri.encodeQueryComponent(room)}';
     final data = await LanClient.getJson(url);
     if (data['ok'] != true) {
       throw const FormatException('房间不存在或已经关闭');
@@ -204,6 +198,9 @@ String _newRoomCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   final random = Random.secure();
   return String.fromCharCodes(
-    List.generate(6, (_) => alphabet.codeUnitAt(random.nextInt(alphabet.length))),
+    List.generate(
+      6,
+      (_) => alphabet.codeUnitAt(random.nextInt(alphabet.length)),
+    ),
   );
 }

@@ -12,10 +12,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _jsonHeaders = {'content-type': 'application/json; charset=utf-8'};
 
 Map<String, dynamic> _item(String line, String from) => {
-      'hitokoto': line,
-      'from': from,
-      'type': 'h',
-    };
+  'hitokoto': line,
+  'from': from,
+  'type': 'h',
+};
 
 void main() {
   group('parseQuoteBundle', () {

@@ -112,9 +112,8 @@ class VideoDownloadRecord {
         if (key.isNotEmpty && value.isNotEmpty) headers[key] = value;
       }
     }
-    int asInt(Object? value) => value is int
-        ? value
-        : int.tryParse(value?.toString() ?? '') ?? 0;
+    int asInt(Object? value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '') ?? 0;
     return VideoDownloadRecord(
       id: id,
       title: (json['title'] ?? '').toString(),
@@ -130,9 +129,7 @@ class VideoDownloadRecord {
       completedSegments: asInt(json['completedSegments']),
       totalSegments: asInt(json['totalSegments']),
       stage: (json['stage'] ?? '').toString(),
-      status: videoDownloadStatusFromName(
-        (json['status'] ?? '').toString(),
-      ),
+      status: videoDownloadStatusFromName((json['status'] ?? '').toString()),
       error: (json['error'] ?? '').toString(),
       createdAt: asInt(json['createdAt']),
       updatedAt: asInt(json['updatedAt']),

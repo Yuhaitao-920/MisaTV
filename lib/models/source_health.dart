@@ -52,7 +52,9 @@ class SourceHealth {
         key: site.key,
         name: site.displayName,
         status: 'ok-content',
-        message: result.homeFallback ? '首页无列表，已回退到首个分类（$items 条）' : '首页解析到 $items 条内容',
+        message: result.homeFallback
+            ? '首页无列表，已回退到首个分类（$items 条）'
+            : '首页解析到 $items 条内容',
         items: items,
         classes: classes,
       );
@@ -99,9 +101,9 @@ class SourceHealth {
   }
 
   String get statusLabel => switch (status) {
-        'ok-content' => '有内容',
-        'ok-classes' => '有分类',
-        'needs-ext' => '需补 ext',
-        _ => '不可用',
-      };
+    'ok-content' => '有内容',
+    'ok-classes' => '有分类',
+    'needs-ext' => '需补 ext',
+    _ => '不可用',
+  };
 }

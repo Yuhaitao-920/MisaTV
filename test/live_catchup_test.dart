@@ -3,20 +3,15 @@ import 'package:kniephos/models/live.dart';
 import 'package:kniephos/services/live/catchup.dart';
 import 'package:kniephos/services/live/epg.dart';
 
-LiveChannel _channel({
-  String catchupType = '',
-  String catchupSource = '',
-}) => LiveChannel(
-  name: '测试频道',
-  urls: const ['http://example.com/live/stream.m3u8'],
-  catchupType: catchupType,
-  catchupSource: catchupSource,
-);
+LiveChannel _channel({String catchupType = '', String catchupSource = ''}) =>
+    LiveChannel(
+      name: '测试频道',
+      urls: const ['http://example.com/live/stream.m3u8'],
+      catchupType: catchupType,
+      catchupSource: catchupSource,
+    );
 
-EpgProgram _program({
-  int startHour = 12,
-  int durationMinutes = 30,
-}) {
+EpgProgram _program({int startHour = 12, int durationMinutes = 30}) {
   final start = DateTime(2026, 1, 1, startHour);
   final end = start.add(Duration(minutes: durationMinutes));
   return EpgProgram(
@@ -63,10 +58,7 @@ void main() {
     test('append：source 没有问号时自动补分隔符', () {
       final program = _program();
       final result = buildCatchupUrl(
-        channel: _channel(
-          catchupType: 'append',
-          catchupSource: 'start={utc}',
-        ),
+        channel: _channel(catchupType: 'append', catchupSource: 'start={utc}'),
         liveUrl: 'http://example.com/live/stream.m3u8',
         program: program,
       );

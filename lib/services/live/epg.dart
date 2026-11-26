@@ -75,11 +75,11 @@ class EpgChannelRef {
 }
 
 EpgChannelRef epgRefOf(LiveChannel channel) => EpgChannelRef(
-      tvgId: channel.tvgId,
-      tvgName: channel.tvgName,
-      name: channel.name,
-      epg: channel.epg,
-    );
+  tvgId: channel.tvgId,
+  tvgName: channel.tvgName,
+  name: channel.name,
+  epg: channel.epg,
+);
 
 class XmltvChannel {
   const XmltvChannel({required this.id, required this.names, this.icon = ''});
@@ -184,16 +184,20 @@ int? parseXmltvEpoch(String source, {String timeZone = ''}) {
   final h = int.parse(digits.substring(8, 10));
   final mi = int.parse(digits.substring(10, 12));
   final sec = int.parse(digits.substring(12, 14));
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 59) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 59) {
+    return null;
+  }
   final rest = s.substring(14).trim();
   if (rest.isNotEmpty) {
     final offset = parseTzOffset(rest);
     if (offset == null) return null;
-    return DateTime.utc(y, mo, d, h, mi, sec).millisecondsSinceEpoch - offset * 60000;
+    return DateTime.utc(y, mo, d, h, mi, sec).millisecondsSinceEpoch -
+        offset * 60000;
   }
   final zone = zoneOffsetMinutes(timeZone);
   if (zone != null) {
-    return DateTime.utc(y, mo, d, h, mi, sec).millisecondsSinceEpoch - zone * 60000;
+    return DateTime.utc(y, mo, d, h, mi, sec).millisecondsSinceEpoch -
+        zone * 60000;
   }
   return DateTime(y, mo, d, h, mi, sec).millisecondsSinceEpoch;
 }
@@ -221,7 +225,9 @@ ParsedXmltv parseXmltv(String xml) {
       if (name.isNotEmpty && !names.contains(name)) names.add(name);
     }
     final icons = node.findElements('icon');
-    final icon = icons.isEmpty ? '' : (icons.first.getAttribute('src') ?? '').trim();
+    final icon = icons.isEmpty
+        ? ''
+        : (icons.first.getAttribute('src') ?? '').trim();
     channels.add(XmltvChannel(id: id, names: names, icon: icon));
   }
 
@@ -229,12 +235,14 @@ ParsedXmltv parseXmltv(String xml) {
   for (final node in tv.findElements('programme')) {
     final titles = node.findElements('title');
     final title = titles.isEmpty ? '' : titles.first.innerText.trim();
-    programmes.add(XmltvProgramme(
-      channel: (node.getAttribute('channel') ?? '').trim(),
-      start: (node.getAttribute('start') ?? '').trim(),
-      stop: (node.getAttribute('stop') ?? '').trim(),
-      title: title,
-    ));
+    programmes.add(
+      XmltvProgramme(
+        channel: (node.getAttribute('channel') ?? '').trim(),
+        start: (node.getAttribute('start') ?? '').trim(),
+        stop: (node.getAttribute('stop') ?? '').trim(),
+        title: title,
+      ),
+    );
   }
   return ParsedXmltv(channels: channels, programmes: programmes);
 }
@@ -264,7 +272,9 @@ Map<String, List<EpgProgram>> buildEpgMap(
   final xmlChannelById = <String, XmltvChannel>{};
   for (final doc in docs) {
     for (final channel in doc.channels) {
-      if (channel.id.isNotEmpty) xmlChannelById.putIfAbsent(channel.id, () => channel);
+      if (channel.id.isNotEmpty) {
+        xmlChannelById.putIfAbsent(channel.id, () => channel);
+      }
     }
   }
 
@@ -294,13 +304,15 @@ Map<String, List<EpgProgram>> buildEpgMap(
       if (toMs != null && start > toMs) continue;
       final dedupe = '$start|$stop|${programme.title}';
       if (!seen[idx].add(dedupe)) continue;
-      lists[idx].add(EpgProgram(
-        title: programme.title,
-        start: _clockOf(start),
-        end: _clockOf(stop),
-        startTime: start,
-        endTime: stop,
-      ));
+      lists[idx].add(
+        EpgProgram(
+          title: programme.title,
+          start: _clockOf(start),
+          end: _clockOf(stop),
+          startTime: start,
+          endTime: stop,
+        ),
+      );
     }
   }
 
@@ -322,14 +334,19 @@ EpgEntry pickCurrentNext(List<EpgProgram>? programs, int nowMs) {
   EpgProgram? current;
   EpgProgram? next;
   for (final p in programs) {
-    if (current == null && p.startTime <= nowMs && nowMs <= p.endTime) current = p;
+    if (current == null && p.startTime <= nowMs && nowMs <= p.endTime) {
+      current = p;
+    }
     if (next == null && p.startTime > nowMs) next = p;
   }
   return EpgEntry(current: current, next: next);
 }
 
 /// 按 `tvg-id → tvg-name → 频道名` 的顺序取节目表。
-List<EpgProgram>? lookupEpg(Map<String, List<EpgProgram>> byKey, EpgChannelRef ref) {
+List<EpgProgram>? lookupEpg(
+  Map<String, List<EpgProgram>> byKey,
+  EpgChannelRef ref,
+) {
   for (final key in [ref.tvgId, ref.tvgName, ref.name]) {
     if (key.isEmpty) continue;
     final hit = byKey[key];

@@ -114,11 +114,19 @@ Map<String, String> m3uSettings(String line) {
   if (line.startsWith('format')) put('format', _value(line, 'format'));
   if (line.startsWith('origin')) put('origin', _value(line, 'origin'));
   if (line.startsWith('referer')) put('referer', _value(line, 'referer'));
-  if (line.startsWith('#EXTHTTP:')) put('header', line.split('#EXTHTTP:').last.trim());
+  if (line.startsWith('#EXTHTTP:')) {
+    put('header', line.split('#EXTHTTP:').last.trim());
+  }
   if (line.startsWith('#EXTVLCOPT:')) {
-    if (line.contains('http-user-agent')) put('ua', _value(line, 'http-user-agent'));
-    if (line.contains('http-origin')) put('origin', _value(line, 'http-origin'));
-    if (line.contains('http-referrer')) put('referer', _value(line, 'http-referrer'));
+    if (line.contains('http-user-agent')) {
+      put('ua', _value(line, 'http-user-agent'));
+    }
+    if (line.contains('http-origin')) {
+      put('origin', _value(line, 'http-origin'));
+    }
+    if (line.contains('http-referrer')) {
+      put('referer', _value(line, 'http-referrer'));
+    }
   }
   if (line.startsWith('#KODIPROP:') && line.contains('manifest_type=')) {
     put('format', _value(line, 'manifest_type'));

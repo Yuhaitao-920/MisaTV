@@ -83,11 +83,8 @@ Future<void> showLiveCatchupSheet(
                     : ListView.separated(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         itemCount: programs.length,
-                        separatorBuilder: (_, _) => const Divider(
-                          height: 1,
-                          indent: 20,
-                          endIndent: 20,
-                        ),
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1, indent: 20, endIndent: 20),
                         itemBuilder: (context, index) {
                           final program = programs[index];
                           final past = program.endTime <= now;
@@ -117,9 +114,7 @@ Future<void> showLiveCatchupSheet(
                                     child: Text(current ? '从头看' : '回看'),
                                   )
                                 : Text(
-                                    current
-                                        ? '直播中'
-                                        : (past ? '已结束' : '未开始'),
+                                    current ? '直播中' : (past ? '已结束' : '未开始'),
                                     style: theme.textTheme.labelSmall?.copyWith(
                                       color: theme.colorScheme.onSurface
                                           .withValues(alpha: 0.5),
@@ -158,10 +153,7 @@ Future<void> showLiveCatchupSheet(
     title: channel.name,
     subtitle: '直播回看 · ${selected.range}',
     episodes: [
-      Episode(
-        name: '${selected.range} ${selected.title}',
-        url: result.url,
-      ),
+      Episode(name: '${selected.range} ${selected.title}', url: result.url),
     ],
     headers: headers,
     sourceKey: 'live-catchup',

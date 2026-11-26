@@ -7,12 +7,17 @@ void main() {
   group('Set-Cookie 解析', () {
     test('单个 Cookie 忽略属性', () {
       expect(parseSetCookieHeader('a=1; Path=/; HttpOnly'), 'a=1');
-      expect(parseSetCookieHeader('cf_clearance=xyz; Secure; SameSite=None'), 'cf_clearance=xyz');
+      expect(
+        parseSetCookieHeader('cf_clearance=xyz; Secure; SameSite=None'),
+        'cf_clearance=xyz',
+      );
     });
 
     test('多个 Cookie 与 Expires 里的逗号不误切', () {
       expect(
-        parseSetCookieHeader('a=1; Path=/, b=2; Expires=Wed, 21 Oct 2026 07:28:00 GMT'),
+        parseSetCookieHeader(
+          'a=1; Path=/, b=2; Expires=Wed, 21 Oct 2026 07:28:00 GMT',
+        ),
         'a=1; b=2',
       );
     });
@@ -26,7 +31,11 @@ void main() {
   group('会话 Cookie 捕获', () {
     test('403 响应也会收下 Set-Cookie', () async {
       final client = MockClient((request) async {
-        return http.Response('blocked', 403, headers: {'set-cookie': 'sid=abc; Path=/'});
+        return http.Response(
+          'blocked',
+          403,
+          headers: {'set-cookie': 'sid=abc; Path=/'},
+        );
       });
       final api = AppHttp(client: client);
       await expectLater(
@@ -45,7 +54,9 @@ void main() {
         return http.Response(
           '{}',
           200,
-          headers: {'set-cookie': round == 1 ? 'sid=old; Path=/' : 'sid=new; Path=/'},
+          headers: {
+            'set-cookie': round == 1 ? 'sid=old; Path=/' : 'sid=new; Path=/',
+          },
         );
       });
       final api = AppHttp(client: client);

@@ -148,9 +148,8 @@ class _ImmersiveSearchPageState extends State<ImmersiveSearchPage> {
         app.siteByKey(item.sourceKey) ??
         (item.sourceKey.isEmpty ? app.activeSite : null);
     if (site == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('找不到该目录所属的站点，请重新选择或导入源')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('找不到该目录所属的站点，请重新选择或导入源')));
       return;
     }
     Navigator.of(context).push(

@@ -128,7 +128,11 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
     }
   }
 
-  Future<void> _openSeries(AppState app, MediaServer server, MediaItem series) async {
+  Future<void> _openSeries(
+    AppState app,
+    MediaServer server,
+    MediaItem series,
+  ) async {
     setState(() {
       _loading = true;
       _error = '';
@@ -168,7 +172,9 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                         subtitle: episode.played
                             ? const Text('已看完')
                             : (episode.positionMs > 0
-                                  ? Text('上次看到 ${_durationText(episode.positionMs)}')
+                                  ? Text(
+                                      '上次看到 ${_durationText(episode.positionMs)}',
+                                    )
                                   : null),
                         onTap: () => Navigator.of(ctx).pop(episode),
                       );
@@ -368,7 +374,8 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
         return EmptyState(
           icon: Icons.dns_outlined,
           title: '还没有媒体服务器',
-          message: '支持 Emby 与 Jellyfin：填写服务器地址与 API Key 后即可浏览、'
+          message:
+              '支持 Emby 与 Jellyfin：填写服务器地址与 API Key 后即可浏览、'
               '搜索并原画直通播放。',
           action: FilledButton.icon(
             onPressed: () => _editServer(app),
@@ -480,11 +487,8 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                 return ChoiceChip(
                   label: Text(library.name),
                   selected: library.id == _libraryId,
-                  onSelected: (_) => _loadItems(
-                    app,
-                    server,
-                    parentId: library.id,
-                  ),
+                  onSelected: (_) =>
+                      _loadItems(app, server, parentId: library.id),
                 );
               },
             ),
@@ -519,7 +523,9 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                             app,
                             server,
                             item,
-                            siblings: _items.where((e) => e.isPlayable).toList(),
+                            siblings: _items
+                                .where((e) => e.isPlayable)
+                                .toList(),
                           );
                         }
                       },
@@ -582,10 +588,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
         ),
         const SizedBox(height: 12),
         if (dirs.isEmpty)
-          Text(
-            '还没有添加文件夹。点右上角「新建文件夹」图标选择目录。',
-            style: theme.textTheme.bodySmall,
-          )
+          Text('还没有添加文件夹。点右上角「新建文件夹」图标选择目录。', style: theme.textTheme.bodySmall)
         else
           for (final dir in dirs)
             Card(
@@ -597,11 +600,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
               child: ListTile(
                 dense: true,
                 leading: const Icon(Icons.folder_outlined, size: 20),
-                title: Text(
-                  dir,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                title: Text(dir, maxLines: 1, overflow: TextOverflow.ellipsis),
                 trailing: IconButton(
                   tooltip: '移除',
                   onPressed: () async {
@@ -743,10 +742,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                     SegmentedButton<MediaServerKind>(
                       segments: [
                         for (final item in MediaServerKind.values)
-                          ButtonSegment(
-                            value: item,
-                            label: Text(item.label),
-                          ),
+                          ButtonSegment(value: item, label: Text(item.label)),
                       ],
                       selected: {kind},
                       onSelectionChanged: (value) =>
@@ -755,9 +751,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: name,
-                      decoration: const InputDecoration(
-                        labelText: '名称（可留空）',
-                      ),
+                      decoration: const InputDecoration(labelText: '名称（可留空）'),
                     ),
                     const SizedBox(height: 10),
                     TextField(

@@ -1,5 +1,6 @@
 import '../party/party_room.dart';
 import '../sync/sync_bundle.dart';
+import 'flow_payload.dart';
 
 /// Web 版不能监听局域网端口：保留同样的接口，调用方给出可读提示。
 class LanServer {
@@ -8,6 +9,8 @@ class LanServer {
     required String Function() token,
     required SyncBundle Function() snapshot,
     required Future<SyncMergeReport> Function(SyncBundle) apply,
+    required Future<FlowAck> Function(FlowPayload payload) onFlow,
+    String Function()? devicePlatform,
   });
   static const int defaultPort = 9979;
 

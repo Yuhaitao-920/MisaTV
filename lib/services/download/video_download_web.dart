@@ -24,8 +24,9 @@ class VideoDownloadTask {
     return task;
   }
 
-  final ValueNotifier<VideoDownloadProgress> progress =
-      ValueNotifier(const VideoDownloadProgress());
+  final ValueNotifier<VideoDownloadProgress> progress = ValueNotifier(
+    const VideoDownloadProgress(),
+  );
 
   String directory = '';
 
@@ -40,7 +41,8 @@ class VideoDownloadTask {
 
 String videoDownloadDir() => '';
 
-String videoDownloadExtension(String url, [String fallback = 'mp4']) => fallback;
+String videoDownloadExtension(String url, [String fallback = 'mp4']) =>
+    fallback;
 
 String allocateDownloadPath(String dir, String title, String url) => '';
 

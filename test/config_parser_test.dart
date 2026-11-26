@@ -282,7 +282,10 @@ void main() {
       ''';
       final objectParsed = ConfigParser.parse(objectForm);
       expect(objectParsed.config.headers.length, 1);
-      expect(objectParsed.config.headers.single.header['user-agent'], 'okHttp/1.5');
+      expect(
+        objectParsed.config.headers.single.header['user-agent'],
+        'okHttp/1.5',
+      );
     });
 
     test('分组标题不算坏源，空直播线路被忽略', () {

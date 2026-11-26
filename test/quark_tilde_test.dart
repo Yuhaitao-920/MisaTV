@@ -51,10 +51,7 @@ void main() {
       );
       // URL 不参与
       expect(
-        extractQuarkShare(
-          'https://pan.quark.cn/s/abcdef',
-          flag: 'quark',
-        ),
+        extractQuarkShare('https://pan.quark.cn/s/abcdef', flag: 'quark'),
         isNotNull, // 走链接分支
       );
     });

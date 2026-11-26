@@ -32,8 +32,7 @@ class SyncBundle {
   /// 键为 `资源|集`（见 [skipStoreKey]）。
   final Map<String, SkipRecord> skips;
 
-  bool get isEmpty =>
-      history.isEmpty && favorites.isEmpty && skips.isEmpty;
+  bool get isEmpty => history.isEmpty && favorites.isEmpty && skips.isEmpty;
 
   Map<String, dynamic> toJson() => {
     'schemaVersion': schemaVersion,
@@ -72,9 +71,7 @@ class SyncBundle {
       exportedAt: (json['exportedAt'] as num?)?.toInt() ?? 0,
       deviceName: (json['deviceName'] ?? '').toString(),
       history: rawHistory is Map
-          ? HistorySyncSnapshot.fromJson(
-              Map<String, dynamic>.from(rawHistory),
-            )
+          ? HistorySyncSnapshot.fromJson(Map<String, dynamic>.from(rawHistory))
           : const HistorySyncSnapshot(),
       favorites: favorites,
       skips: skips,

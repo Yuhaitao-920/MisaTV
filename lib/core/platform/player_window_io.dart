@@ -105,10 +105,7 @@ Future<void> registerMainPlayerWindowBridge({
 }
 
 /// 子窗口：把清理/同步消息发回主窗口。
-Future<void> notifyMainPlayerWindow(
-  String method, {
-  Object? arguments,
-}) async {
+Future<void> notifyMainPlayerWindow(String method, {Object? arguments}) async {
   if (!supportsStandalonePlayerWindow) return;
   try {
     const channel = WindowMethodChannel(

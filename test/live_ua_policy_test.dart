@@ -96,7 +96,9 @@ void main() {
     });
 
     test('UA 为空的规则不算命中，也不参与解析', () {
-      const policy = LiveUaPolicy(rules: [LiveUaRule(pattern: 'a.test', ua: ' ')]);
+      const policy = LiveUaPolicy(
+        rules: [LiveUaRule(pattern: 'a.test', ua: ' ')],
+      );
       expect(policy.matchRule('http://a.test/l'), isNull);
       expect(policy.resolve('http://a.test/l'), isEmpty);
     });
@@ -108,19 +110,28 @@ void main() {
         rules: [LiveUaRule(pattern: 'cdn-edge.test', ua: 'rule')],
       );
       expect(
-        resolveLiveStreamUa('http://cdn-edge.test/1.ts', currentUa: 'okhttp/3.12.0'),
+        resolveLiveStreamUa(
+          'http://cdn-edge.test/1.ts',
+          currentUa: 'okhttp/3.12.0',
+        ),
         'rule',
       );
     });
 
     test('无规则命中时沿用已有 UA，其次才是全局默认', () {
       LiveUaPolicy.current = const LiveUaPolicy(defaultUa: 'default');
-      expect(resolveLiveStreamUa('http://a.test/1.ts', currentUa: 'qqlive'), 'qqlive');
+      expect(
+        resolveLiveStreamUa('http://a.test/1.ts', currentUa: 'qqlive'),
+        'qqlive',
+      );
       expect(resolveLiveStreamUa('http://a.test/1.ts'), 'default');
     });
 
     test('未配置时不改写已有 UA，也不凭空补一个', () {
-      expect(resolveLiveStreamUa('http://a.test/1.ts', currentUa: 'qqlive'), 'qqlive');
+      expect(
+        resolveLiveStreamUa('http://a.test/1.ts', currentUa: 'qqlive'),
+        'qqlive',
+      );
       expect(resolveLiveStreamUa('http://a.test/1.ts'), isEmpty);
     });
   });
@@ -168,7 +179,12 @@ void main() {
       expect(
         LiveUaPolicy.fromJson({
           'defaultUa': 123,
-          'rules': [null, 'x', {'pattern': '', 'ua': 'u'}, {'pattern': 'a.test', 'ua': 'ok'}],
+          'rules': [
+            null,
+            'x',
+            {'pattern': '', 'ua': 'u'},
+            {'pattern': 'a.test', 'ua': 'ok'},
+          ],
         }).rules.single.pattern,
         'a.test',
       );
@@ -193,31 +209,42 @@ void main() {
     LiveService serviceWith(void Function(http.Request req) probe) {
       final client = MockClient((request) async {
         probe(request);
-        return http.Response('央视,#genre#\nCCTV1,http://cdn.test/1.ts\n', 200,
-            headers: {'content-type': 'text/plain; charset=utf-8'});
+        return http.Response(
+          '央视,#genre#\nCCTV1,http://cdn.test/1.ts\n',
+          200,
+          headers: {'content-type': 'text/plain; charset=utf-8'},
+        );
       });
       return LiveService(AppHttp(client: client));
     }
 
     LiveBean bean(String url, {String ua = '', Map<String, String>? header}) =>
-        LiveBean(name: 'x', api: '', type: '0', url: url, ua: ua, header: header);
+        LiveBean(
+          name: 'x',
+          api: '',
+          type: '0',
+          url: url,
+          ua: ua,
+          header: header,
+        );
 
     test('什么都没填：已知服务仍用内置 qqlive（不能被探测 UA 抢走）', () async {
       http.Request? seen;
-      await serviceWith((r) => seen = r).load(
-        bean('http://live.ottiptv.cc/live.txt'),
-      );
+      await serviceWith((r) => seen = r)
+          .load(bean('http://live.ottiptv.cc/live.txt'));
       expect(seen!.headers['User-Agent'], 'qqlive');
     });
 
     test('全局默认 UA 不能覆盖内置已知服务的 UA', () async {
       LiveUaPolicy.current = const LiveUaPolicy(defaultUa: 'user-default');
       http.Request? seen;
-      await serviceWith((r) => seen = r).load(
-        bean('http://live.ottiptv.cc/live.txt'),
+      await serviceWith((r) => seen = r)
+          .load(bean('http://live.ottiptv.cc/live.txt'));
+      expect(
+        seen!.headers['User-Agent'],
+        'qqlive',
+        reason: '换掉 qqlive 会让列表指向广告流',
       );
-      expect(seen!.headers['User-Agent'], 'qqlive',
-          reason: '换掉 qqlive 会让列表指向广告流');
     });
 
     test('接口规则能覆盖内置已知服务的 UA（用户点名要换）', () async {
@@ -225,9 +252,8 @@ void main() {
         rules: [LiveUaRule(pattern: 'live.ottiptv.cc', ua: 'user-chosen')],
       );
       http.Request? seen;
-      await serviceWith((r) => seen = r).load(
-        bean('http://live.ottiptv.cc/live.txt'),
-      );
+      await serviceWith((r) => seen = r)
+          .load(bean('http://live.ottiptv.cc/live.txt'));
       expect(seen!.headers['User-Agent'], 'user-chosen');
     });
 
@@ -246,9 +272,8 @@ void main() {
     test('订阅自带 ua 优先于全局默认', () async {
       LiveUaPolicy.current = const LiveUaPolicy(defaultUa: 'user-default');
       http.Request? seen;
-      await serviceWith((r) => seen = r).load(
-        bean('http://a.test/live.txt', ua: 'subscription-ua'),
-      );
+      await serviceWith((r) => seen = r)
+          .load(bean('http://a.test/live.txt', ua: 'subscription-ua'));
       expect(seen!.headers['User-Agent'], 'subscription-ua');
     });
 
@@ -307,9 +332,8 @@ void main() {
 
     test('只有 ua 没有 header 时，频道继承 ua', () async {
       http.Request? seen;
-      final groups = await serviceWith((r) => seen = r).load(
-        bean('http://a.test/live.txt', ua: 'bean-ua'),
-      );
+      final groups = await serviceWith((r) => seen = r)
+          .load(bean('http://a.test/live.txt', ua: 'bean-ua'));
       expect(seen!.headers['User-Agent'], 'bean-ua');
       expect(groups.first.channels.first.ua, 'bean-ua');
     });
@@ -318,11 +342,13 @@ void main() {
       LiveUaPolicy.current = const LiveUaPolicy(
         rules: [LiveUaRule(pattern: 'a.test', ua: 'rule-ua')],
       );
-      final groups = await serviceWith((_) {}).load(
-        bean('http://a.test/live.txt'),
+      final groups = await serviceWith((_) {})
+          .load(bean('http://a.test/live.txt'));
+      expect(
+        groups.first.channels.first.ua,
+        'rule-ua',
+        reason: '列表与频道流都要带上用户点名的 UA',
       );
-      expect(groups.first.channels.first.ua, 'rule-ua',
-          reason: '列表与频道流都要带上用户点名的 UA');
     });
   });
 

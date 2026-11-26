@@ -54,7 +54,9 @@ Future<void> migrateLegacySupportDir(String newPath) async {
   // WebView2 的会话目录按 exe 文件名生成，一并搬走，免去重新扫码登录。
   try {
     final exe = Platform.resolvedExecutable;
-    final legacyWebView = Directory(p.join(p.dirname(exe), 'kniephos.exe.WebView2'));
+    final legacyWebView = Directory(
+      p.join(p.dirname(exe), 'kniephos.exe.WebView2'),
+    );
     final targetWebView = Directory('$exe.WebView2');
     if (legacyWebView.existsSync() && !targetWebView.existsSync()) {
       await legacyWebView.rename(targetWebView.path);

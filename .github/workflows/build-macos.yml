@@ -39,6 +39,18 @@ jobs:
       - name: 拉取依赖
         run: flutter pub get
 
+      - name: 格式检查
+        # 与 Windows 工作流一致：全仓已统一为 dart format 风格（提交 c9ecbc7），
+        # 这里拦截新增的格式债务。
+        shell: bash
+        run: |
+          if dart format --output=none --set-exit-if-changed lib test tool; then
+            echo "格式检查通过"
+          else
+            echo "::error::以上文件的格式不符合 dart format。本地执行 dart format lib test tool 后提交即可"
+            exit 1
+          fi
+
       - name: 静态分析
         run: flutter analyze
 

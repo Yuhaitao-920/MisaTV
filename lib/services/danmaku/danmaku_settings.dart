@@ -35,15 +35,15 @@ class DanmakuSettings {
 
   /// 默认值：弹幕关闭、全屏、24px、0.85 透明度、全量密度、110px/s、无偏移；仅炊烟袅袅启用。
   factory DanmakuSettings.defaults() => DanmakuSettings(
-        enabled: false,
-        regionRatio: 1,
-        fontSize: 24,
-        opacity: 0.85,
-        density: 1,
-        speed: 110,
-        offset: 0,
-        endpoints: defaultDanmakuEndpoints(),
-      );
+    enabled: false,
+    regionRatio: 1,
+    fontSize: 24,
+    opacity: 0.85,
+    density: 1,
+    speed: 110,
+    offset: 0,
+    endpoints: defaultDanmakuEndpoints(),
+  );
 
   /// 宽容解析 JSON（非法返回默认值）；逐项校验接口地址。
   factory DanmakuSettings.fromJsonString(String? json) {
@@ -71,11 +71,13 @@ class DanmakuSettings {
         final url = normalizeEndpointBase(_asString(e['url']));
         if (url.isEmpty || !seen.add(url)) continue;
         final name = _asString(e['name']).trim();
-        stored.add(DanmakuEndpoint(
-          name: name.isEmpty ? endpointLabel(url) : name,
-          url: url,
-          enabled: e['enabled'] != false,
-        ));
+        stored.add(
+          DanmakuEndpoint(
+            name: name.isEmpty ? endpointLabel(url) : name,
+            url: url,
+            enabled: e['enabled'] != false,
+          ),
+        );
       }
     }
     final List<DanmakuEndpoint> endpoints;
@@ -90,7 +92,9 @@ class DanmakuSettings {
     }
     final ratioRaw = _asDouble(raw['regionRatio']);
     final regionRatio = ratioRaw != null && ratioRaw.isFinite
-        ? ratioRaw.clamp(danmakuRegionMinRatio, danmakuRegionMaxRatio).toDouble()
+        ? ratioRaw
+              .clamp(danmakuRegionMinRatio, danmakuRegionMaxRatio)
+              .toDouble()
         : danmakuLegacyRegionRatio(_asString(raw['region']));
     return DanmakuSettings(
       enabled: _asBool(raw['enabled']) ?? fallback.enabled,
@@ -120,17 +124,17 @@ class DanmakuSettings {
   final List<String> blockWords;
 
   Map<String, dynamic> toJson() => {
-        'enabled': enabled,
-        'regionRatio': regionRatio,
-        'fontSize': fontSize,
-        'opacity': opacity,
-        'density': density,
-        'speed': speed,
-        'offset': offset,
-        'endpoints': [for (final e in endpoints) e.toJson()],
-        'endpointsRev': danmakuEndpointsRev,
-        'blockWords': blockWords,
-      };
+    'enabled': enabled,
+    'regionRatio': regionRatio,
+    'fontSize': fontSize,
+    'opacity': opacity,
+    'density': density,
+    'speed': speed,
+    'offset': offset,
+    'endpoints': [for (final e in endpoints) e.toJson()],
+    'endpointsRev': danmakuEndpointsRev,
+    'blockWords': blockWords,
+  };
 
   String toJsonString() => jsonEncode(toJson());
 
@@ -166,7 +170,8 @@ List<String> normalizeDanmakuBlockWords(String raw) {
   for (final part in raw.split(RegExp(r'[\r\n,，、;；]+'))) {
     final word = part.trim();
     if (word.isEmpty) continue;
-    final isRegex = word.length > 2 && word.startsWith('/') && word.endsWith('/');
+    final isRegex =
+        word.length > 2 && word.startsWith('/') && word.endsWith('/');
     final key = isRegex ? word : word.toLowerCase();
     if (!seen.add(key)) continue;
     out.add(word);
@@ -181,7 +186,10 @@ bool isDanmakuBlocked(String text, List<String> blockWords) {
   for (final word in blockWords) {
     if (word.length > 2 && word.startsWith('/') && word.endsWith('/')) {
       try {
-        if (RegExp(word.substring(1, word.length - 1), caseSensitive: false).hasMatch(text)) {
+        if (RegExp(
+          word.substring(1, word.length - 1),
+          caseSensitive: false,
+        ).hasMatch(text)) {
           return true;
         }
       } catch (_) {
@@ -196,7 +204,9 @@ bool isDanmakuBlocked(String text, List<String> blockWords) {
 
 List<String> _parseBlockWords(dynamic raw) {
   if (raw is List) {
-    return normalizeDanmakuBlockWords(raw.map((e) => e?.toString() ?? '').join('\n'));
+    return normalizeDanmakuBlockWords(
+      raw.map((e) => e?.toString() ?? '').join('\n'),
+    );
   }
   return normalizeDanmakuBlockWords(raw == null ? '' : raw.toString());
 }

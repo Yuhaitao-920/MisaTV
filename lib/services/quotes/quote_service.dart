@@ -189,7 +189,9 @@ List<MovieQuote> parseQuoteBundle(String json) {
     if (!containsChinese(line)) continue;
     if (line.length > 60 || title.length > 40) continue;
     if (_genericTitles.contains(title)) continue;
-    if (title.toLowerCase().contains('http') || title.contains('www.')) continue;
+    if (title.toLowerCase().contains('http') || title.contains('www.')) {
+      continue;
+    }
     if (!seen.add('$line|$title')) continue;
     quotes.add(MovieQuote(line: line, title: title));
   }

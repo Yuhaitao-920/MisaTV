@@ -200,16 +200,16 @@ class _JsWorker {
     channels['__b64d'] = (dynamic payload) =>
         _b64Decode(((payload as Map)['s'] ?? '').toString());
     js.evaluate(spiderJsBootstrap, name: 'kniephos:bootstrap');
-js.evaluate(
-  "if (typeof globalThis.SpiderDebug === 'undefined') { "
-  "globalThis.SpiderDebug = { "
-  "log: function() { try { if (typeof console !== 'undefined' && console.log) console.log.apply(console, arguments); } catch (_) {} }, "
-  "info: function() { try { if (typeof console !== 'undefined' && (console.info || console.log)) (console.info || console.log).apply(console, arguments); } catch (_) {} }, "
-  "warn: function() { try { if (typeof console !== 'undefined' && (console.warn || console.log)) (console.warn || console.log).apply(console, arguments); } catch (_) {} }, "
-  "error: function() { try { if (typeof console !== 'undefined' && (console.error || console.log)) (console.error || console.log).apply(console, arguments); } catch (_) {} } "
-  "}; }",
-  name: 'kniephos:spider_debug',
-);
+    js.evaluate(
+      "if (typeof globalThis.SpiderDebug === 'undefined') { "
+      "globalThis.SpiderDebug = { "
+      "log: function() { try { if (typeof console !== 'undefined' && console.log) console.log.apply(console, arguments); } catch (_) {} }, "
+      "info: function() { try { if (typeof console !== 'undefined' && (console.info || console.log)) (console.info || console.log).apply(console, arguments); } catch (_) {} }, "
+      "warn: function() { try { if (typeof console !== 'undefined' && (console.warn || console.log)) (console.warn || console.log).apply(console, arguments); } catch (_) {} }, "
+      "error: function() { try { if (typeof console !== 'undefined' && (console.error || console.log)) (console.error || console.log).apply(console, arguments); } catch (_) {} } "
+      "}; }",
+      name: 'kniephos:spider_debug',
+    );
     return _SiteRuntime(api: api, hash: scriptHash, ext: ext, js: js);
   }
 
@@ -247,6 +247,26 @@ js.evaluate(
   // ---------------------------------------------------------------------------
   // 宿主桥：HTTP
   // ---------------------------------------------------------------------------
+  /// 把 `file://` 地址解析成本地文件；不是本地地址或文件不存在时返回 null。
+  ///
+  /// 兼容本地包常见的两种尾缀：`?name=X` 查询串与 `$线路名` 自定义参数，
+  /// 它们都属于脚本自己消费的附加信息，不该出现在文件路径里。
+  File? _localFileOf(String url) {
+    final raw = url.trim();
+    if (!raw.toLowerCase().startsWith('file://')) return null;
+    var path = raw;
+    final query = path.indexOf('?');
+    if (query >= 0) path = path.substring(0, query);
+    final dollar = path.indexOf(r'$');
+    if (dollar > 0) path = path.substring(0, dollar);
+    try {
+      final file = File(filePathOf(path));
+      return file.existsSync() ? file : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _handleNet(dynamic payload) {
     final map = payload is Map
         ? Map<String, dynamic>.from(payload)
@@ -268,6 +288,32 @@ js.evaluate(
     final charset = (map['charset'] ?? '').toString();
     final buffer = (map['buffer'] as num?)?.toInt() ?? 0;
     final redirect = (map['redirect'] as num?)?.toInt() ?? 1;
+
+    // 本地包里的配置（`./config/env.json` 这类 ext）会被改写成 `file://`。
+    // curl 不认这个 scheme，直接丢给它会得到一个空响应，脚本拿不到配置就
+    // 只能回退到默认值 —— 表现为「源能打开、但网盘线路全空」。
+    // 这里先把 `$` 自定义参数拆掉再按本地文件读。
+    final localFile = _localFileOf(url);
+    if (localFile != null) {
+      try {
+        final bytes = localFile.readAsBytesSync();
+        return jsonEncode({
+          'headers': <String, String>{},
+          'content': _decodeContent(bytes, charset, const {}, buffer),
+          'status': 200,
+          'ok': true,
+          'url': url,
+        });
+      } catch (_) {
+        return jsonEncode({
+          'headers': <String, String>{},
+          'content': '',
+          'status': 404,
+          'ok': false,
+          'url': url,
+        });
+      }
+    }
 
     final res = _curl(
       url: url,

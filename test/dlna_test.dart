@@ -16,16 +16,21 @@ void main() {
     });
 
     test('解析 200 应答与 NOTIFY 广播', () {
-      const ok = 'HTTP/1.1 200 OK\r\n'
+      const ok =
+          'HTTP/1.1 200 OK\r\n'
           'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
           'USN: uuid:abc::urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
           'LOCATION: http://192.168.1.10:8080/desc.xml\r\n\r\n';
       final parsed = parseSsdpResponse(ok);
       expect(parsed, isNotNull);
       expect(parsed!.location, 'http://192.168.1.10:8080/desc.xml');
-      expect(parsed.usn, 'uuid:abc::urn:schemas-upnp-org:device:MediaRenderer:1');
+      expect(
+        parsed.usn,
+        'uuid:abc::urn:schemas-upnp-org:device:MediaRenderer:1',
+      );
 
-      const notify = 'NOTIFY * HTTP/1.1\r\n'
+      const notify =
+          'NOTIFY * HTTP/1.1\r\n'
           'NT: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
           'LOCATION: http://192.168.1.11:9197/dmr\r\n\r\n';
       final alive = parseSsdpResponse(notify);
@@ -42,7 +47,8 @@ void main() {
   });
 
   group('设备描述', () {
-    const xml = '<?xml version="1.0"?>'
+    const xml =
+        '<?xml version="1.0"?>'
         '<root xmlns="urn:schemas-upnp-org:device-1-0"><device>'
         '<friendlyName>客厅电视</friendlyName>'
         '<UDN>uuid:living-room</UDN>'
@@ -54,16 +60,23 @@ void main() {
         '</serviceList></device></root>';
 
     test('解析 AVTransport / RenderingControl 并拼绝对地址', () {
-      final device = parseDeviceDescription(xml, 'http://192.168.1.10:8080/desc.xml');
+      final device = parseDeviceDescription(
+        xml,
+        'http://192.168.1.10:8080/desc.xml',
+      );
       expect(device, isNotNull);
       expect(device!.name, '客厅电视');
       expect(device.udn, 'uuid:living-room');
       expect(device.controlUrl, 'http://192.168.1.10:8080/AVTransport/control');
-      expect(device.renderingControlUrl, 'http://192.168.1.10:8080/RenderingControl/control');
+      expect(
+        device.renderingControlUrl,
+        'http://192.168.1.10:8080/RenderingControl/control',
+      );
     });
 
     test('无 AVTransport 的设备不列出', () {
-      const noAvt = '<root><device><friendlyName>音箱</friendlyName>'
+      const noAvt =
+          '<root><device><friendlyName>音箱</friendlyName>'
           '<serviceList><service><serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>'
           '<controlURL>/rc</controlURL></service></serviceList></device></root>';
       expect(parseDeviceDescription(noAvt, 'http://host/d.xml'), isNull);
@@ -72,9 +85,18 @@ void main() {
     });
 
     test('combineUrl 相对设备根而不是 descriptor 目录', () {
-      expect(combineUrl('http://host:8080/a/desc.xml', '/ctl'), 'http://host:8080/ctl');
-      expect(combineUrl('http://host:8080/a/desc.xml', 'ctl'), 'http://host:8080/ctl');
-      expect(combineUrl('http://host:8080/a/desc.xml', 'https://other/ctl'), 'https://other/ctl');
+      expect(
+        combineUrl('http://host:8080/a/desc.xml', '/ctl'),
+        'http://host:8080/ctl',
+      );
+      expect(
+        combineUrl('http://host:8080/a/desc.xml', 'ctl'),
+        'http://host:8080/ctl',
+      );
+      expect(
+        combineUrl('http://host:8080/a/desc.xml', 'https://other/ctl'),
+        'https://other/ctl',
+      );
     });
   });
 
@@ -85,7 +107,10 @@ void main() {
     });
 
     test('headersJson 保持顺序', () {
-      expect(headersJson({'User-Agent': 'UA', 'Referer': 'R'}), '{"User-Agent":"UA","Referer":"R"}');
+      expect(
+        headersJson({'User-Agent': 'UA', 'Referer': 'R'}),
+        '{"User-Agent":"UA","Referer":"R"}',
+      );
     });
 
     test('buildMetaData 带标题、描述与资源地址', () {
@@ -103,10 +128,20 @@ void main() {
     });
 
     test('buildSetUriBody 对 DIDL 再转义一层', () {
-      final body = buildSetUriBody('https://cdn/a.mp4', buildMetaData(
-        const DlnaCastTarget(url: 'https://cdn/a.mp4', name: 'x', positionMs: 0),
-      ));
-      expect(body.contains('<CurrentURI>https://cdn/a.mp4</CurrentURI>'), isTrue);
+      final body = buildSetUriBody(
+        'https://cdn/a.mp4',
+        buildMetaData(
+          const DlnaCastTarget(
+            url: 'https://cdn/a.mp4',
+            name: 'x',
+            positionMs: 0,
+          ),
+        ),
+      );
+      expect(
+        body.contains('<CurrentURI>https://cdn/a.mp4</CurrentURI>'),
+        isTrue,
+      );
       expect(body.contains('&lt;DIDL-Lite'), isTrue);
       expect(body.contains('<DIDL-Lite'), isFalse);
       expect(body.contains('SetAVTransportURI'), isTrue);
@@ -116,7 +151,10 @@ void main() {
       expect(formatMs(0), '00:00:00.000');
       expect(formatMs(-5), '00:00:00.000');
       expect(formatMs(3723456), '01:02:03.456');
-      expect(soapActionHeader('Play'), '"urn:schemas-upnp-org:service:AVTransport:1#Play"');
+      expect(
+        soapActionHeader('Play'),
+        '"urn:schemas-upnp-org:service:AVTransport:1#Play"',
+      );
     });
   });
 
@@ -133,14 +171,18 @@ void main() {
     });
 
     test('解开 /play 中继的防盗链参数', () {
-      final wrapped = Uri.parse('$relay/play').replace(queryParameters: {
-        'url': 'https://cdn.test/movie.mp4',
-        'ua': 'Test UA',
-        'referer': 'https://site.test/',
-        'cookie': 'sid=1',
-        'dav': 'srv-9',
-        'h': '{"X-Custom":"v1"}',
-      }).toString();
+      final wrapped = Uri.parse('$relay/play')
+          .replace(
+            queryParameters: {
+              'url': 'https://cdn.test/movie.mp4',
+              'ua': 'Test UA',
+              'referer': 'https://site.test/',
+              'cookie': 'sid=1',
+              'dav': 'srv-9',
+              'h': '{"X-Custom":"v1"}',
+            },
+          )
+          .toString();
       final target = parseCastTarget(wrapped, '', 5000, relayBase: relay);
       expect(target.url, 'https://cdn.test/movie.mp4');
       expect(target.headers['User-Agent'], 'Test UA');
@@ -153,14 +195,24 @@ void main() {
     });
 
     test('本机 /bt 中继标 localRelay', () {
-      final target = parseCastTarget('$relay/bt/$hash/1', '磁力', 0, relayBase: relay);
+      final target = parseCastTarget(
+        '$relay/bt/$hash/1',
+        '磁力',
+        0,
+        relayBase: relay,
+      );
       expect(target.localRelay, isTrue);
       expect(target.url.contains('/bt/'), isTrue);
     });
 
     test('空地址与解不出上游的中继标 localRelay', () {
       expect(parseCastTarget('', 'x', 0).localRelay, isTrue);
-      final broken = parseCastTarget('$relay/play?url=not-http', 'x', 0, relayBase: relay);
+      final broken = parseCastTarget(
+        '$relay/play?url=not-http',
+        'x',
+        0,
+        relayBase: relay,
+      );
       expect(broken.localRelay, isTrue);
     });
   });
@@ -178,7 +230,9 @@ void main() {
         final body = await utf8.decoder.bind(req).join();
         calls.add('${req.headers.value('soapaction') ?? ''}\n$body');
         req.response.headers.set('content-type', 'text/xml; charset=utf-8');
-        req.response.write('<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body/></s:Envelope>');
+        req.response.write(
+          '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body/></s:Envelope>',
+        );
         await req.response.close();
       });
       try {
@@ -201,7 +255,10 @@ void main() {
         expect(result.device, '客厅电视');
         expect(calls.length, 3);
         expect(calls[0].contains('#SetAVTransportURI"'), isTrue);
-        expect(calls[0].contains('<CurrentURI>https://cdn.test/a.mp4</CurrentURI>'), isTrue);
+        expect(
+          calls[0].contains('<CurrentURI>https://cdn.test/a.mp4</CurrentURI>'),
+          isTrue,
+        );
         expect(calls[0].contains('&lt;DIDL-Lite'), isTrue);
         expect(calls[1].contains('#Play"'), isTrue);
         expect(calls[2].contains('#Seek"'), isTrue);
@@ -227,7 +284,11 @@ void main() {
         );
         final result = await DlnaService().cast(
           device,
-          const DlnaCastTarget(url: 'https://cdn.test/a.mp4', name: 'x', positionMs: 0),
+          const DlnaCastTarget(
+            url: 'https://cdn.test/a.mp4',
+            name: 'x',
+            positionMs: 0,
+          ),
         );
         expect(result.ok, isFalse);
         expect(result.error, contains('HTTP 500'));

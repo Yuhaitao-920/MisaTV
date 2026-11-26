@@ -54,7 +54,8 @@ Future<void> showSourceVariantsSheet(
                 shrinkWrap: true,
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 itemCount: variants.length,
-                separatorBuilder: (_, _) => const Divider(height: 1, indent: 20),
+                separatorBuilder: (_, _) =>
+                    const Divider(height: 1, indent: 20),
                 itemBuilder: (context, index) {
                   final item = variants[index];
                   final current = item.sourceKey == currentSourceKey;
@@ -65,9 +66,7 @@ Future<void> showSourceVariantsSheet(
                           ? theme.colorScheme.primaryContainer
                           : theme.colorScheme.surfaceContainerHighest,
                       child: Icon(
-                        current
-                            ? Icons.check_rounded
-                            : Icons.live_tv_rounded,
+                        current ? Icons.check_rounded : Icons.live_tv_rounded,
                         size: 18,
                         color: current
                             ? theme.colorScheme.onPrimaryContainer

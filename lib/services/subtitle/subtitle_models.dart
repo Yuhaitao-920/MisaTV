@@ -176,8 +176,7 @@ class SubtitleChoice {
   /// 质量体检，用来识别「AI 摘要」这类假字幕。
   SubtitleHealth get health => inspectSubtitleHealth(text);
 
-  SubtitleFile toFile() =>
-      SubtitleFile(name: name, format: format, text: text);
+  SubtitleFile toFile() => SubtitleFile(name: name, format: format, text: text);
 }
 
 /// 包内有多条字幕，需要用户先选一条。

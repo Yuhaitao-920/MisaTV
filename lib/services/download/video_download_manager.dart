@@ -104,7 +104,9 @@ class VideoDownloadManager extends ChangeNotifier {
       provider: provider,
       hls: hls,
       directory: dir,
-      filePath: hls ? '' : allocateDownloadPath(dir, fileName, sourceUrl ?? url),
+      filePath: hls
+          ? ''
+          : allocateDownloadPath(dir, fileName, sourceUrl ?? url),
       status: VideoDownloadStatus.downloading,
       createdAt: now,
       updatedAt: now,

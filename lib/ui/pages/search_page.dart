@@ -154,9 +154,8 @@ class _SearchPageState extends State<SearchPage> {
           openFolderBrowse(context, picked);
           return;
         }
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => DetailPage(item: picked)),
-        );
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => DetailPage(item: picked)));
       },
     );
   }

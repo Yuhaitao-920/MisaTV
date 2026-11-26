@@ -203,9 +203,9 @@ class MediaServerService {
   }) async {
     final base = _normalizeBase(server.baseUrl);
     if (base.isEmpty) throw MediaServerException('服务器地址为空');
-    final uri = Uri.parse('$base$path').replace(
-      queryParameters: query == null || query.isEmpty ? null : query,
-    );
+    final uri = Uri.parse(
+      '$base$path',
+    ).replace(queryParameters: query == null || query.isEmpty ? null : query);
     final headers = <String, String>{
       'Accept': 'application/json',
       if (server.apiKey.isNotEmpty) 'X-Emby-Token': server.apiKey,

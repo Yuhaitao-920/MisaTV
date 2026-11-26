@@ -305,13 +305,11 @@ class Aria2Sidecar {
   }
 
   /// 通用添加（下载管理器用：http/https/ftp/磁力都走这里）。
-  Future<String> addDownload(
-    List<String> uris,
-    Map<String, String> options,
-  ) => _call<String>('aria2.addUri', [
-    uris,
-    options,
-  ], timeout: const Duration(seconds: 20));
+  Future<String> addDownload(List<String> uris, Map<String, String> options) =>
+      _call<String>('aria2.addUri', [
+        uris,
+        options,
+      ], timeout: const Duration(seconds: 20));
 
   /// 下载管理器：当前活动 / 等待 / 已结束任务。
   Future<List<Map<String, dynamic>>> tellActive() =>
@@ -332,10 +330,7 @@ class Aria2Sidecar {
     List<Object?> leading,
   ) async {
     final keys = DownloadTask.statusKeys;
-    final raw = await _call<List<dynamic>>(method, [
-      ...leading,
-      keys,
-    ]);
+    final raw = await _call<List<dynamic>>(method, [...leading, keys]);
     return raw
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))

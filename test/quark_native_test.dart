@@ -56,7 +56,8 @@ void main() {
     });
 
     test('fty 壳的集参数 JSON 只在线路名为夸克时解释', () {
-      const ep = '{"pg":"1","parent":"[M-兰]","sId":"329e8e9b9752",'
+      const ep =
+          '{"pg":"1","parent":"[M-兰]","sId":"329e8e9b9752",'
           '"sToken":"giV1cnKF/QaEQQhM",'
           '"share_fid_token":"2022af50f01650bf",'
           '"fid":"cd689cdfdb534fe6","pdir_fid":"3052bdcd1b9b4cf2",'

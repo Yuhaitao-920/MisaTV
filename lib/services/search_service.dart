@@ -219,8 +219,7 @@ class SearchService {
         final cacheKey = '${site.key}\u0000$query';
         final cached = _cache[cacheKey];
         final fresh =
-            cached != null &&
-            DateTime.now().difference(cached.at) < _cacheTtl;
+            cached != null && DateTime.now().difference(cached.at) < _cacheTtl;
         if (cached != null && !fresh) _cache.remove(cacheKey);
         List<VodItem>? cachedItems;
         if (cached != null && fresh) cachedItems = cached.items;
@@ -320,11 +319,7 @@ class SearchService {
             ms: ms,
           ),
         );
-        AppLog.e(
-          'search',
-          '源 ${site.key} 失败 ${ms}ms（${failure.kind.name}）',
-          e,
-        );
+        AppLog.e('search', '源 ${site.key} 失败 ${ms}ms（${failure.kind.name}）', e);
       } finally {
         if (!stale()) {
           done++;
@@ -413,10 +408,7 @@ class SearchService {
     // 已返回的结果全部保留，只是不再等剩下的慢源（100 个源排队几分钟的根因）。
     budgetTimer = Timer(roundBudget, () {
       if (stale() || closed) return;
-      AppLog.i(
-        'search',
-        '搜索达到 ${roundBudget.inSeconds}s 预算，先收起已返回结果（剩余源不再等待）',
-      );
+      AppLog.i('search', '搜索达到 ${roundBudget.inSeconds}s 预算，先收起已返回结果（剩余源不再等待）');
       sourceService.cancelSearchRound(generation);
       emit(finished: true, timedOut: true);
     });
@@ -450,8 +442,7 @@ class SearchService {
     Iterable<SourceBean> sites, {
     bool jarLast = false,
   }) {
-    final rows =
-        <({SourceBean site, int index, int jar, int failures})>[];
+    final rows = <({SourceBean site, int index, int jar, int failures})>[];
     var index = 0;
     for (final site in sites) {
       rows.add((
@@ -491,11 +482,8 @@ class SearchService {
     _cache[key] = _SearchCacheEntry(DateTime.now(), items);
   }
 
-  VodItem _copyItem(
-    VodItem item, {
-    String? pic,
-    int? sameFromOtherSources,
-  }) => VodItem(
+  VodItem _copyItem(VodItem item, {String? pic, int? sameFromOtherSources}) =>
+      VodItem(
         id: item.id,
         name: item.name,
         pic: pic ?? item.pic,
@@ -506,8 +494,7 @@ class SearchService {
         sourceKey: item.sourceKey,
         tag: item.tag,
         sourceName: item.sourceName,
-        sameFromOtherSources:
-            sameFromOtherSources ?? item.sameFromOtherSources,
+        sameFromOtherSources: sameFromOtherSources ?? item.sameFromOtherSources,
       );
 
   String _dedupeKey(VodItem item) =>

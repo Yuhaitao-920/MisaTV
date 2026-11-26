@@ -95,7 +95,9 @@ class LocalImportService {
     if (!source.existsSync()) throw Exception('文件夹不存在：$dirPath');
     final name = _safeName(p.basename(source.path));
     final root = await _managedDir('local_pkgs');
-    final target = Directory(p.join(root.path, '${name}_${DateTime.now().millisecondsSinceEpoch}'));
+    final target = Directory(
+      p.join(root.path, '${name}_${DateTime.now().millisecondsSinceEpoch}'),
+    );
     await _copyDirectory(source, target);
     return _payloadFromDirectory(target, name);
   }
@@ -106,7 +108,9 @@ class LocalImportService {
     if (!source.existsSync()) throw Exception('文件不存在：$zipPath');
     final name = _safeName(p.basenameWithoutExtension(source.path));
     final root = await _managedDir('local_pkgs');
-    final target = Directory(p.join(root.path, '${name}_${DateTime.now().millisecondsSinceEpoch}'));
+    final target = Directory(
+      p.join(root.path, '${name}_${DateTime.now().millisecondsSinceEpoch}'),
+    );
     target.createSync(recursive: true);
 
     final Archive archive;
@@ -131,7 +135,10 @@ class LocalImportService {
     return _payloadFromDirectory(target, name);
   }
 
-  static Future<LocalImportPayload> _payloadFromDirectory(Directory package, String name) async {
+  static Future<LocalImportPayload> _payloadFromDirectory(
+    Directory package,
+    String name,
+  ) async {
     final jsonFile = findSubscriptionJson(package);
     if (jsonFile != null) {
       final text = await jsonFile.readAsString();
@@ -142,12 +149,13 @@ class LocalImportService {
       );
     }
 
-    final pys = package
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .where((f) => f.path.toLowerCase().endsWith('.py'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final pys =
+        package
+            .listSync(recursive: true, followLinks: false)
+            .whereType<File>()
+            .where((f) => f.path.toLowerCase().endsWith('.py'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
     if (pys.isEmpty) {
       throw Exception('这个本地包里没有找到订阅 JSON，也没有 .py 蜘蛛文件');
     }
@@ -204,7 +212,11 @@ class LocalImportService {
     return null;
   }
 
-  static List<File> _jsonFiles(Directory dir, {required int maxDepth, int depth = 0}) {
+  static List<File> _jsonFiles(
+    Directory dir, {
+    required int maxDepth,
+    int depth = 0,
+  }) {
     final out = <File>[];
     try {
       for (final entity in dir.listSync(followLinks: false)) {
@@ -257,8 +269,18 @@ class LocalImportService {
       for (final item in list) {
         if (item is! Map) continue;
         final map = Map<String, dynamic>.from(item);
-        for (final field in const ['api', 'url', 'jar', 'playUrl', 'ext', 'icon', 'logo']) {
-          if (map.containsKey(field)) map[field] = _localRef(map[field], packageRoot);
+        for (final field in const [
+          'api',
+          'url',
+          'jar',
+          'playUrl',
+          'ext',
+          'icon',
+          'logo',
+        ]) {
+          if (map.containsKey(field)) {
+            map[field] = _localRef(map[field], packageRoot);
+          }
         }
         final index = list.indexOf(item);
         if (index >= 0) list[index] = map;
@@ -272,7 +294,10 @@ class LocalImportService {
     final raw = value.trim();
     if (raw.isEmpty) return value;
     final lower = raw.toLowerCase();
-    if (RegExp(r'^(https?|file|proxy)://', caseSensitive: false).hasMatch(raw)) {
+    if (RegExp(
+      r'^(https?|file|proxy)://',
+      caseSensitive: false,
+    ).hasMatch(raw)) {
       return value;
     }
 
@@ -300,15 +325,26 @@ class LocalImportService {
     return '${fileUrlOf(found)}${parts.suffix}${parts.query}';
   }
 
-  /// 拆出 `.py?name=X` 的查询串与 `URL;md5;xxx` 的校验尾缀。
+  /// 拆出 `.py?name=X` 的查询串、`URL;md5;xxx` 的校验尾缀，
+  /// 以及 `./config/env.json$线路名` 的 `$` 自定义参数。
+  ///
+  /// `$` 后缀是 TVBox 生态里常见的「同一份配置、多套参数」写法：脚本拿到 ext 后
+  /// 自己按 `$` 切开，前面是配置地址，后面是这条线路的名字（如 wanpan.js 的
+  /// `const [url, order] = ext.split('$')`）。如果不把它拆出来，整串会被当成
+  /// 文件路径 `env.json$闪电` 去找，必然找不到 → 原样退回 → 线路名保留但
+  /// **地址仍是 `./config/env.json` 相对路径**，脚本再去请求就 404。
   static ({String path, String suffix, String query}) _splitRef(String raw) {
     final queryIndex = raw.indexOf('?');
     final query = queryIndex >= 0 ? raw.substring(queryIndex) : '';
     final head = queryIndex >= 0 ? raw.substring(0, queryIndex) : raw;
     final semicolon = head.indexOf(';');
-    final path = semicolon >= 0 ? head.substring(0, semicolon) : head;
+    final afterSem = semicolon >= 0 ? head.substring(0, semicolon) : head;
     final suffix = semicolon >= 0 ? head.substring(semicolon) : '';
-    return (path: path, suffix: suffix, query: query);
+    // `$` 只在「后面确实还有内容」时才算分隔符，避免误伤结尾的单个 `$`。
+    final dollar = afterSem.indexOf(r'$');
+    final path = dollar > 0 ? afterSem.substring(0, dollar) : afterSem;
+    final tail = dollar > 0 ? afterSem.substring(dollar) : '';
+    return (path: path, suffix: '$tail$suffix', query: query);
   }
 
   /// 在本地包里找引用指向的文件：先按完整相对路径，再试去掉一级目录、
@@ -353,7 +389,10 @@ class LocalImportService {
 
   static Future<void> _copyDirectory(Directory source, Directory target) async {
     target.createSync(recursive: true);
-    await for (final entity in source.list(recursive: true, followLinks: false)) {
+    await for (final entity in source.list(
+      recursive: true,
+      followLinks: false,
+    )) {
       final relative = p.relative(entity.path, from: source.path);
       final dest = p.join(target.path, relative);
       if (entity is Directory) {

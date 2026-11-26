@@ -46,6 +46,22 @@ jobs:
       - name: 拉取依赖
         run: flutter pub get
 
+      - name: 格式检查
+        # 全仓已统一为 `dart format` 风格（提交 c9ecbc7 一次性重排了 252 个文件）。
+        # 这一步防止格式债务重新积累：有文件没格式化就直接失败。
+        #
+        # 注意这里**不**加 --page-width：Dart 3.7 起默认走 tall style，风格由
+        # pubspec 的 sdk 语言版本（^3.13.7）决定，CI 的 Flutter 3.47.9 带的正是
+        # Dart 3.13.7，与本地一致，不会因为版本差异误报。
+        shell: bash
+        run: |
+          if dart format --output=none --set-exit-if-changed lib test tool; then
+            echo "格式检查通过"
+          else
+            echo "::error::以上文件的格式不符合 dart format。本地执行 dart format lib test tool 后提交即可"
+            exit 1
+          fi
+
       - name: 静态分析
         run: flutter analyze
 

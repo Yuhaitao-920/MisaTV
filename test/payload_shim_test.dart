@@ -49,10 +49,24 @@ void main() {
   setUp(() {
     temp = Directory.systemTemp.createTempSync('kniephos_shim_');
     final archive = Archive()
-      ..addFile(ArchiveFile.bytes('com/github/catvod/spider/MyCrypto.class', [1, 2, 3]))
-      ..addFile(ArchiveFile.bytes('com/github/catvod/spider/AwInit.class', [9, 9, 9, 9]))
+      ..addFile(
+        ArchiveFile.bytes('com/github/catvod/spider/MyCrypto.class', [1, 2, 3]),
+      )
+      ..addFile(
+        ArchiveFile.bytes('com/github/catvod/spider/AwInit.class', [
+          9,
+          9,
+          9,
+          9,
+        ]),
+      )
       ..addFile(ArchiveFile.bytes('assets/libwex_v7.so', [7, 7, 7, 7, 7]))
-      ..addFile(ArchiveFile.bytes('com/github/catvod/spider/ManJuAiHuoLong.class', [4, 4]));
+      ..addFile(
+        ArchiveFile.bytes('com/github/catvod/spider/ManJuAiHuoLong.class', [
+          4,
+          4,
+        ]),
+      );
     payload = File('${temp.path}/payload.r2.jar')
       ..writeAsBytesSync(ZipEncoder().encode(archive));
   });
@@ -64,7 +78,8 @@ void main() {
   });
 
   test('补丁类覆盖原类，assets 与其余类保留，AwInit 换成带 show 的垫片', () {
-    final patched = File('${temp.path}/MyCrypto.class')..writeAsBytesSync([8, 8, 8]);
+    final patched = File('${temp.path}/MyCrypto.class')
+      ..writeAsBytesSync([8, 8, 8]);
     final bytes = JarSpiderService.buildPayloadShim(
       payload: payload,
       patched: {'com/github/catvod/spider/MyCrypto.class': patched},
@@ -74,12 +89,22 @@ void main() {
     final out = ZipDecoder().decodeBytes(bytes!);
     final files = {for (final f in out.files) f.name: f};
     expect(files.keys, contains('assets/libwex_v7.so'));
-    expect(files.keys, contains('com/github/catvod/spider/ManJuAiHuoLong.class'));
-    expect(files['com/github/catvod/spider/MyCrypto.class']!.readBytes(), [8, 8, 8]);
+    expect(
+      files.keys,
+      contains('com/github/catvod/spider/ManJuAiHuoLong.class'),
+    );
+    expect(files['com/github/catvod/spider/MyCrypto.class']!.readBytes(), [
+      8,
+      8,
+      8,
+    ]);
 
     final awInit = files['com/github/catvod/spider/AwInit.class']!.readBytes()!;
     expect(awInit.length, greaterThan(100));
-    expect([awInit[0], awInit[1], awInit[2], awInit[3]], [0xca, 0xfe, 0xba, 0xbe]);
+    expect(
+      [awInit[0], awInit[1], awInit[2], awInit[3]],
+      [0xca, 0xfe, 0xba, 0xbe],
+    );
     final latin = String.fromCharCodes(awInit);
     expect(latin, contains('show'));
     expect(latin, contains('(Ljava/lang/String;)V'));
@@ -108,9 +133,15 @@ void main() {
     final archive = Archive()
       ..addFile(ArchiveFile.bytes('com/github/catvod/spider/Other.class', [1]));
     payload.writeAsBytesSync(ZipEncoder().encode(archive));
-    final bytes = JarSpiderService.buildPayloadShim(payload: payload, patched: {});
+    final bytes = JarSpiderService.buildPayloadShim(
+      payload: payload,
+      patched: {},
+    );
     expect(bytes, isNotNull);
     final out = ZipDecoder().decodeBytes(bytes!);
-    expect(out.files.any((f) => f.name == 'com/github/catvod/spider/AwInit.class'), isTrue);
+    expect(
+      out.files.any((f) => f.name == 'com/github/catvod/spider/AwInit.class'),
+      isTrue,
+    );
   });
 }

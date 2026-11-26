@@ -21,10 +21,10 @@ class DanmakuEndpoint {
   }
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'url': url,
-        'enabled': enabled,
-      };
+    'name': name,
+    'url': url,
+    'enabled': enabled,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -42,23 +42,71 @@ class DanmakuEndpoint {
 
 /// 内置接口清单：默认只启用「炊烟袅袅」，其余由播放器「弹幕源」面板按需开启。
 const List<DanmakuEndpoint> builtinDanmakuEndpoints = [
-  DanmakuEndpoint(name: '炊烟袅袅', url: 'https://danmu.cynn.top/cynnsq', enabled: true),
-  DanmakuEndpoint(name: 'LogVar', url: 'https://dm.abai.ccwu.cc/abai', enabled: false),
-  DanmakuEndpoint(name: '御坂', url: 'https://dmk.abai.ccwu.cc/api/v1/abaibai', enabled: false),
-  DanmakuEndpoint(name: 'Lily', url: 'https://danmu.lily.lat/lilyemby', enabled: false),
-  DanmakuEndpoint(name: 'Lily', url: 'https://danmu.longemby.com/lilyemby', enabled: false),
-  DanmakuEndpoint(name: '墨云阁', url: 'https://danmu.wangziyang.top/020116', enabled: false),
-  DanmakuEndpoint(name: '麦当劳', url: 'https://logo.saodu.work:8888', enabled: false),
+  DanmakuEndpoint(
+    name: '炊烟袅袅',
+    url: 'https://danmu.cynn.top/cynnsq',
+    enabled: true,
+  ),
+  DanmakuEndpoint(
+    name: 'LogVar',
+    url: 'https://dm.abai.ccwu.cc/abai',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '御坂',
+    url: 'https://dmk.abai.ccwu.cc/api/v1/abaibai',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: 'Lily',
+    url: 'https://danmu.lily.lat/lilyemby',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: 'Lily',
+    url: 'https://danmu.longemby.com/lilyemby',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '墨云阁',
+    url: 'https://danmu.wangziyang.top/020116',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '麦当劳',
+    url: 'https://logo.saodu.work:8888',
+    enabled: false,
+  ),
   DanmakuEndpoint(
     name: '麦当劳',
     url: 'https://ybdm.saodu.wang:9999/api/v1/IN5H9udKhmMMklvDYVPs',
     enabled: false,
   ),
-  DanmakuEndpoint(name: 'W佬', url: 'https://dm.660505.xyz:8443/a123456', enabled: false),
-  DanmakuEndpoint(name: '稳健', url: 'https://dandan.wenjian.de/wenjian', enabled: false),
-  DanmakuEndpoint(name: '鸢尾 Iris', url: 'https://justdanmu.irisnb.com/iris-danmu', enabled: false),
-  DanmakuEndpoint(name: '夏天', url: 'https://dm.wodenas.xin/xiatianemby', enabled: false),
-  DanmakuEndpoint(name: 'Uncle Joel', url: 'https://dmfl.us.ci', enabled: false),
+  DanmakuEndpoint(
+    name: 'W佬',
+    url: 'https://dm.660505.xyz:8443/a123456',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '稳健',
+    url: 'https://dandan.wenjian.de/wenjian',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '鸢尾 Iris',
+    url: 'https://justdanmu.irisnb.com/iris-danmu',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '夏天',
+    url: 'https://dm.wodenas.xin/xiatianemby',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: 'Uncle Joel',
+    url: 'https://dmfl.us.ci',
+    enabled: false,
+  ),
   DanmakuEndpoint(
     name: '小助理',
     url: 'https://danmu.qianting168.com/456765847636987622146901',
@@ -66,19 +114,47 @@ const List<DanmakuEndpoint> builtinDanmakuEndpoints = [
   ),
   DanmakuEndpoint(name: '睡觉', url: 'https://danmu.0000996.xyz', enabled: false),
   DanmakuEndpoint(name: '晨曦', url: 'https://dm.199333.xyz/dm', enabled: false),
-  DanmakuEndpoint(name: '乔蒂深', url: 'https://logvarrn.278612356.xyz/steven', enabled: false),
-  DanmakuEndpoint(name: '乔蒂深', url: 'https://logvardm.278612356.xyz/steven', enabled: false),
+  DanmakuEndpoint(
+    name: '乔蒂深',
+    url: 'https://logvarrn.278612356.xyz/steven',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '乔蒂深',
+    url: 'https://logvardm.278612356.xyz/steven',
+    enabled: false,
+  ),
   DanmakuEndpoint(name: 'dx.sld.tw', url: 'https://dx.sld.tw', enabled: false),
-  DanmakuEndpoint(name: 'dm.626258.xyz', url: 'https://dm.626258.xyz', enabled: false),
-  DanmakuEndpoint(name: 'dmapi.6565n.xyz', url: 'https://dmapi.6565n.xyz', enabled: false),
-  DanmakuEndpoint(name: '88920.dpdns.org', url: 'https://88920.dpdns.org', enabled: false),
-  DanmakuEndpoint(name: 'logvar.hhht.cc.cd', url: 'https://logvar.hhht.cc.cd', enabled: false),
+  DanmakuEndpoint(
+    name: 'dm.626258.xyz',
+    url: 'https://dm.626258.xyz',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: 'dmapi.6565n.xyz',
+    url: 'https://dmapi.6565n.xyz',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: '88920.dpdns.org',
+    url: 'https://88920.dpdns.org',
+    enabled: false,
+  ),
+  DanmakuEndpoint(
+    name: 'logvar.hhht.cc.cd',
+    url: 'https://logvar.hhht.cc.cd',
+    enabled: false,
+  ),
   DanmakuEndpoint(
     name: 'logvar-danmu.rinrin.top',
     url: 'https://logvar-danmu.rinrin.top',
     enabled: false,
   ),
-  DanmakuEndpoint(name: 'Dm.lJiaoVm.com', url: 'https://Dm.lJiaoVm.com/luosen', enabled: false),
+  DanmakuEndpoint(
+    name: 'Dm.lJiaoVm.com',
+    url: 'https://Dm.lJiaoVm.com/luosen',
+    enabled: false,
+  ),
   DanmakuEndpoint(
     name: 'logvar-rinrin.netlify.app',
     url: 'https://logvar-rinrin.netlify.app/r1NYa9i',
@@ -181,8 +257,14 @@ class DanmakuCandidate {
       other.sourceName == sourceName;
 
   @override
-  int get hashCode =>
-      Object.hash(episodeId, title, episodeTitle, episodeNumber, source, sourceName);
+  int get hashCode => Object.hash(
+    episodeId,
+    title,
+    episodeTitle,
+    episodeNumber,
+    source,
+    sourceName,
+  );
 
   @override
   String toString() =>

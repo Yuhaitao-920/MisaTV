@@ -75,21 +75,13 @@ String movieSearchTitle(String value) {
   title = title.replaceAll(_episodeSuffix, ' ');
   title = title.replaceAll(_episodeCodeSuffix, ' ');
   title = title
-      .replaceAll(
-        RegExp(
-          r'(?:全集|完整版|无删减|無刪減|在线观看|在線觀看|一口气看完|一口氣看完).*$',
-        ),
-        ' ',
-      )
+      .replaceAll(RegExp(r'(?:全集|完整版|无删减|無刪減|在线观看|在線觀看|一口气看完|一口氣看完).*$'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .replaceAll(RegExp(r'\s*\.\s*'), '.')
       .replaceAll(RegExp(r'\.{2,}'), '.')
       .trim();
   title = title
-      .replaceAll(
-        RegExp(r'^[\s《》「」『』:：-]+|[\s《》「」『』:：,，。._—-]+$'),
-        '',
-      )
+      .replaceAll(RegExp(r'^[\s《》「」『』:：-]+|[\s《》「」『』:：,，。._—-]+$'), '')
       .trim();
   return title.isEmpty ? value.trim() : title;
 }
@@ -169,9 +161,8 @@ int searchTitleScore(String query, String candidate) {
     if (!boundary.hasMatch(rawSource.toLowerCase())) return 0;
   }
 
-  final clip = RegExp(
-    r'解说|解說|速看|预告|預告|片段|首播|第\s*[0-9零一二三四五六七八九十百]+\s*[集话話]',
-  ).hasMatch(rawSource);
+  final clip = RegExp(r'解说|解說|速看|预告|預告|片段|首播|第\s*[0-9零一二三四五六七八九十百]+\s*[集话話]')
+      .hasMatch(rawSource);
   final penalty = clip ? 15 : 0;
 
   if (!raw.contains(queryKey) && !clean.contains(queryKey)) {
@@ -195,9 +186,7 @@ int searchTitleScore(String query, String candidate) {
 }
 
 int? _seasonOf(String value) {
-  final cn = RegExp(
-    r'第\s*([0-9零〇一二三四五六七八九十百两兩]+)\s*[季部]',
-  ).firstMatch(value);
+  final cn = RegExp(r'第\s*([0-9零〇一二三四五六七八九十百两兩]+)\s*[季部]').firstMatch(value);
   if (cn != null) return parseChineseNumber(cn.group(1)!);
   final en = RegExp(
     r'(?:^|[^a-z0-9])s(?:eason)?\s*0*(\d{1,2})(?![0-9])',

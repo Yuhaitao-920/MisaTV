@@ -34,8 +34,7 @@ class ImmersiveMetrics {
   /// 矮屏：手机横屏（高度很小且横向更宽），TV 版的两行顶栏和固定底栏放不下。
   ///
   /// 只在安卓生效：桌面窗口再矮也保持原来的 TV 布局，避免影响 Windows。
-  bool get short =>
-      _isAndroid && size.height < 560 && size.width > size.height;
+  bool get short => _isAndroid && size.height < 560 && size.width > size.height;
 
   /// 顶栏使用紧凑样式（图标 + 小字）：竖屏手机和横屏手机都用这一套。
   bool get chromeCompact => compact || short;
@@ -44,16 +43,14 @@ class ImmersiveMetrics {
   double get _sideSafe => math.max(padding.left, padding.right);
 
   /// 常规左右留白：宽屏 56，手机纵屏 14，手机横屏 24。
-  double get gutter =>
-      (compact ? 14.0 : (short ? 24.0 : 56.0)) + _sideSafe;
+  double get gutter => (compact ? 14.0 : (short ? 24.0 : 56.0)) + _sideSafe;
 
   /// 外壳顶栏左右留白（桌面原本就是 28，不能跟着内容区放大）。
   double get chromeGutter =>
       (compact ? 14.0 : (short ? 20.0 : 28.0)) + _sideSafe;
 
   /// 分类页等更宽松的留白。
-  double get wideGutter =>
-      (compact ? 14.0 : (short ? 24.0 : 64.0)) + _sideSafe;
+  double get wideGutter => (compact ? 14.0 : (short ? 24.0 : 64.0)) + _sideSafe;
 
   /// 外壳顶栏总高度。安卓紧凑栏只保留一行 Tab，桌面保持原来的两行留白。
   double get topBarHeight => compact
@@ -68,8 +65,7 @@ class ImmersiveMetrics {
   double get heroBottom => compact ? 20.0 : (short ? 26.0 : 64.0);
 
   /// Hero 高度：宽屏 / 横屏铺满整屏，竖屏手机约半屏（下面还能看到货架）。
-  double get heroHeight =>
-      compact && !short ? size.height * 0.48 : size.height;
+  double get heroHeight => compact && !short ? size.height * 0.48 : size.height;
 
   /// 竖版海报货架的卡片尺寸（2:3 封面 + 标题）。
   double get shelfHeight => compact ? 240.0 : (short ? 210.0 : 300.0);
@@ -78,8 +74,7 @@ class ImmersiveMetrics {
   /// 网格里的竖版海报卡片：宽度上限与整格高度（含片名）。
   double get posterMaxExtent => compact ? 110.0 : (short ? 128.0 : 190.0);
   double get cardExtent => compact ? 270.0 : (short ? 250.0 : 380.0);
-  double get categoryCardExtent =>
-      compact ? 280.0 : (short ? 260.0 : 390.0);
+  double get categoryCardExtent => compact ? 280.0 : (short ? 260.0 : 390.0);
 
   /// 直播频道卡片宽度：手机占满一行，宽屏保持 232。
   double get liveTileWidth =>

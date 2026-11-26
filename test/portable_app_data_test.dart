@@ -58,9 +58,7 @@ void main() {
     test('主文件为 0 字节时用 .tmp 恢复', () async {
       // 模拟：进程在 rename 之前被强杀，主文件已被截断成空。
       await prefsFile().writeAsString('');
-      await tempFile().writeAsString(
-        jsonEncode({'flutter.sub': '恢复出来的订阅'}),
-      );
+      await tempFile().writeAsString(jsonEncode({'flutter.sub': '恢复出来的订阅'}));
 
       final all = await PortablePrefsStore(dir.path).getAll();
       expect(all['flutter.sub'], '恢复出来的订阅');
@@ -89,10 +87,7 @@ void main() {
     test('.tmp 也是空时按空偏好处理，不抛异常', () async {
       await prefsFile().writeAsString('');
       await tempFile().writeAsString('');
-      expect(
-        () => PortablePrefsStore(dir.path).getAll(),
-        returnsNormally,
-      );
+      expect(() => PortablePrefsStore(dir.path).getAll(), returnsNormally);
     });
   });
 

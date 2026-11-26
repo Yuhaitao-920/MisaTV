@@ -23,10 +23,7 @@ void main() {
     });
 
     test('title 为空时退回 rawName', () {
-      const q = SubtitleQuery(
-        title: '',
-        rawName: '[1.9GB]S01E02.mkv【L-兰香如故】',
-      );
+      const q = SubtitleQuery(title: '', rawName: '[1.9GB]S01E02.mkv【L-兰香如故】');
       expect(q.effectiveTitle, '兰香如故');
     });
   });

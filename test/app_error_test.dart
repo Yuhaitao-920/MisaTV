@@ -66,10 +66,7 @@ void main() {
         describeAppError('HttpException: 下载失败 HTTP 403').kind,
         AppErrorKind.auth,
       );
-      expect(
-        describeAppError('下载失败 http 503').kind,
-        AppErrorKind.server,
-      );
+      expect(describeAppError('下载失败 http 503').kind, AppErrorKind.server);
     });
 
     test('无法归因时退回 unknown，不抛异常', () {

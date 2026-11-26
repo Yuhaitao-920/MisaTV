@@ -12,19 +12,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   group('基础拼接', () {
     test('normalizeDavBase 去空白与尾斜杠', () {
-      expect(normalizeDavBase(' https://host:5244/dav/// '), 'https://host:5244/dav');
+      expect(
+        normalizeDavBase(' https://host:5244/dav/// '),
+        'https://host:5244/dav',
+      );
       expect(normalizeDavBase(''), '');
     });
 
     test('davJoin 逐段编码中文与空格', () {
-      expect(davJoin('https://host/dav/', '/电影/流浪 地球.mp4'), 'https://host/dav/%E7%94%B5%E5%BD%B1/%E6%B5%81%E6%B5%AA%20%E5%9C%B0%E7%90%83.mp4');
+      expect(
+        davJoin('https://host/dav/', '/电影/流浪 地球.mp4'),
+        'https://host/dav/%E7%94%B5%E5%BD%B1/%E6%B5%81%E6%B5%AA%20%E5%9C%B0%E7%90%83.mp4',
+      );
       expect(davJoin('https://host/dav', '/'), 'https://host/dav');
       expect(davJoin('https://host/dav', ''), 'https://host/dav');
     });
 
     test('davBasicAuth 无用户名给空串', () {
       expect(davBasicAuth('', 'x'), '');
-      expect(davBasicAuth('alice', 'p@ss:word'), 'Basic ${base64Encode(utf8.encode('alice:p@ss:word'))}');
+      expect(
+        davBasicAuth('alice', 'p@ss:word'),
+        'Basic ${base64Encode(utf8.encode('alice:p@ss:word'))}',
+      );
     });
 
     test('davParentPath', () {
@@ -48,7 +57,8 @@ void main() {
   });
 
   group('PROPFIND 解析', () {
-    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+    const xml =
+        '<?xml version="1.0" encoding="utf-8"?>'
         '<d:multistatus xmlns:d="DAV:">'
         '<d:response>'
         '<d:href>/dav/</d:href>'
@@ -95,7 +105,10 @@ void main() {
 
     test('hrefToPath 相对/绝对 href 都按基址解码', () {
       expect(hrefToPath('/dav/a%20b.mp4', 'https://host/dav'), '/dav/a b.mp4');
-      expect(hrefToPath('https://host/dav/%E7%94%B5%E5%BD%B1/', 'https://host/dav'), '/dav/电影/');
+      expect(
+        hrefToPath('https://host/dav/%E7%94%B5%E5%BD%B1/', 'https://host/dav'),
+        '/dav/电影/',
+      );
       expect(hrefToPath('a.mp4', 'https://host/dav'), '/dav/a.mp4');
     });
 
@@ -110,7 +123,11 @@ void main() {
 
   group('播放与展示辅助', () {
     test('wrapDavPlayUrl 带 url 与 dav 参数', () {
-      final wrapped = wrapDavPlayUrl('http://127.0.0.1:9978/', 'https://host/dav/a b.mp4', 'srv-1');
+      final wrapped = wrapDavPlayUrl(
+        'http://127.0.0.1:9978/',
+        'https://host/dav/a b.mp4',
+        'srv-1',
+      );
       final uri = Uri.parse(wrapped);
       expect(uri.path, '/play');
       expect(uri.queryParameters['url'], 'https://host/dav/a b.mp4');
@@ -118,8 +135,14 @@ void main() {
     });
 
     test('wrapDavPlayUrl 缺中继或服务器 id 时原样返回', () {
-      expect(wrapDavPlayUrl('', 'https://host/a.mp4', 'srv'), 'https://host/a.mp4');
-      expect(wrapDavPlayUrl('http://127.0.0.1:9978', 'https://host/a.mp4', ''), 'https://host/a.mp4');
+      expect(
+        wrapDavPlayUrl('', 'https://host/a.mp4', 'srv'),
+        'https://host/a.mp4',
+      );
+      expect(
+        wrapDavPlayUrl('http://127.0.0.1:9978', 'https://host/a.mp4', ''),
+        'https://host/a.mp4',
+      );
     });
 
     test('内联可播判定', () {
@@ -138,7 +161,13 @@ void main() {
     });
 
     test('DavServer JSON 往返', () {
-      const server = DavServer(id: 'id1', name: 'nas', url: 'https://host/dav', username: 'u', password: 'p');
+      const server = DavServer(
+        id: 'id1',
+        name: 'nas',
+        url: 'https://host/dav',
+        username: 'u',
+        password: 'p',
+      );
       final back = DavServer.fromJson(server.toJson());
       expect(back.id, 'id1');
       expect(back.name, 'nas');
@@ -251,18 +280,23 @@ void main() {
         depth = req.headers.value('depth');
         auth = req.headers.value(HttpHeaders.authorizationHeader);
         body = await utf8.decoder.bind(req).join();
-        req.response.headers.set('content-type', 'application/xml; charset=utf-8');
-        req.response.write('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
-            '<d:response><d:href>/dav/</d:href><d:propstat><d:prop>'
-            '<d:displayname>dav</d:displayname><d:resourcetype><d:collection/></d:resourcetype>'
-            '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
-            '<d:response><d:href>/dav/%E7%94%B5%E5%BD%B1/</d:href><d:propstat><d:prop>'
-            '<d:displayname>电影</d:displayname><d:resourcetype><d:collection/></d:resourcetype>'
-            '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
-            '<d:response><d:href>/dav/a%20b.mp4</d:href><d:propstat><d:prop>'
-            '<d:displayname>a b.mp4</d:displayname><d:getcontentlength>2048</d:getcontentlength>'
-            '<d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
-            '</d:multistatus>');
+        req.response.headers.set(
+          'content-type',
+          'application/xml; charset=utf-8',
+        );
+        req.response.write(
+          '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+          '<d:response><d:href>/dav/</d:href><d:propstat><d:prop>'
+          '<d:displayname>dav</d:displayname><d:resourcetype><d:collection/></d:resourcetype>'
+          '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
+          '<d:response><d:href>/dav/%E7%94%B5%E5%BD%B1/</d:href><d:propstat><d:prop>'
+          '<d:displayname>电影</d:displayname><d:resourcetype><d:collection/></d:resourcetype>'
+          '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
+          '<d:response><d:href>/dav/a%20b.mp4</d:href><d:propstat><d:prop>'
+          '<d:displayname>a b.mp4</d:displayname><d:getcontentlength>2048</d:getcontentlength>'
+          '<d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
+          '</d:multistatus>',
+        );
         await req.response.close();
       });
       try {
@@ -287,7 +321,10 @@ void main() {
         expect(result.entries.map((e) => e.name).toList(), ['电影', 'a b.mp4']);
         expect(result.entries.first.isDir, isTrue);
         expect(result.entries.last.size, 2048);
-        expect(result.entries.last.url, 'http://127.0.0.1:${upstream.port}/dav/a%20b.mp4');
+        expect(
+          result.entries.last.url,
+          'http://127.0.0.1:${upstream.port}/dav/a%20b.mp4',
+        );
         await service.remove(saved.id);
         expect(service.servers, isEmpty);
       } finally {

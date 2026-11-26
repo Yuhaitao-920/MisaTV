@@ -46,9 +46,7 @@ class RuntimeFetch {
   }) async {
     for (var attempt = 1; attempt <= attemptsPerUrl; attempt++) {
       try {
-        final request = await http
-            .getUrl(uri)
-            .timeout(headerTimeout);
+        final request = await http.getUrl(uri).timeout(headerTimeout);
         request.headers
           ..set(HttpHeaders.userAgentHeader, userAgent)
           ..set(HttpHeaders.acceptEncodingHeader, 'identity');

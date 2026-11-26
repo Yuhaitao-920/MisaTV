@@ -1676,9 +1676,7 @@ Future<void> _editLiveUaPolicy(BuildContext context, AppState app) async {
   if (context.mounted) {
     _settingsSnack(
       context,
-      saved.isEmpty
-          ? '已清空自定义直播 UA，恢复自动探测'
-          : '自定义直播 UA 已保存（下次加载直播单与切台生效）',
+      saved.isEmpty ? '已清空自定义直播 UA，恢复自动探测' : '自定义直播 UA 已保存（下次加载直播单与切台生效）',
     );
   }
 }
@@ -1783,14 +1781,13 @@ class _LiveUaPolicyDialogState extends State<_LiveUaPolicyDialog> {
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      '按接口的例外规则',
-                      style: theme.textTheme.labelMedium,
-                    ),
+                    child: Text('按接口的例外规则', style: theme.textTheme.labelMedium),
                   ),
                   if (_rules.isNotEmpty)
-                    Text('${_rules.length} 条',
-                        style: theme.textTheme.labelSmall),
+                    Text(
+                      '${_rules.length} 条',
+                      style: theme.textTheme.labelSmall,
+                    ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -1811,8 +1808,9 @@ class _LiveUaPolicyDialogState extends State<_LiveUaPolicyDialog> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.5),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
+                    ),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
@@ -2901,4 +2899,3 @@ class _DavEditDialogState extends State<_DavEditDialog> {
     );
   }
 }
-

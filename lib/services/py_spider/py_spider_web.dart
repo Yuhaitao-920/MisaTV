@@ -29,28 +29,26 @@ class PySpiderService {
     String tid,
     String pg,
     Map<String, String> filters,
-  ) async =>
-      const CmsResult();
+  ) async => const CmsResult();
 
   Future<VodDetail?> detail(SourceBean site, String id) async => null;
 
-  Future<List<VodItem>> search(SourceBean site, String keyword) async => const [];
+  Future<List<VodItem>> search(SourceBean site, String keyword) async =>
+      const [];
 
   Future<String> live(SourceBean site, String url) async => '';
 
   Future<SpiderProxyResult> proxy(
     SourceBean site,
     Map<String, String> params,
-  ) async =>
-      throw UnsupportedError('Web 版不支持 PY 蜘蛛直播代理');
+  ) async => throw UnsupportedError('Web 版不支持 PY 蜘蛛直播代理');
 
   Future<PlayResult?> play(
     SourceBean site,
     String flag,
     String id, {
     List<String> vipFlags = const [],
-  }) async =>
-      null;
+  }) async => null;
 
   Future<void> shutdown() async {}
 }

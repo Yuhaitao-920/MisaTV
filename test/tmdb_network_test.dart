@@ -5,7 +5,10 @@ void main() {
   test('识别污染的地址（Facebook 网段 / 保留地址）', () {
     expect(looksLikePoisonedAddress('157.240.12.35'), isTrue);
     expect(looksLikePoisonedAddress('69.63.184.142'), isTrue);
-    expect(looksLikePoisonedAddress('2a03:2880:f126:83:face:b00c:0:25de'), isTrue);
+    expect(
+      looksLikePoisonedAddress('2a03:2880:f126:83:face:b00c:0:25de'),
+      isTrue,
+    );
     expect(looksLikePoisonedAddress('0.0.0.0'), isTrue);
     expect(looksLikePoisonedAddress('192.168.3.1'), isTrue);
     expect(looksLikePoisonedAddress('127.0.0.1'), isTrue);

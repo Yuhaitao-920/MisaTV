@@ -36,7 +36,8 @@ Future<bool> promptDriveLogin(
   }
 
   if (hint.needsToken) {
-    final token = (app.driveAccounts[hint.provider]?.extra['uctvToken'] ?? '').trim();
+    final token = (app.driveAccounts[hint.provider]?.extra['uctvToken'] ?? '')
+        .trim();
     if (token.isEmpty) {
       final ok = await showUcTvLoginDialog(context);
       return ok == true;

@@ -21,8 +21,16 @@ class AppBackdropPainter extends CustomPainter {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: dark
-              ? [const Color(0xFF0F130D), const Color(0xFF121810), const Color(0xFF0D110C)]
-              : [const Color(0xFFF6FAF2), const Color(0xFFF1F6ED), const Color(0xFFEDF3E9)],
+              ? [
+                  const Color(0xFF0F130D),
+                  const Color(0xFF121810),
+                  const Color(0xFF0D110C),
+                ]
+              : [
+                  const Color(0xFFF6FAF2),
+                  const Color(0xFFF1F6ED),
+                  const Color(0xFFEDF3E9),
+                ],
         ).createShader(rect),
     );
   }

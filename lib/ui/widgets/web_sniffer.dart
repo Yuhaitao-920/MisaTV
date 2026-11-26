@@ -9,7 +9,8 @@ import '../../core/logging/app_log.dart';
 import '../../core/logging/log_redact.dart';
 import '../../services/parse/parse_service.dart';
 
-const _desktopUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+const _desktopUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 /// 最多进入几层播放器 iframe：外壳页 → 播放器页 → 播放器内嵌页。
@@ -48,8 +49,12 @@ Future<SniffHit?> sniffWebMedia(
       barrierLabel: '网页嗅探',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 160),
-      pageBuilder: (ctx, _, _) =>
-          _SniffDialog(url: url, click: click, timeout: timeout, headers: headers),
+      pageBuilder: (ctx, _, _) => _SniffDialog(
+        url: url,
+        click: click,
+        timeout: timeout,
+        headers: headers,
+      ),
       transitionBuilder: (ctx, animation, _, child) =>
           FadeTransition(opacity: animation, child: child),
     );
@@ -177,10 +182,7 @@ class _SniffDialogState extends State<_SniffDialog> {
       _showWeb = show;
       _status = show ? '网页已打开，可手动完成页面上的确认' : '继续嗅探中…';
     });
-    AppLog.i(
-      'sniff',
-      show ? '显示网页（暂停自动关闭）' : '隐藏网页（延长 30 秒）',
-    );
+    AppLog.i('sniff', show ? '显示网页（暂停自动关闭）' : '隐藏网页（延长 30 秒）');
   }
 
   @override
@@ -194,21 +196,18 @@ class _SniffDialogState extends State<_SniffDialog> {
   void _consider(String raw, {String source = '网络'}) {
     if (_done) return;
     final url = raw.trim();
-    if (url.isEmpty || url.startsWith('blob:') || url.startsWith('data:')) return;
+    if (url.isEmpty || url.startsWith('blob:') || url.startsWith('data:')) {
+      return;
+    }
     if (_isJunkUrl(url)) return;
     final rank = _rank(url);
     if (rank <= 0 || rank <= _bestRank) return;
     _best = url;
     _bestRank = rank;
-    AppLog.i(
-      'sniff',
-      '候选 rank=$rank 来源=$source ${redactUrl(url)}',
-    );
+    AppLog.i('sniff', '候选 rank=$rank 来源=$source ${redactUrl(url)}');
     if (mounted) {
       setState(
-        () => _status = rank >= 3
-            ? '找到播放地址，正在确认…'
-            : '找到候选地址，继续等待更高清线路…',
+        () => _status = rank >= 3 ? '找到播放地址，正在确认…' : '找到候选地址，继续等待更高清线路…',
       );
     }
     if (rank >= 3) {
@@ -338,7 +337,10 @@ class _SniffDialogState extends State<_SniffDialog> {
     );
   }
 
-  Future<void> _onLoadStop(InAppWebViewController controller, WebUri? url) async {
+  Future<void> _onLoadStop(
+    InAppWebViewController controller,
+    WebUri? url,
+  ) async {
     if (url != null) _pageUrl = url.toString();
     AppLog.i(
       'sniff',
@@ -391,18 +393,12 @@ class _SniffDialogState extends State<_SniffDialog> {
       _lastHoppedFrame = frame;
       _frameHops++;
       _pageUrl = frame;
-      AppLog.i(
-        'sniff',
-        '顶层没有媒体，进入播放器 iframe #$_frameHops ${redactUrl(frame)}',
-      );
+      AppLog.i('sniff', '顶层没有媒体，进入播放器 iframe #$_frameHops ${redactUrl(frame)}');
       if (mounted) setState(() => _status = '正在加载播放器页面…');
       await controller.loadUrl(
         urlRequest: URLRequest(
           url: WebUri(frame),
-          headers: {
-            ..._requestHeaders,
-            'Referer': widget.url,
-          },
+          headers: {..._requestHeaders, 'Referer': widget.url},
         ),
       );
     } catch (e) {
@@ -499,7 +495,8 @@ class _SniffDialogState extends State<_SniffDialog> {
                           initialUserScripts: UnmodifiableListView([
                             UserScript(
                               source: _hookScript,
-                              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                              injectionTime:
+                                  UserScriptInjectionTime.AT_DOCUMENT_START,
                             ),
                           ]),
                           // 必须给权限请求一个非空回复：Windows 插件（0.6.0）在
@@ -534,8 +531,8 @@ class _SniffDialogState extends State<_SniffDialog> {
                               );
                               if (mounted) {
                                 setState(
-                                  () => _status =
-                                      '解析页加载失败：${error.description}',
+                                  () =>
+                                      _status = '解析页加载失败：${error.description}',
                                 );
                               }
                             }

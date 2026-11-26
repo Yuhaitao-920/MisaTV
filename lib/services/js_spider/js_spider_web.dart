@@ -20,20 +20,19 @@ class JsSpiderService {
     String tid,
     String pg,
     Map<String, String> filters,
-  ) async =>
-      const CmsResult();
+  ) async => const CmsResult();
 
   Future<VodDetail?> detail(SourceBean site, String id) async => null;
 
-  Future<List<VodItem>> search(SourceBean site, String keyword) async => const [];
+  Future<List<VodItem>> search(SourceBean site, String keyword) async =>
+      const [];
 
   Future<PlayResult?> play(
     SourceBean site,
     String flag,
     String id, {
     List<String> vipFlags = const [],
-  }) async =>
-      null;
+  }) async => null;
 
   Future<void> dispose() async {}
 }

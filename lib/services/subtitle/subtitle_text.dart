@@ -68,7 +68,10 @@ List<SubtitleCue> parseSrt(String text) {
 /// WebVTT：头部 WEBVTT（可选 NOTE/STYLE/REGION 等区块），其余同 SRT cue。
 List<SubtitleCue> parseVtt(String text) {
   final out = <SubtitleCue>[];
-  final content = text.replaceFirst(RegExp(r'^\uFEFF?WEBVTT[^\n]*(?:\n|$)'), '');
+  final content = text.replaceFirst(
+    RegExp(r'^\uFEFF?WEBVTT[^\n]*(?:\n|$)'),
+    '',
+  );
   final blocks = content.split(RegExp(r'\r?\n\s*\r?\n'));
   for (final b in blocks) {
     final lines = b
@@ -124,13 +127,17 @@ List<SubtitleCue> parseAss(String text) {
 
 List<SubtitleCue> _parseBySniff(String text) {
   final head = text.length > 3000 ? text.substring(0, 3000) : text;
-  if (RegExp(r'\[Script Info\]|(^|\r?\n)\s*Dialogue:', caseSensitive: false)
-      .hasMatch(head)) {
+  if (RegExp(
+    r'\[Script Info\]|(^|\r?\n)\s*Dialogue:',
+    caseSensitive: false,
+  ).hasMatch(head)) {
     final c = parseAss(text);
     if (c.isNotEmpty) return c;
   }
-  if (RegExp(r'WEBVTT', caseSensitive: false)
-      .hasMatch(text.length > 200 ? text.substring(0, 200) : text)) {
+  if (RegExp(
+    r'WEBVTT',
+    caseSensitive: false,
+  ).hasMatch(text.length > 200 ? text.substring(0, 200) : text)) {
     final c = parseVtt(text);
     if (c.isNotEmpty) return c;
   }
@@ -161,11 +168,7 @@ List<SubtitleCue> shiftCues(List<SubtitleCue> cues, double offsetSec) {
     final end = c.end + offsetSec;
     if (end <= 0) continue;
     final s = start < 0 ? 0.0 : start;
-    out.add(SubtitleCue(
-      start: s,
-      end: end < s ? s : end,
-      text: c.text,
-    ));
+    out.add(SubtitleCue(start: s, end: end < s ? s : end, text: c.text));
   }
   return out;
 }

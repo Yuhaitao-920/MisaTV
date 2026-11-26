@@ -34,7 +34,8 @@ class LocalRelay {
   LocalRelay._();
   static final LocalRelay instance = LocalRelay._();
 
-  static const _playTotalSizesMax = 256; final Map<String, int> _playTotalSizes = {};
+  static const _playTotalSizesMax = 256;
+  final Map<String, int> _playTotalSizes = {};
   static const int preferredPort = 9978;
 
   /// BT 取流分片大小：每片写回播放器前做一次 piece 门控。
@@ -748,7 +749,8 @@ class LocalRelay {
             'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
       }
     }
-    final m1905Link = targetHost == 'm1905.com' || targetHost.endsWith('.m1905.com');
+    final m1905Link =
+        targetHost == 'm1905.com' || targetHost.endsWith('.m1905.com');
     if (m1905Link && _headerValue(headers, HttpHeaders.refererHeader).isEmpty) {
       headers[HttpHeaders.refererHeader] = 'https://www.1905.com/';
     }
@@ -816,8 +818,9 @@ class LocalRelay {
     //   所以网盘线路上没有 Range 时，主动合成首段 `bytes=0-<span-1>`，
     //   让上游回 206 + Content-Range —— 有总长、能 seek、速度也回到正常档。
     final knownTotal = _playTotalSizes[target];
-      final clamped = _shouldClampRange(provider, target)
-        ? clampRange(range, totalLength: knownTotal) ?? 'bytes=0-${(knownTotal != null && knownTotal > 0 && knownTotal < _firstUpstreamRangeBytes ? knownTotal : _firstUpstreamRangeBytes) - 1}'
+    final clamped = _shouldClampRange(provider, target)
+        ? clampRange(range, totalLength: knownTotal) ??
+              'bytes=0-${(knownTotal != null && knownTotal > 0 && knownTotal < _firstUpstreamRangeBytes ? knownTotal : _firstUpstreamRangeBytes) - 1}'
         : range;
     final changed = clamped != range;
     if (changed) {
@@ -1041,8 +1044,12 @@ class LocalRelay {
     if (slash < 0) return;
     final total = int.tryParse(contentRange.substring(slash + 1).trim()) ?? 0;
     if (total <= 0) return;
-    if (_playTotalSizes.length >= _playTotalSizesMax && !_playTotalSizes.containsKey(target)) { _playTotalSizes.remove(_playTotalSizes.keys.first); } _playTotalSizes[target] = total;
-     final m = RegExp(
+    if (_playTotalSizes.length >= _playTotalSizesMax &&
+        !_playTotalSizes.containsKey(target)) {
+      _playTotalSizes.remove(_playTotalSizes.keys.first);
+    }
+    _playTotalSizes[target] = total;
+    final m = RegExp(
       r'bytes\s*=\s*(\d+)\s*-',
       caseSensitive: false,
     ).firstMatch(range?.trim() ?? '');
@@ -1117,9 +1124,7 @@ class LocalRelay {
     if (m == null) return range;
     final start = int.tryParse(m.group(1)!);
     if (start == null || start < 0) return range;
-    final span = start == 0
-        ? _firstUpstreamRangeBytes
-        : _maxUpstreamRangeBytes;
+    final span = start == 0 ? _firstUpstreamRangeBytes : _maxUpstreamRangeBytes;
     var maxEnd = start + span - 1;
     // 已知道总长时不要把请求伸到文件外：部分 CDN 对越界 Range 直接回 416。
     if (totalLength != null && totalLength > 0 && maxEnd >= totalLength) {
@@ -1867,7 +1872,8 @@ class LocalRelay {
     final res = request.response;
     final rawQuery = request.uri.query;
     final reqPath = request.uri.path;
-    final targetPath = reqPath.startsWith('/proxy/') &&
+    final targetPath =
+        reqPath.startsWith('/proxy/') &&
             int.tryParse(reqPath.substring('/proxy/'.length)) == null
         ? reqPath
         : '/proxy';
@@ -1921,7 +1927,9 @@ class LocalRelay {
       }
       if (isPlainText && request.method != 'HEAD') {
         final bytes = await _readLimited(upstream);
-        final head = utf8.decode(bytes.take(64).toList(), allowMalformed: true).trimLeft();
+        final head = utf8
+            .decode(bytes.take(64).toList(), allowMalformed: true)
+            .trimLeft();
         if (head.startsWith('#EXTM3U')) {
           bufferedPlainM3u8 = bytes;
         } else {

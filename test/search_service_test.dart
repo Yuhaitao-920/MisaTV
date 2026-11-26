@@ -13,11 +13,9 @@ import 'package:kniephos/services/source_circuit_breaker.dart';
 import 'package:kniephos/services/source_service.dart';
 
 class _FakeCms extends CmsSource {
-  _FakeCms(
-    this.itemsBySite, {
-    Set<String>? failing,
-  }) : failing = failing ?? <String>{},
-       super(AppHttp());
+  _FakeCms(this.itemsBySite, {Set<String>? failing})
+    : failing = failing ?? <String>{},
+      super(AppHttp());
 
   final Map<String, List<VodItem>> itemsBySite;
 
@@ -49,12 +47,8 @@ SourceService _service(CmsSource cms) => SourceService(
   JarSpiderService(),
 );
 
-VodItem _item(String name, {String id = '1'}) => VodItem(
-  id: id,
-  name: name,
-  year: '2026',
-  sourceKey: 'a',
-);
+VodItem _item(String name, {String id = '1'}) =>
+    VodItem(id: id, name: name, year: '2026', sourceKey: 'a');
 
 VodItem _siteItem(String siteKey, String name) => VodItem(
   id: '$siteKey-$name',
@@ -293,10 +287,7 @@ void main() {
 
     test('缺失年份的结果不会被误杀', () async {
       final cms = _FakeCms({
-        'a': [
-          itemWith(name: '片名 有年份', year: '2020'),
-          itemWith(name: '片名 没年份'),
-        ],
+        'a': [itemWith(name: '片名 有年份', year: '2020'), itemWith(name: '片名 没年份')],
       });
       final service = SearchService(_service(cms));
       final site = SourceBean(
@@ -308,19 +299,14 @@ void main() {
 
       // 标题都含关键词「片名」，因此相关性过滤不会介入；年份过滤按缺失放行。
       final events = await service.search('片名 year:2024', [site]).toList();
-      expect(
-        events.last.items.map((e) => e.name),
-        ['片名 没年份'],
-        reason: '元数据缺失应放行，只淘汰明确不匹配的',
-      );
+      expect(events.last.items.map((e) => e.name), [
+        '片名 没年份',
+      ], reason: '元数据缺失应放行，只淘汰明确不匹配的');
     });
 
     test('排除词淘汰结果，也会作用于「只看单源」', () async {
       final cms = _FakeCms({
-        'a': [
-          itemWith(name: '正片'),
-          itemWith(name: '正片解说'),
-        ],
+        'a': [itemWith(name: '正片'), itemWith(name: '正片解说')],
       });
       final service = SearchService(_service(cms));
       final site = SourceBean(
@@ -429,10 +415,9 @@ void main() {
         api: 'https://example.com/a',
       );
       // 年份与排除词是用户显式写的，按它们筛。
-      final events = await service.search(
-        '火影忍者 year:2024 -解说',
-        [site],
-      ).toList();
+      final events = await service.search('火影忍者 year:2024 -解说', [
+        site,
+      ]).toList();
       expect(events.last.items.map((e) => e.year).toSet(), {'2024'});
       expect(
         events.last.items.map((e) => e.name),
@@ -443,10 +428,10 @@ void main() {
 
   group('搜索轮次预算', () {
     test('超过预算先收口，保留已返回结果并标记 timedOut', () async {
-      final js = _SlowJsSpider(
-        ['s1', 's2'],
-        delay: const Duration(milliseconds: 300),
-      );
+      final js = _SlowJsSpider([
+        's1',
+        's2',
+      ], delay: const Duration(milliseconds: 300));
       final service = SearchService(
         SourceService(
           CmsSource(AppHttp()),
@@ -458,7 +443,12 @@ void main() {
       );
       final sites = [
         for (final key in ['s1', 's2'])
-          SourceBean(key: key, name: key, type: 3, api: 'https://e.com/$key.js'),
+          SourceBean(
+            key: key,
+            name: key,
+            type: 3,
+            api: 'https://e.com/$key.js',
+          ),
       ];
 
       final events = await service.search('片', sites).toList();
@@ -469,10 +459,10 @@ void main() {
     });
 
     test('打开详情时取消当前轮次，立即收口', () async {
-      final js = _SlowJsSpider(
-        ['s1', 's2'],
-        delay: const Duration(milliseconds: 300),
-      );
+      final js = _SlowJsSpider([
+        's1',
+        's2',
+      ], delay: const Duration(milliseconds: 300));
       final service = SearchService(
         SourceService(
           CmsSource(AppHttp()),
@@ -483,7 +473,12 @@ void main() {
       );
       final sites = [
         for (final key in ['s1', 's2'])
-          SourceBean(key: key, name: key, type: 3, api: 'https://e.com/$key.js'),
+          SourceBean(
+            key: key,
+            name: key,
+            type: 3,
+            api: 'https://e.com/$key.js',
+          ),
       ];
 
       final future = service.search('片', sites).toList();
@@ -509,7 +504,12 @@ void main() {
       );
       final sites = [
         for (final key in keys)
-          SourceBean(key: key, name: key, type: 3, api: 'https://e.com/$key.js'),
+          SourceBean(
+            key: key,
+            name: key,
+            type: 3,
+            api: 'https://e.com/$key.js',
+          ),
       ];
 
       final sw = Stopwatch()..start();

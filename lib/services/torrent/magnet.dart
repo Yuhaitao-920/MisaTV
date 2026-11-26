@@ -13,7 +13,22 @@ const Set<String> webPlayableExts = {'mp4', 'm4v', 'webm'};
 
 /// 种子内视为「正片」的扩展名白名单（选片用；顺序无关，取体积/线索打分）。
 const Set<String> videoExts = {
-  'mp4', 'm4v', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'ts', 'm2ts', 'webm', 'rmvb', 'rm', 'mpg', 'mpeg', 'vob', '3gp',
+  'mp4',
+  'm4v',
+  'mkv',
+  'avi',
+  'mov',
+  'wmv',
+  'flv',
+  'ts',
+  'm2ts',
+  'webm',
+  'rmvb',
+  'rm',
+  'mpg',
+  'mpeg',
+  'vob',
+  '3gp',
 };
 
 /// 兜底公共 tracker（仅在磁力自带 tracker 之外**追加**缺失项）。
@@ -95,17 +110,27 @@ MagnetInfo? parseMagnet(String uri) {
     final value = eq < 0 ? '' : part.substring(eq + 1);
     if (key == 'xt' && infoHash.isEmpty) {
       final decoded = _decode(value);
-      final match = RegExp(r'^urn:btih:(.+)$', caseSensitive: false).firstMatch(decoded);
+      final match = RegExp(
+        r'^urn:btih:(.+)$',
+        caseSensitive: false,
+      ).firstMatch(decoded);
       if (match != null) infoHash = normalizeBtih(match.group(1)!);
     } else if (key == 'tr') {
       final tracker = _decode(value).trim();
-      if (tracker.isNotEmpty && !trackers.contains(tracker)) trackers.add(tracker);
+      if (tracker.isNotEmpty && !trackers.contains(tracker)) {
+        trackers.add(tracker);
+      }
     } else if (key == 'dn' && displayName.isEmpty) {
       displayName = _decode(value).trim();
     }
   }
   if (infoHash.isEmpty) return null;
-  return MagnetInfo(raw: raw, infoHash: infoHash, displayName: displayName, trackers: trackers);
+  return MagnetInfo(
+    raw: raw,
+    infoHash: infoHash,
+    displayName: displayName,
+    trackers: trackers,
+  );
 }
 
 String _decode(String value) {
@@ -120,10 +145,14 @@ String _decode(String value) {
 String withTrackers(String magnet, {List<String> extra = publicTrackers}) {
   final info = parseMagnet(magnet);
   if (info == null) return magnet;
-  final add = extra.where((t) => t.isNotEmpty && !info.trackers.contains(t)).toList();
+  final add = extra
+      .where((t) => t.isNotEmpty && !info.trackers.contains(t))
+      .toList();
   if (add.isEmpty) return magnet;
   final separator = magnet.contains('?') ? '&' : '?';
-  return magnet + separator + add.map((t) => 'tr=${Uri.encodeComponent(t)}').join('&');
+  return magnet +
+      separator +
+      add.map((t) => 'tr=${Uri.encodeComponent(t)}').join('&');
 }
 
 /// 种子内单个文件（aria2 `getFiles` 的条目 + 我们算出的 torrent 内偏移）。
@@ -145,11 +174,20 @@ class TorrentFile {
 }
 
 /// 给 aria2 `getFiles` 结果补 torrent 内偏移（按条目顺序累加；padding 文件同样占位，累加即正确）。
-List<TorrentFile> withTorrentOffsets(List<({int index, String path, int length})> files) {
+List<TorrentFile> withTorrentOffsets(
+  List<({int index, String path, int length})> files,
+) {
   var offset = 0;
   final out = <TorrentFile>[];
   for (final file in files) {
-    out.add(TorrentFile(index: file.index, path: file.path, length: file.length, offset: offset));
+    out.add(
+      TorrentFile(
+        index: file.index,
+        path: file.path,
+        length: file.length,
+        offset: offset,
+      ),
+    );
     offset += file.length;
   }
   return out;
@@ -171,7 +209,9 @@ bool isVideoFile(String name) => videoExts.contains(extOf(name));
 String stemKey(String name) {
   final base = name.split(RegExp(r'[\\/]')).last;
   final ext = extOf(base);
-  final noExt = ext.isEmpty ? base : base.substring(0, base.length - ext.length - 1);
+  final noExt = ext.isEmpty
+      ? base
+      : base.substring(0, base.length - ext.length - 1);
   return noExt.toLowerCase().replaceAll(RegExp(r'[^0-9a-z\u4e00-\u9fff]+'), '');
 }
 
@@ -180,13 +220,17 @@ String stemKey(String name) {
 ///
 /// 说明：合集包里「最大文件」几乎总是正片，但对同一剧集包的换集场景，集名线索更准。
 TorrentFile? pickVideoFile(List<TorrentFile> files, {String preferName = ''}) {
-  final videos = files.where((f) => isVideoFile(f.path) && f.length > 0).toList();
+  final videos = files
+      .where((f) => isVideoFile(f.path) && f.length > 0)
+      .toList();
   if (videos.isEmpty) return null;
   final hint = stemKey(preferName);
   if (hint.isNotEmpty) {
     for (final file in videos) {
       final key = stemKey(file.path);
-      if (key.isNotEmpty && (key.contains(hint) || hint.contains(key))) return file;
+      if (key.isNotEmpty && (key.contains(hint) || hint.contains(key))) {
+        return file;
+      }
     }
   }
   videos.sort((a, b) => b.length.compareTo(a.length));
@@ -201,9 +245,14 @@ TorrentFile? pickVideoFile(List<TorrentFile> files, {String preferName = ''}) {
 /// 返回 null 表示可直连播；否则返回**人话原因**（上屏用）。
 String? webPlayBlockReason(String name) {
   final ext = extOf(name);
-  if (!webPlayableExts.contains(ext)) return '${ext.isEmpty ? '未知' : ext.toUpperCase()} 容器内置播放器不支持';
+  if (!webPlayableExts.contains(ext)) {
+    return '${ext.isEmpty ? '未知' : ext.toUpperCase()} 容器内置播放器不支持';
+  }
   final base = name.split(RegExp(r'[\\/]')).last;
-  if (RegExp(r'(^|[^a-z0-9])(hevc|x265|h\.?265)([^a-z0-9]|$)', caseSensitive: false).hasMatch(base)) {
+  if (RegExp(
+    r'(^|[^a-z0-9])(hevc|x265|h\.?265)([^a-z0-9]|$)',
+    caseSensitive: false,
+  ).hasMatch(base)) {
     return 'HEVC（H.265）编码内置播放器多数环境不支持';
   }
   return null;
@@ -211,13 +260,13 @@ String? webPlayBlockReason(String name) {
 
 /// aria2 addUri / addTorrent 的公共参数（纯构造，便于单测与排障对拍）。
 Map<String, String> addUriOptions(String dir) => {
-      // 只下元数据后**暂停**：等我们按文件清单挑好片再 unpause（aria2 官方文件选择流程）。
-      'pause-metadata': 'true',
-      'bt-save-metadata': 'true', // 落 .torrent，二次播放可免 DHT 拉元数据
-      'bt-remove-unselected-file': 'false', // 未选中的文件不下载、也不删（避免误删用户数据）
-      'seed-time': '0',
-      'dir': dir,
-    };
+  // 只下元数据后**暂停**：等我们按文件清单挑好片再 unpause（aria2 官方文件选择流程）。
+  'pause-metadata': 'true',
+  'bt-save-metadata': 'true', // 落 .torrent，二次播放可免 DHT 拉元数据
+  'bt-remove-unselected-file': 'false', // 未选中的文件不下载、也不删（避免误删用户数据）
+  'seed-time': '0',
+  'dir': dir,
+};
 
 /// 追加公共 tracker 后的 infoHash 键（会话表用；解析失败返回 ''）。
 String magnetKey(String magnet) => parseMagnet(magnet)?.infoHash ?? '';
@@ -236,8 +285,17 @@ String firstFollowedBy(Object? value) {
 
 /// tellStatus 里我们关心的键（一次取全，减少轮询次数）。
 const List<String> statusKeys = [
-  'status', 'totalLength', 'completedLength', 'downloadSpeed', 'pieceLength',
-  'bitfield', 'connections', 'numSeeders', 'errorCode', 'errorMessage', 'followedBy',
+  'status',
+  'totalLength',
+  'completedLength',
+  'downloadSpeed',
+  'pieceLength',
+  'bitfield',
+  'connections',
+  'numSeeders',
+  'errorCode',
+  'errorMessage',
+  'followedBy',
 ];
 
 /// piece 是否已下载（校验通过）—— 位序：hex 串第 `i>>2` 个字符、自高位起第 `i&3` 位
@@ -265,7 +323,12 @@ bool isPieceRangeSet(String hex, int first, int last) {
 /// 文件内字节区间 [start, end]（相对该文件）落在哪些 torrent piece 上。
 ///
 /// `fileOffset` = 该文件在 torrent 内的起始偏移（见 withTorrentOffsets）。
-({int first, int last}) piecesForByteRange(int fileOffset, int pieceLength, int start, int end) {
+({int first, int last}) piecesForByteRange(
+  int fileOffset,
+  int pieceLength,
+  int start,
+  int end,
+) {
   if (pieceLength <= 0) return (first: 0, last: 0);
   final absStart = fileOffset + (start < 0 ? 0 : start);
   final absEnd = fileOffset + (end < 0 ? 0 : end);
@@ -274,7 +337,8 @@ bool isPieceRangeSet(String hex, int first, int last) {
 
 /// `/bt/<infoHash>/<fileIndex>` 路由解析（非法 → null）。
 ({String infoHash, int fileIndex})? parseBtRoute(String pathname) {
-  final match = RegExp(r'^/bt/([0-9a-fA-F]{40})/(\d{1,6})/?$').firstMatch(pathname);
+  final match = RegExp(r'^/bt/([0-9a-fA-F]{40})/(\d{1,6})/?$')
+      .firstMatch(pathname);
   if (match == null) return null;
   final fileIndex = int.tryParse(match.group(2)!) ?? 0;
   if (fileIndex <= 0) return null;

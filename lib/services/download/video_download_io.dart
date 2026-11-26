@@ -29,7 +29,10 @@ String videoDownloadExtension(String url, [String fallback = 'mp4']) {
   try {
     final segments = Uri.parse(url).pathSegments;
     if (segments.isNotEmpty) {
-      final ext = p.extension(segments.last).replaceFirst('.', '').toLowerCase();
+      final ext = p
+          .extension(segments.last)
+          .replaceFirst('.', '')
+          .toLowerCase();
       if (RegExp(r'^(mp4|m4v|mkv|mov|webm|flv|ts|avi|wmv|rmvb)$')
           .hasMatch(ext)) {
         return ext;
@@ -50,8 +53,7 @@ String allocateDownloadPath(String dir, String title, String url) {
   final ext = videoDownloadExtension(url);
   var candidate = p.join(root, '$name.$ext');
   var index = 2;
-  while (File(candidate).existsSync() ||
-      File('$candidate.part').existsSync()) {
+  while (File(candidate).existsSync() || File('$candidate.part').existsSync()) {
     candidate = p.join(root, '$name ($index).$ext');
     index++;
   }
@@ -136,8 +138,9 @@ class VideoDownloadTask {
     return task;
   }
 
-  final ValueNotifier<VideoDownloadProgress> progress =
-      ValueNotifier(const VideoDownloadProgress());
+  final ValueNotifier<VideoDownloadProgress> progress = ValueNotifier(
+    const VideoDownloadProgress(),
+  );
 
   final String _url;
   final String _sourceUrl;
@@ -208,12 +211,7 @@ class VideoDownloadTask {
         final message = e is StateError || e is FormatException
             ? '$e'
             : describeAppError(e).message;
-        _emit(
-          progress.value.copyWith(
-            error: message,
-            stage: '下载失败',
-          ),
-        );
+        _emit(progress.value.copyWith(error: message, stage: '下载失败'));
         AppLog.w('download', '视频下载失败', e);
       }
       // 失败时保留 .part：直链再次点击可以断点续传。
@@ -349,12 +347,7 @@ class VideoDownloadTask {
     var received = 0;
     final keys = <String, Uint8List>{};
     final total = playlist.segments.length;
-    _emit(
-      VideoDownloadProgress(
-        totalSegments: total,
-        stage: '下载分片 0/$total',
-      ),
-    );
+    _emit(VideoDownloadProgress(totalSegments: total, stage: '下载分片 0/$total'));
     try {
       final initUri = playlist.initUri;
       if (initUri != null && initUri.isNotEmpty) {

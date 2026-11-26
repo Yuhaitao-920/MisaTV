@@ -64,9 +64,15 @@ void main() {
       // 默认不占用任何全局热键：只有用户显式选择才生效。
       expect(PlayerSettings.fromJson({}).bossKey, kUnsetBossKey);
       // 未知值不再回落到某个默认组合（那等于替用户抢一个热键）。
-      expect(PlayerSettings.fromJson({'bossKey': 'bogus'}).bossKey, kUnsetBossKey);
+      expect(
+        PlayerSettings.fromJson({'bossKey': 'bogus'}).bossKey,
+        kUnsetBossKey,
+      );
       // 旧版本的 'off' 归一到「未设置」。
-      expect(PlayerSettings.fromJson({'bossKey': 'OFF'}).bossKey, kUnsetBossKey);
+      expect(
+        PlayerSettings.fromJson({'bossKey': 'OFF'}).bossKey,
+        kUnsetBossKey,
+      );
       expect(bossKeyLabel('f12'), 'F12');
       expect(bossKeyLabel(kUnsetBossKey), '未设置');
       expect(isBossKeySet(kUnsetBossKey), isFalse);
@@ -378,6 +384,25 @@ void main() {
       expect(externalSeekArgs(externalPlayerKind(r'D:\Apps\vlc.exe'), 90), [
         '--start-time=90',
       ]);
+    });
+
+    // 外部播放器「点了没反应」曾经完全查不出原因：Process.start 的 onError
+    // 被吞掉、函数还返回 true，UI 认为成功、不回退、不提示。
+    // 现在失败原因通过 onLaunchError 交回调用方，并写进日志。
+    test('文件不存在时直接返回 false，不触发回调', () {
+      var called = false;
+      final ok = launchExternalPlayer(
+        r'D:\definitely-missing\Nope.exe',
+        'https://example.com/a.m3u8',
+        onLaunchError: (_) => called = true,
+      );
+      expect(ok, isFalse);
+      // 参数层面就拒绝了，不需要异步回调。
+      expect(called, isFalse);
+    });
+
+    test('空路径返回 false', () {
+      expect(launchExternalPlayer('', 'https://example.com/a.m3u8'), isFalse);
     });
   });
 }

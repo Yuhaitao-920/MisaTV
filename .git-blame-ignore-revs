@@ -1,0 +1,9 @@
+# 纯格式提交：git blame 时跳过这些提交，保留真实的作者归属。
+#
+# 用法：
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#   git blame --ignore-revs-file .git-blame-ignore-revs <file>
+# GitHub 网页端的 blame 会自动识别本文件，无需额外配置。
+
+# style: 全仓执行 dart format（Dart 3.13 新 tall style）
+c9ecbc7707ac133db82af8a528e572497bec70da

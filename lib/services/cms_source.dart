@@ -10,7 +10,10 @@ class CmsSource {
   String _ac(int type) => type == 0 ? 'videolist' : 'detail';
 
   Future<String> _fetch(String url, int timeoutSeconds) async {
-    final res = await http.getText(url, timeout: Duration(seconds: timeoutSeconds));
+    final res = await http.getText(
+      url,
+      timeout: Duration(seconds: timeoutSeconds),
+    );
     return res.body;
   }
 
@@ -35,14 +38,21 @@ class CmsSource {
       );
       if (items.isEmpty && body.classes.isNotEmpty) {
         try {
-          final fallback = await category(site, body.classes.first.id, '1', const {});
+          final fallback = await category(
+            site,
+            body.classes.first.id,
+            '1',
+            const {},
+          );
           if (fallback.items.isNotEmpty) {
             return CmsResult(
               classes: body.classes,
               items: fallback.items,
               page: fallback.page,
               pagecount: fallback.pagecount == 0 ? 1 : fallback.pagecount,
-              total: fallback.total == 0 ? fallback.items.length : fallback.total,
+              total: fallback.total == 0
+                  ? fallback.items.length
+                  : fallback.total,
               homeFallback: true,
             );
           }
@@ -56,7 +66,12 @@ class CmsSource {
     }
   }
 
-  Future<CmsResult> category(SourceBean site, String tid, String pg, Map<String, String> filters) async {
+  Future<CmsResult> category(
+    SourceBean site,
+    String tid,
+    String pg,
+    Map<String, String> filters,
+  ) async {
     if (!site.supported) throw SourceException(site.unsupportedReason);
     final params = <String, String>{'ac': _ac(site.type), 't': tid, 'pg': pg};
     if (filters.isNotEmpty) {

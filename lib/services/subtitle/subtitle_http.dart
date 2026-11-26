@@ -22,8 +22,10 @@ class SubtitleHttpResponse {
 }
 
 class SubtitleHttp {
-  SubtitleHttp({http.Client? client, this.timeout = const Duration(seconds: 15)})
-    : _client = client ?? http.Client();
+  SubtitleHttp({
+    http.Client? client,
+    this.timeout = const Duration(seconds: 15),
+  }) : _client = client ?? http.Client();
 
   final http.Client _client;
   final Duration timeout;

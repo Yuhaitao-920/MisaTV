@@ -11,7 +11,8 @@ const String ssdpAddress = '239.255.255.250';
 const int ssdpPort = 1900;
 const String rendererTarget = 'urn:schemas-upnp-org:device:MediaRenderer:1';
 const String avTransportType = 'urn:schemas-upnp-org:service:AVTransport:1';
-const String renderingControlType = 'urn:schemas-upnp-org:service:RenderingControl:1';
+const String renderingControlType =
+    'urn:schemas-upnp-org:service:RenderingControl:1';
 
 const String _soapNs = 'http://schemas.xmlsoap.org/soap/envelope/';
 const String _avTransportNs = 'urn:schemas-upnp-org:service:AVTransport:1';
@@ -83,7 +84,11 @@ String buildSearchRequest({int mxSeconds = 2}) {
 }
 
 class SsdpResponse {
-  const SsdpResponse({required this.usn, required this.location, required this.st});
+  const SsdpResponse({
+    required this.usn,
+    required this.location,
+    required this.st,
+  });
 
   final String usn;
   final String location;
@@ -123,7 +128,11 @@ SsdpResponse? parseSsdpResponse(String message) {
     }
   }
   if (location.isEmpty) return null;
-  return SsdpResponse(usn: usn.isEmpty ? location : usn, location: location, st: st.isEmpty ? rendererTarget : st);
+  return SsdpResponse(
+    usn: usn.isEmpty ? location : usn,
+    location: location,
+    st: st.isEmpty ? rendererTarget : st,
+  );
 }
 
 // ───────────────────────── 设备描述 ─────────────────────────
@@ -133,10 +142,15 @@ SsdpResponse? parseSsdpResponse(String message) {
 /// UPnP 的 controlURL 一律相对**设备根**（不是 descriptor 所在目录），所以只取 scheme+authority 再拼。
 String combineUrl(String location, String controlUrl) {
   final control = controlUrl.trim();
-  if (RegExp(r'^https?://', caseSensitive: false).hasMatch(control)) return control;
+  if (RegExp(r'^https?://', caseSensitive: false).hasMatch(control)) {
+    return control;
+  }
   try {
     final loc = Uri.parse(location);
-    final root = '${loc.scheme}://${loc.authority}'.replaceAll(RegExp(r'/+$'), '');
+    final root = '${loc.scheme}://${loc.authority}'.replaceAll(
+      RegExp(r'/+$'),
+      '',
+    );
     final tail = control.startsWith('/') ? control : '/$control';
     return '$root$tail';
   } catch (_) {
@@ -174,7 +188,9 @@ DlnaDevice? parseDeviceDescription(String xmlText, String location) {
       if (type.isEmpty || control.isEmpty) continue;
       final lower = type.toLowerCase();
       if (avt.isEmpty && lower == avTransportType.toLowerCase()) avt = control;
-      if (rc.isEmpty && lower == renderingControlType.toLowerCase()) rc = control;
+      if (rc.isEmpty && lower == renderingControlType.toLowerCase()) {
+        rc = control;
+      }
     }
   }
   if (avt.isEmpty) return null;
@@ -202,7 +218,9 @@ String escapeXml(String? value) {
 
 /// headers → `{"K":"V",…}`（TVBox 把防盗链头序列化成 JSON 塞进 `dc:description`）。
 String headersJson(Map<String, String> headers) {
-  final parts = headers.entries.map((e) => '${_jsonString(e.key)}:${_jsonString(e.value)}');
+  final parts = headers.entries.map(
+    (e) => '${_jsonString(e.key)}:${_jsonString(e.value)}',
+  );
   return '{${parts.join(',')}}';
 }
 
@@ -213,14 +231,19 @@ String _jsonString(String value) {
 
 /// 构造 `CurrentURIMetaData`（对位 `DLNACastManager.buildMetaData`）。
 String buildMetaData(DlnaCastTarget target) {
-  const head = '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+  const head =
+      '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
       'xmlns:dc="http://purl.org/dc/elements/1.1/" '
       'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
       '<item id="0" parentID="-1" restricted="0">';
-  final title = '<dc:title>${escapeXml(target.name)}</dc:title>'
+  final title =
+      '<dc:title>${escapeXml(target.name)}</dc:title>'
       '<dc:creator></dc:creator><upnp:class>object.item.videoItem</upnp:class>';
-  final desc = target.headers.isEmpty ? '' : '<dc:description>${escapeXml(headersJson(target.headers))}</dc:description>';
-  final res = '<res protocolInfo="http-get:*:video/*:*">${escapeXml(target.url)}</res>';
+  final desc = target.headers.isEmpty
+      ? ''
+      : '<dc:description>${escapeXml(headersJson(target.headers))}</dc:description>';
+  final res =
+      '<res protocolInfo="http-get:*:video/*:*">${escapeXml(target.url)}</res>';
   return '$head$title$desc$res</item></DIDL-Lite>';
 }
 
@@ -252,17 +275,20 @@ String buildSetUriBody(String uri, String didl) {
   return _soapBody(
     'SetAVTransportURI',
     '<InstanceID>0</InstanceID>'
-    '<CurrentURI>${escapeXml(uri)}</CurrentURI>'
-    '<CurrentURIMetaData>${escapeXml(didl)}</CurrentURIMetaData>',
+        '<CurrentURI>${escapeXml(uri)}</CurrentURI>'
+        '<CurrentURIMetaData>${escapeXml(didl)}</CurrentURIMetaData>',
   );
 }
 
-String buildPlayBody() => _soapBody('Play', '<InstanceID>0</InstanceID><Speed>1</Speed>');
+String buildPlayBody() =>
+    _soapBody('Play', '<InstanceID>0</InstanceID><Speed>1</Speed>');
 
 String buildStopBody() => _soapBody('Stop', '<InstanceID>0</InstanceID>');
 
-String buildSeekBody(String relTime) =>
-    _soapBody('Seek', '<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$relTime</Target>');
+String buildSeekBody(String relTime) => _soapBody(
+  'Seek',
+  '<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$relTime</Target>',
+);
 
 /// SOAP 1.1 要求 SOAPACTION 是**带引号**的 `#` 形式动作名。
 String soapActionHeader(String action) => '"$_avTransportNs#$action"';
@@ -284,12 +310,25 @@ DlnaCastTarget parseCastTarget(
   final raw = playUrl.trim();
   final title = name.trim().isEmpty ? 'MisaTV 投屏' : name.trim();
   final ms = positionMs > 0 ? positionMs : 0;
-  final base = DlnaCastTarget(url: raw, name: title, positionMs: ms, headers: Map<String, String>.from(extraHeaders));
+  final base = DlnaCastTarget(
+    url: raw,
+    name: title,
+    positionMs: ms,
+    headers: Map<String, String>.from(extraHeaders),
+  );
   if (raw.isEmpty) {
-    return DlnaCastTarget(url: raw, name: title, positionMs: ms, headers: base.headers, localRelay: true);
+    return DlnaCastTarget(
+      url: raw,
+      name: title,
+      positionMs: ms,
+      headers: base.headers,
+      localRelay: true,
+    );
   }
   final uri = Uri.tryParse(raw);
-  if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) return base;
+  if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
+    return base;
+  }
 
   var relayPort = 9978;
   if (relayBase.trim().isNotEmpty) {
@@ -297,14 +336,21 @@ DlnaCastTarget parseCastTarget(
     if (relay != null && relay.hasPort) relayPort = relay.port;
   }
   final host = uri.host.toLowerCase();
-  final isLocal = (host == '127.0.0.1' || host == 'localhost' || host == '::1') &&
+  final isLocal =
+      (host == '127.0.0.1' || host == 'localhost' || host == '::1') &&
       (!uri.hasPort || uri.port == relayPort);
   if (!isLocal) return base; // 外部地址：原样投出去
 
   if (uri.path == '/play') {
     final inner = (uri.queryParameters['url'] ?? '').trim();
     if (!RegExp(r'^https?://', caseSensitive: false).hasMatch(inner)) {
-      return DlnaCastTarget(url: raw, name: title, positionMs: base.positionMs, headers: base.headers, localRelay: true);
+      return DlnaCastTarget(
+        url: raw,
+        name: title,
+        positionMs: base.positionMs,
+        headers: base.headers,
+        localRelay: true,
+      );
     }
     final headers = Map<String, String>.from(extraHeaders);
     final ua = (uri.queryParameters['ua'] ?? '').trim();
@@ -335,5 +381,11 @@ DlnaCastTarget parseCastTarget(
     );
   }
   // `/bt/…`（磁力中继）、`/proxy/<port>`（蜘蛛 JVM 代理）等：只有本机能取，电视端拉不到。
-  return DlnaCastTarget(url: raw, name: title, positionMs: base.positionMs, headers: base.headers, localRelay: true);
+  return DlnaCastTarget(
+    url: raw,
+    name: title,
+    positionMs: base.positionMs,
+    headers: base.headers,
+    localRelay: true,
+  );
 }

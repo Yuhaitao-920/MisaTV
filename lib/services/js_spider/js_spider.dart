@@ -524,4 +524,3 @@ class _JsWorkerHandle {
   Future<void>? starting;
   final Set<String> readySites = {};
 }
-

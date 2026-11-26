@@ -25,21 +25,22 @@ Future<String> _fetchBaiduPanUk(HttpClient client, String headerVal) async {
     final req = await client.getUrl(Uri.parse(_baiduPanUinfoUrl));
     req.headers
       ..set(HttpHeaders.userAgentHeader, _baiduUa)
-        ..set(HttpHeaders.refererHeader, _baiduReferer)
-          ..set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*')
-            ..set(HttpHeaders.cookieHeader, headerVal);
-            final resp = await req.close().timeout(const Duration(seconds: 12));
-            if (resp.statusCode < 200 || resp.statusCode >= 300) return '';
-            final body = await resp.transform(utf8.decoder).join();
-            final decoded = jsonDecode(body);
-            if (decoded is! Map<String, dynamic>) return '';
-            if ((decoded['errno'] as num?)?.toInt() != 0) return '';
-            final uk = '${decoded['uk'] ?? ''}'.trim();
-            return _digitsRe.hasMatch(uk) ? uk : '';
-   } catch (_) {
-     return '';
-    }
+      ..set(HttpHeaders.refererHeader, _baiduReferer)
+      ..set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*')
+      ..set(HttpHeaders.cookieHeader, headerVal);
+    final resp = await req.close().timeout(const Duration(seconds: 12));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) return '';
+    final body = await resp.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) return '';
+    if ((decoded['errno'] as num?)?.toInt() != 0) return '';
+    final uk = '${decoded['uk'] ?? ''}'.trim();
+    return _digitsRe.hasMatch(uk) ? uk : '';
+  } catch (_) {
+    return '';
+  }
 }
+
 Future<String> _fetchBaiduUid(HttpClient client, String headerVal) async {
   try {
     final req = await client.getUrl(Uri.parse(_baiduUserInfoUrl));
@@ -107,9 +108,9 @@ Future<QuarkSessionResult> refreshBaiduSession(String cookie) async {
       uk = await _fetchBaiduPanUk(client, merged);
       if (!_digitsRe.hasMatch(uk)) {
         uk = await _fetchBaiduUid(client, merged);
-       }
       }
-        return QuarkSessionResult(
+    }
+    return QuarkSessionResult(
       cookie: merged,
       changed: merged != original,
       valid: valid ? true : (guest ? false : null),

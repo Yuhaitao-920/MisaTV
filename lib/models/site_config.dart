@@ -622,6 +622,7 @@ class ConfigProfile {
     this.lastRefreshAt,
     this.deletedSiteKeys = const [],
     this.addedSiteKeys = const [],
+    this.addedLiveKeys = const [],
   });
 
   final String id;
@@ -656,6 +657,13 @@ class ConfigProfile {
   /// 用户手动导入 / 移动到该订阅的源 key：刷新时保留这些本地条目。
   final List<String> addedSiteKeys;
 
+  /// 用户手动导入到该订阅的直播线路 key（`name|url`）：刷新时保留。
+  ///
+  /// 与 [addedSiteKeys] 同一个用途，只是作用于 `lives`。本地 TXT / M3U 并入
+  /// 某个线上订阅后，若不带这层标记，下次刷新会用远端内容覆盖 rawJson，
+  /// 用户加进来的线路就消失了。
+  final List<String> addedLiveKeys;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -670,6 +678,7 @@ class ConfigProfile {
       'lastRefreshAt': lastRefreshAt!.toIso8601String(),
     if (deletedSiteKeys.isNotEmpty) 'deletedSiteKeys': deletedSiteKeys,
     if (addedSiteKeys.isNotEmpty) 'addedSiteKeys': addedSiteKeys,
+    if (addedLiveKeys.isNotEmpty) 'addedLiveKeys': addedLiveKeys,
   };
 
   factory ConfigProfile.fromJson(Map<String, dynamic> j) => ConfigProfile(
@@ -691,6 +700,9 @@ class ConfigProfile {
         const [],
     addedSiteKeys:
         (j['addedSiteKeys'] as List?)?.map((e) => e.toString()).toList() ??
+        const [],
+    addedLiveKeys:
+        (j['addedLiveKeys'] as List?)?.map((e) => e.toString()).toList() ??
         const [],
   );
 }

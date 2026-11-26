@@ -12,12 +12,14 @@ void main() {
     final file = File('${dir.path}/local.txt');
     await file.writeAsString('央视,#genre#\nCCTV1,http://a.test/1.m3u8\n');
     final service = LiveService(AppHttp());
-    final groups = await service.load(LiveBean(
-      name: '本地',
-      api: fileUrlOf(file.path),
-      type: '0',
-      url: fileUrlOf(file.path),
-    ));
+    final groups = await service.load(
+      LiveBean(
+        name: '本地',
+        api: fileUrlOf(file.path),
+        type: '0',
+        url: fileUrlOf(file.path),
+      ),
+    );
     expect(groups.length, 1);
     expect(groups.first.group, '央视');
     expect(groups.first.channels.length, 1);
@@ -64,10 +66,7 @@ void main() {
       LiveService.isSpiderProxyUrl('http://127.0.0.1:9978/proxy?do=live'),
       isFalse,
     );
-    expect(
-      LiveService.isSpiderProxyUrl('https://a.test/proxy?do=py'),
-      isFalse,
-    );
+    expect(LiveService.isSpiderProxyUrl('https://a.test/proxy?do=py'), isFalse);
   });
 
   test('本地 M3U 直播源可直接读取', () async {
@@ -79,12 +78,14 @@ void main() {
       'http://a.test/1.m3u8\n',
     );
     final service = LiveService(AppHttp());
-    final groups = await service.load(LiveBean(
-      name: '本地',
-      api: fileUrlOf(file.path),
-      type: '0',
-      url: fileUrlOf(file.path),
-    ));
+    final groups = await service.load(
+      LiveBean(
+        name: '本地',
+        api: fileUrlOf(file.path),
+        type: '0',
+        url: fileUrlOf(file.path),
+      ),
+    );
     expect(groups.length, 1);
     expect(groups.first.channels.first.name, 'CCTV1');
     await dir.delete(recursive: true);

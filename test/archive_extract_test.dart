@@ -24,6 +24,9 @@ void main() {
     await extractZipArchive(file.path, out.path);
 
     expect(File('${out.path}/bin/java.exe').existsSync(), isTrue);
-    expect(File('${out.path}/Lib/site-packages/requests/__init__.py').existsSync(), isTrue);
+    expect(
+      File('${out.path}/Lib/site-packages/requests/__init__.py').existsSync(),
+      isTrue,
+    );
   });
 }

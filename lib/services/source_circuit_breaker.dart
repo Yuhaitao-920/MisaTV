@@ -8,6 +8,7 @@
 //   · 第 4 次及以上：冷却 24 小时；
 // 冷却结束自动放行一次探测；成功一次立即清零并恢复正常。
 import 'dart:convert';
+
 class SourceCircuitRecord {
   const SourceCircuitRecord({
     required this.failureCount,

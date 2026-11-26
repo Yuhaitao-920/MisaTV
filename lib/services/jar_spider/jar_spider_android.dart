@@ -38,7 +38,7 @@ class JarSpiderAndroidService extends JarSpiderService {
   });
 
   static const _channel = MethodChannel('com.kniephos.kniephos/spider');
-    List<String> _lastInvokeDebug = const [];
+  List<String> _lastInvokeDebug = const [];
 
   /// 已加载到插件侧的蜘蛛（按 jar 指纹 + 类名 复用，避免重复加载）。
   final Map<String, _LoadedSpider> _loaded = {};
@@ -62,7 +62,9 @@ class JarSpiderAndroidService extends JarSpiderService {
     var api = site.api.trim();
     final q = api.indexOf('?');
     if (q >= 0) api = api.substring(0, q);
-    if (api.startsWith('csp_')) return 'com.github.catvod.spider.${api.substring(4)}';
+    if (api.startsWith('csp_')) {
+      return 'com.github.catvod.spider.${api.substring(4)}';
+    }
     if (api.contains('.')) return api;
     return 'com.github.catvod.spider.$api';
   }
@@ -113,10 +115,16 @@ class JarSpiderAndroidService extends JarSpiderService {
     for (final target in targets.toSet()) {
       try {
         final client = HttpClient();
-        final req = await client.getUrl(Uri.parse(target));
+        final targetUri = Uri.parse(target);
+        final req = await client.getUrl(targetUri);
         req.headers.set('User-Agent', 'okhttp/4.12.0');
         req.headers.set('Accept', '*/*');
         req.headers.set('Accept-Encoding', 'identity');
+        // 与桌面端一致：WebDAV 订阅的 jar 同源，需要地址里内嵌的 Basic Auth。
+        final auth = AppHttp.authHeadersOf(targetUri);
+        if (auth.isNotEmpty) {
+          req.headers.set('Authorization', auth['authorization']!);
+        }
         final res = await req.close().timeout(const Duration(seconds: 30));
         if (res.statusCode != 200) {
           await res.drain<void>();
@@ -232,7 +240,8 @@ class JarSpiderAndroidService extends JarSpiderService {
   Future<_LoadedSpider> _ensureLoaded(SourceBean site) async {
     final raw = await _acquireJar(site);
     final className = _className(site);
-    final cacheKey = '${p.basenameWithoutExtension(raw.path)}|${site.key}|$className';
+    final cacheKey =
+        '${p.basenameWithoutExtension(raw.path)}|${site.key}|$className';
     final spiderDir = await _spiderCacheDir();
 
     final stamp = _currentStamp();
@@ -250,9 +259,7 @@ class JarSpiderAndroidService extends JarSpiderService {
 
     final hasDex = await _jarHasDex(raw);
     if (!hasDex) {
-      throw SourceException(
-        '该蜘蛛是 class 格式，安卓需 dex/APK 格式（请用 TVBox 的 dex 版蜘蛛）',
-      );
+      throw SourceException('该蜘蛛是 class 格式，安卓需 dex/APK 格式（请用 TVBox 的 dex 版蜘蛛）');
     }
 
     final ext = enrichSpiderExt(site.ext, driveTokens?.call() ?? const {});
@@ -288,25 +295,28 @@ class JarSpiderAndroidService extends JarSpiderService {
     }
   }
 
-  Future<String> _invoke(SourceBean site, String method, List<String> args) async {
+  Future<String> _invoke(
+    SourceBean site,
+    String method,
+    List<String> args,
+  ) async {
     final loaded = await _ensureLoaded(site);
-    final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'invoke',
-      {
-        'method': method,
-        'args': args,
-        // 插件侧按类名保存多个蜘蛛实例，避免同时加载多个源时互相覆盖。
-        'className': _className(site),
-        'instanceKey': loaded.key,
-      },
-    );
+    final reply = await _channel.invokeMethod<Map<dynamic, dynamic>>('invoke', {
+      'method': method,
+      'args': args,
+      // 插件侧按类名保存多个蜘蛛实例，避免同时加载多个源时互相覆盖。
+      'className': _className(site),
+      'instanceKey': loaded.key,
+    });
     final ok = reply?['ok'] == true;
     if (!ok) {
       throw SourceException(reply?['error'] ?? '蜘蛛调用失败：$method');
     }
     final data = (reply?['data'] as String?) ?? '';
     final rawDebug = reply?['debug'];
-    _lastInvokeDebug = rawDebug is List ? rawDebug.map((e) => '$e').where((e) => e.trim().isNotEmpty).toList() : const [];
+    _lastInvokeDebug = rawDebug is List
+        ? rawDebug.map((e) => '$e').where((e) => e.trim().isNotEmpty).toList()
+        : const [];
     return data;
   }
 
@@ -391,7 +401,10 @@ class JarSpiderAndroidService extends JarSpiderService {
     final detail = MovieParser.toDetail(body.movie, site.key);
     if (detail == null || detail.episodes.isEmpty) {
       final preview = text.length > 1200 ? text.substring(0, 1200) : text;
-      AppLog.i('jar', 'detailContent 空剧集 site=${site.key} len=${text.length} raw=$preview');
+      AppLog.i(
+        'jar',
+        'detailContent 空剧集 site=${site.key} len=${text.length} raw=$preview',
+      );
     }
     return detail;
   }
@@ -450,7 +463,15 @@ class JarSpiderAndroidService extends JarSpiderService {
     }
 
     if (result.url.isNotEmpty && result.url.contains('127.0.0.1')) {
-      final url = _rewriteLocalProxy(result.url, loaded.proxyPort); if (url.contains(':5266')) { final target = Uri.tryParse(url)?.queryParameters['url'] ?? ''; final targetUri = Uri.tryParse(target); AppLog.i('jar', '5266 proxy target empty=${target.isEmpty} len=${target.length} scheme=${targetUri?.scheme ?? ''} host=${targetUri?.host ?? ''} path=${targetUri?.path ?? ''}'); }
+      final url = _rewriteLocalProxy(result.url, loaded.proxyPort);
+      if (url.contains(':5266')) {
+        final target = Uri.tryParse(url)?.queryParameters['url'] ?? '';
+        final targetUri = Uri.tryParse(target);
+        AppLog.i(
+          'jar',
+          '5266 proxy target empty=${target.isEmpty} len=${target.length} scheme=${targetUri?.scheme ?? ''} host=${targetUri?.host ?? ''} path=${targetUri?.path ?? ''}',
+        );
+      }
       result = PlayResult(
         url: url,
         parse: result.parse,
@@ -462,10 +483,19 @@ class JarSpiderAndroidService extends JarSpiderService {
     }
 
     final u = Uri.tryParse(result.url);
-    AppLog.i('jar', 'playerContent flag=$flag urlEmpty=${result.url.isEmpty} scheme=${u?.scheme ?? ''} host=${u?.host ?? ''} port=${u?.port ?? 0} path=${u?.path ?? ''} msg=${result.message}');
-    if ((result.url.isEmpty || (result.url.contains(':5266') && (u?.queryParameters['url'] ?? '').isEmpty)) && _lastInvokeDebug.isNotEmpty) {
-      for (final line in _lastInvokeDebug) { AppLog.i('jar', 'spiderDebug $line'); } }
-        return result;
+    AppLog.i(
+      'jar',
+      'playerContent flag=$flag urlEmpty=${result.url.isEmpty} scheme=${u?.scheme ?? ''} host=${u?.host ?? ''} port=${u?.port ?? 0} path=${u?.path ?? ''} msg=${result.message}',
+    );
+    if ((result.url.isEmpty ||
+            (result.url.contains(':5266') &&
+                (u?.queryParameters['url'] ?? '').isEmpty)) &&
+        _lastInvokeDebug.isNotEmpty) {
+      for (final line in _lastInvokeDebug) {
+        AppLog.i('jar', 'spiderDebug $line');
+      }
+    }
+    return result;
   }
 
   /// 豆瓣一类源偶发返回空 body（源站 15s 超时 / 限流），加固壳会直接
@@ -480,9 +510,7 @@ class JarSpiderAndroidService extends JarSpiderService {
       try {
         return await _invoke(site, 'homeContent', const []);
       } on SourceException catch (_) {
-        throw SourceException(
-          '首页接口返回空内容（源站超时或被限流），请稍后重试或切换站点',
-        );
+        throw SourceException('首页接口返回空内容（源站超时或被限流），请稍后重试或切换站点');
       }
     }
   }
@@ -507,8 +535,16 @@ class JarSpiderAndroidService extends JarSpiderService {
     if (flag.contains('百度') || lower.contains('baidu')) return 'baidu';
     if (lower.contains('115')) return '115';
     if (flag.contains('哔哩') || lower.contains('bili')) return 'bili';
-    if (flag.contains('迅雷') || lower.contains('xunlei') || lower.contains('thunder')) return 'thunder';
-    if (flag.contains('光鸭') || flag.contains('光雅') || lower.contains('guangya')) return 'guangya';
+    if (flag.contains('迅雷') ||
+        lower.contains('xunlei') ||
+        lower.contains('thunder')) {
+      return 'thunder';
+    }
+    if (flag.contains('光鸭') ||
+        flag.contains('光雅') ||
+        lower.contains('guangya')) {
+      return 'guangya';
+    }
     return null;
   }
 

@@ -29,9 +29,18 @@ void main() {
     });
 
     test('搜索关键词优先取中文片名', () {
-      expect(const MovieQuote(line: 'x', title: '环太平洋 Pacific Rim').searchKeyword, '环太平洋');
+      expect(
+        const MovieQuote(line: 'x', title: '环太平洋 Pacific Rim').searchKeyword,
+        '环太平洋',
+      );
       expect(const MovieQuote(line: 'x', title: '《海贼王》').searchKeyword, '海贼王');
-      expect(const MovieQuote(line: 'x', title: 'ef-a tale of memories').searchKeyword, 'ef-a tale of memories');
+      expect(
+        const MovieQuote(
+          line: 'x',
+          title: 'ef-a tale of memories',
+        ).searchKeyword,
+        'ef-a tale of memories',
+      );
       expect(containsChinese('hello'), isFalse);
       expect(containsChinese('你好 hello'), isTrue);
     });

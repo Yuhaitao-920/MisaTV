@@ -9,7 +9,10 @@ void main() {
 
   group('infoHash 归一', () {
     test('40 hex 转小写', () {
-      expect(normalizeBtih('ABCDEF0123456789ABCDEF0123456789ABCDEF01'), 'abcdef0123456789abcdef0123456789abcdef01');
+      expect(
+        normalizeBtih('ABCDEF0123456789ABCDEF0123456789ABCDEF01'),
+        'abcdef0123456789abcdef0123456789abcdef01',
+      );
     });
 
     test('32 base32 → 40 hex', () {
@@ -49,9 +52,13 @@ void main() {
 
   group('tracker 追加', () {
     test('只追加缺失项且不重复', () {
-      final base = 'magnet:?xt=urn:btih:$hash&tr=${Uri.encodeComponent(publicTrackers.first)}';
+      final base =
+          'magnet:?xt=urn:btih:$hash&tr=${Uri.encodeComponent(publicTrackers.first)}';
       final added = withTrackers(base);
-      expect(added.contains('tr=${Uri.encodeComponent(publicTrackers.first)}'), isTrue);
+      expect(
+        added.contains('tr=${Uri.encodeComponent(publicTrackers.first)}'),
+        isTrue,
+      );
       for (final tracker in publicTrackers.skip(1)) {
         expect(added.contains(Uri.encodeComponent(tracker)), isTrue);
       }
@@ -90,7 +97,12 @@ void main() {
       ]);
       expect(pickVideoFile(files, preferName: 'E03')!.index, 2);
       expect(pickVideoFile(files)!.index, 3);
-      expect(pickVideoFile(withTorrentOffsets([(index: 1, path: '/a.srt', length: 10)])), isNull);
+      expect(
+        pickVideoFile(
+          withTorrentOffsets([(index: 1, path: '/a.srt', length: 10)]),
+        ),
+        isNull,
+      );
     });
 
     test('内置可播判定', () {
@@ -113,14 +125,26 @@ void main() {
     });
 
     test('命令行关键参数', () {
-      final args = aria2Args(port: 6810, secret: 'sec', dir: 'C:\\bt', stopWithPid: 1234);
+      final args = aria2Args(
+        port: 6810,
+        secret: 'sec',
+        dir: 'C:\\bt',
+        stopWithPid: 1234,
+      );
       expect(args.contains('--enable-rpc=true'), isTrue);
       expect(args.contains('--rpc-listen-port=6810'), isTrue);
       expect(args.contains('--rpc-secret=sec'), isTrue);
       expect(args.contains('--dir=C:\\bt'), isTrue);
       expect(args.contains('--bt-prioritize-piece=head=8M,tail=8M'), isTrue);
       expect(args.contains('--stop-with-process=1234'), isTrue);
-      expect(aria2Args(port: 1, secret: 's', dir: 'd').any((a) => a.startsWith('--stop-with-process')), isFalse);
+      expect(
+        aria2Args(
+          port: 1,
+          secret: 's',
+          dir: 'd',
+        ).any((a) => a.startsWith('--stop-with-process')),
+        isFalse,
+      );
     });
   });
 
@@ -161,8 +185,14 @@ void main() {
     });
 
     test('btStreamUrl 去尾斜杠拼接', () {
-      expect(btStreamUrl('http://127.0.0.1:9978/', hash, 2), 'http://127.0.0.1:9978/bt/$hash/2');
-      expect(btStreamUrl('http://127.0.0.1:9978', hash, 2), 'http://127.0.0.1:9978/bt/$hash/2');
+      expect(
+        btStreamUrl('http://127.0.0.1:9978/', hash, 2),
+        'http://127.0.0.1:9978/bt/$hash/2',
+      );
+      expect(
+        btStreamUrl('http://127.0.0.1:9978', hash, 2),
+        'http://127.0.0.1:9978/bt/$hash/2',
+      );
     });
 
     test('magnetKey 与首段门控常量', () {

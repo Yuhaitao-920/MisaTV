@@ -92,10 +92,7 @@ List<SubtitleCandidate> _filterRelevant(
 }
 
 /// 解析 `sub/search` 响应（纯函数，便于离线单测）。
-List<SubtitleCandidate> parseAssrtSearch(
-  String body, {
-  int statusCode = 200,
-}) {
+List<SubtitleCandidate> parseAssrtSearch(String body, {int statusCode = 200}) {
   Map<String, dynamic>? json;
   try {
     final decoded = jsonDecode(body);
@@ -178,20 +175,22 @@ List<SubtitleCandidate> parseAssrtSearch(
         ? mSubType
         : (subType.isNotEmpty ? subType : mSubType);
 
-    out.add(SubtitleCandidate(
-      providerId: assrtProviderId,
-      providerName: assrtProviderName,
-      id: id.toString(),
-      title: displayName,
-      language: langDesc,
-      format: format.toLowerCase(),
-      downloadUrl: '',
-      subname: videoName.isNotEmpty ? videoName : displayName,
-      detail: site,
-      // 从发布名里取集号：`...S01E03...` → '3'。
-      // 为空说明这是整片/合集包，UI 据此提示「不分集」。
-      episodeHint: epOf(videoName.isNotEmpty ? videoName : displayName),
-    ));
+    out.add(
+      SubtitleCandidate(
+        providerId: assrtProviderId,
+        providerName: assrtProviderName,
+        id: id.toString(),
+        title: displayName,
+        language: langDesc,
+        format: format.toLowerCase(),
+        downloadUrl: '',
+        subname: videoName.isNotEmpty ? videoName : displayName,
+        detail: site,
+        // 从发布名里取集号：`...S01E03...` → '3'。
+        // 为空说明这是整片/合集包，UI 据此提示「不分集」。
+        episodeHint: epOf(videoName.isNotEmpty ? videoName : displayName),
+      ),
+    );
   }
   return out;
 }
@@ -233,8 +232,10 @@ AssrtDetail parseAssrtDetail(String body, {int statusCode = 200}) {
       if (f is! Map) continue;
       final fName = _str(f['f']);
       final fUrl = _str(f['url']);
-      if (!RegExp(r'\.(srt|ass|ssa|vtt|sub)$', caseSensitive: false)
-          .hasMatch(fName.isNotEmpty ? fName : fUrl)) {
+      if (!RegExp(
+        r'\.(srt|ass|ssa|vtt|sub)$',
+        caseSensitive: false,
+      ).hasMatch(fName.isNotEmpty ? fName : fUrl)) {
         continue;
       }
       if (fUrl.isNotEmpty && fUrl != url) {
@@ -398,14 +399,10 @@ Future<List<SubtitleCandidate>> searchAssrt({
     }
     final msg = e is SubtitleException ? e.message : e.toString();
     if (RegExp(r'token', caseSensitive: false).hasMatch(msg)) {
-      throw const SubtitleException(
-        'assrt token 无效或已过期，请到「配置 → 外挂字幕」重新填写后重试',
-      );
+      throw const SubtitleException('assrt token 无效或已过期，请到「配置 → 外挂字幕」重新填写后重试');
     }
     if (RegExp(r'词|长度|keyword|101', caseSensitive: false).hasMatch(msg)) {
-      throw const SubtitleException(
-        'assrt 要求搜索词至少 3 个字符，当前剧名过短，可手动补充剧集/全名再搜',
-      );
+      throw const SubtitleException('assrt 要求搜索词至少 3 个字符，当前剧名过短，可手动补充剧集/全名再搜');
     }
     throw SubtitleException('assrt 检索失败：$msg');
   }

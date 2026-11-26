@@ -66,8 +66,8 @@ String customSubtitleUrl(String template, SubtitleQuery query) {
   final raw = query.rawName.trim();
   final source = query.title.trim().isNotEmpty ? query.title : raw;
   final title = normalizeTitle(source);
-  final ep = query.episode?.toString() ??
-      extractEp(raw.isNotEmpty ? raw : source);
+  final ep =
+      query.episode?.toString() ?? extractEp(raw.isNotEmpty ? raw : source);
   return template
       .replaceAll('{title}', Uri.encodeComponent(title))
       .replaceAll('{rawName}', Uri.encodeComponent(raw.isEmpty ? source : raw))
@@ -120,14 +120,21 @@ Future<SubtitleFile> downloadCustomSubtitleApi(
   void Function(List<SubtitleChoice> choices)? onChoices,
 }) async {
   final url = candidate.downloadUrl.trim().isEmpty
-      ? customSubtitleUrl(api.urlTemplate, SubtitleQuery(title: candidate.title))
+      ? customSubtitleUrl(
+          api.urlTemplate,
+          SubtitleQuery(title: candidate.title),
+        )
       : candidate.downloadUrl;
   final bytes = await http.getBytes(url);
   if (bytes == null) {
     throw const SubtitleException('自定义字幕接口不可达或文件超过大小限制');
   }
-  final name = candidate.title.trim().isEmpty ? api.name : candidate.title.trim();
-  final ext = candidate.format.trim().isEmpty ? _formatOfUrl(url) : candidate.format.trim();
+  final name = candidate.title.trim().isEmpty
+      ? api.name
+      : candidate.title.trim();
+  final ext = candidate.format.trim().isEmpty
+      ? _formatOfUrl(url)
+      : candidate.format.trim();
   try {
     return await subtitleFromBytesAsync(
       bytes,
@@ -156,7 +163,14 @@ List<SubtitleCandidate> _candidatesFromJson(
   final out = <SubtitleCandidate>[];
   for (final item in list) {
     if (item is! Map) continue;
-    final url = _text(item, ['url', 'downloadUrl', 'download_url', 'link', 'file', 'src']);
+    final url = _text(item, [
+      'url',
+      'downloadUrl',
+      'download_url',
+      'link',
+      'file',
+      'src',
+    ]);
     if (url.isEmpty) continue;
     final absolute = _absoluteUrl(baseUrl, url);
     if (absolute.isEmpty) continue;
@@ -171,7 +185,8 @@ List<SubtitleCandidate> _candidatesFromJson(
         id: id.isEmpty ? absolute : id,
         title: title.isEmpty ? api.name : title,
         language: language.isEmpty ? '自动' : language,
-        format: (format.isEmpty ? _formatOfUrl(absolute) : format).toLowerCase(),
+        format: (format.isEmpty ? _formatOfUrl(absolute) : format)
+            .toLowerCase(),
         downloadUrl: absolute,
         subname: _text(item, ['subname', 'videoName', 'video_name']),
         detail: _text(item, ['detail', 'desc', 'description']),
@@ -221,8 +236,16 @@ String _formatOfUrl(String url) {
   final dot = path.lastIndexOf('.');
   if (dot < 0 || dot == path.length - 1) return 'srt';
   final ext = path.substring(dot + 1).toLowerCase();
-  return const {'srt', 'ass', 'ssa', 'vtt', 'sub', 'txt', 'zip', 'gz'}
-          .contains(ext)
+  return const {
+        'srt',
+        'ass',
+        'ssa',
+        'vtt',
+        'sub',
+        'txt',
+        'zip',
+        'gz',
+      }.contains(ext)
       ? ext
       : 'srt';
 }
@@ -234,9 +257,9 @@ bool _looksLikeSubtitle(List<int> bytes, String text) {
     return false;
   }
   return RegExp(
-    r'(?:^|\n)(?:\d{1,2}:\d{2}:\d{2}[,.]\d{2,3}\s*-->|[\[<]?(?:script info|webvtt)\b|dialogue:)',
-    caseSensitive: false,
-  ).hasMatch(text.trim()) ||
+        r'(?:^|\n)(?:\d{1,2}:\d{2}:\d{2}[,.]\d{2,3}\s*-->|[\[<]?(?:script info|webvtt)\b|dialogue:)',
+        caseSensitive: false,
+      ).hasMatch(text.trim()) ||
       RegExp(r'-->').hasMatch(text);
 }
 

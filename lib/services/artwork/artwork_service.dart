@@ -48,6 +48,7 @@ class ArtworkService {
   static const int _maxConcurrent = 4;
   static const Duration _spacing = Duration(milliseconds: 50);
   static const Duration _successTtl = Duration(days: 7);
+
   /// 没找到图时只负缓存 1 分钟：源站补图 / 新源上线后能很快重试。
   static const Duration _failureTtl = Duration(minutes: 1);
   static const Duration _sourceTimeout = Duration(seconds: 4);
@@ -96,12 +97,7 @@ class ArtworkService {
     }
     final pending = _inflight[key];
     if (pending != null) return pending;
-    final future = _run(
-      key,
-      artworkTitle,
-      effectiveYear,
-      altTitle: alias,
-    );
+    final future = _run(key, artworkTitle, effectiveYear, altTitle: alias);
     _inflight[key] = future;
     return future.whenComplete(() => _inflight.remove(key));
   }
@@ -220,15 +216,16 @@ class ArtworkService {
       final settled = <String, _Artwork?>{};
       final futures = <String, Future<_Artwork?>>{
         for (final source in sources)
-          source: _trySourceSafe(
-            source,
-            name,
-            year,
-            altTitle: source == 'tmdb' ? altTitle : '',
-          ).then((artwork) {
-            settled[source] = artwork;
-            return artwork;
-          }),
+          source:
+              _trySourceSafe(
+                source,
+                name,
+                year,
+                altTitle: source == 'tmdb' ? altTitle : '',
+              ).then((artwork) {
+                settled[source] = artwork;
+                return artwork;
+              }),
       };
       final first = await futures[lead]!;
       // 首选源拿到「够用」的封面才直接返回；如果只是剧照，继续等兜底
@@ -256,14 +253,12 @@ class ArtworkService {
       // 豆瓣搜索接口（suggest / HTML / rexxar）2026-11 起要求登录，
       // 直接用必应站内搜索找豆瓣条目 ID，再按 ID 取免登录的剧照。
       if (!futures.containsKey('douban-bing')) {
-        futures['douban-bing'] = _trySourceSafe(
-          'douban-bing',
-          name,
-          year,
-        ).then((artwork) {
-          settled['douban-bing'] = artwork;
-          return artwork;
-        });
+        futures['douban-bing'] = _trySourceSafe('douban-bing', name, year).then(
+          (artwork) {
+            settled['douban-bing'] = artwork;
+            return artwork;
+          },
+        );
       }
       // 360 图片搜索兜底（Win-box 同款）：豆瓣 / B 站都没有条目时，
       // 中文横图搜索往往还能找到官方剧照或壁纸。
@@ -347,9 +342,7 @@ class ArtworkService {
   /// 只保留能直接铺 16:9 的图：2.35:1 之类超宽图裁到卡片里会「异形」。
   static List<_Artwork> _usableArtworks(Map<String, _Artwork?> settled) => [
     for (final artwork in settled.values)
-      if (artwork != null &&
-          artwork.url.trim().isNotEmpty &&
-          artwork.usable)
+      if (artwork != null && artwork.url.trim().isNotEmpty && artwork.usable)
         artwork,
   ];
 
@@ -708,10 +701,7 @@ class ArtworkService {
   ///
   /// 分辨率不如剧照，但胜在「一定有、且一定对应该条目」——国产剧的剧照
   /// 列表经常 200 张全是竖版海报，这时它就是最快的合格兜底。
-  Future<_Artwork?> _doubanTrailerCover(
-    String mediaType,
-    String id,
-  ) async {
+  Future<_Artwork?> _doubanTrailerCover(String mediaType, String id) async {
     try {
       final type = mediaType == 'tv' ? 'tv' : 'movie';
       final res = await http.getText(
@@ -813,9 +803,10 @@ class ArtworkService {
             source: 'bilibili',
           );
         }
-        for (final episode in result['episodes'] is List
-            ? result['episodes'] as List
-            : const <Object>[]) {
+        for (final episode
+            in result['episodes'] is List
+                ? result['episodes'] as List
+                : const <Object>[]) {
           if (episode is! Map) continue;
           final raw = (episode['cover'] ?? episode['ep_cover'] ?? '')
               .toString()
@@ -1693,10 +1684,7 @@ class ArtworkService {
       final airDate = (raw['air_date'] ?? '').toString().trim();
       final airYear =
           RegExp(r'^(19|20)\d{2}').firstMatch(airDate)?.group(0) ?? '';
-      rows.add((
-        number: number,
-        yearMatch: year.isNotEmpty && airYear == year,
-      ));
+      rows.add((number: number, yearMatch: year.isNotEmpty && airYear == year));
     }
     rows.sort((a, b) {
       if (a.yearMatch != b.yearMatch) return a.yearMatch ? -1 : 1;
@@ -1709,10 +1697,7 @@ class ArtworkService {
       final path = _firstStillPath(season);
       if (path.isEmpty) continue;
       return _Artwork(
-        relayImageUrl(
-          _tmdbImage(path),
-          referer: 'https://www.themoviedb.org/',
-        ),
+        relayImageUrl(_tmdbImage(path), referer: 'https://www.themoviedb.org/'),
         // 分集剧照原图通常是 1920×1080；给足尺寸，避免在仲裁里被低清图压过。
         width: 1920,
         height: 1080,
@@ -1761,14 +1746,16 @@ class ArtworkService {
       if (ratio < 1.45 || ratio > 2.0) continue;
       final language = (item['iso_639_1'] ?? '').toString().toLowerCase();
       // `xx` / `none` 与空一样表示「无文字」，这类更可能是剧照。
-      final isStill = language.isEmpty || language == 'xx' || language == 'none';
+      final isStill =
+          language.isEmpty || language == 'xx' || language == 'none';
       var score = width.toDouble();
       if (ratio >= 1.6 && ratio <= 1.9) score += 400;
       final vote = (item['vote_average'] as num?)?.toDouble() ?? 0;
       score += vote * 12;
       if (!isStill) {
         // 有语言标签的 backdrop 更像官方封面 / 主视觉。
-        score += (language == 'zh' ||
+        score +=
+            (language == 'zh' ||
                 language == 'en' ||
                 language == 'ko' ||
                 language == 'ja')
@@ -1776,10 +1763,7 @@ class ArtworkService {
             : 120;
       }
       final artwork = _Artwork(
-        relayImageUrl(
-          _tmdbImage(path),
-          referer: 'https://www.themoviedb.org/',
-        ),
+        relayImageUrl(_tmdbImage(path), referer: 'https://www.themoviedb.org/'),
         width: width,
         height: height,
         source: 'tmdb',
@@ -2671,7 +2655,8 @@ class ArtworkService {
       if (score > bestScore) {
         bestScore = score;
         // 超过 1920 的 Amazon 图会被裁成 1920×1080，按实际尺寸计分。
-        final cropped = width > 1920 && url.contains('media-amazon.com/images/');
+        final cropped =
+            width > 1920 && url.contains('media-amazon.com/images/');
         final shownWidth = cropped ? 1920 : width;
         final shownHeight = cropped ? 1080 : height;
         best = _Artwork(
@@ -2719,10 +2704,8 @@ class ArtworkService {
   }
 
   /// 标题里带「封面 / 海报 / 横版」的图更像官方主视觉，优先于剧照。
-  static bool _looksLikeCover(String title) => RegExp(
-    r'封面|海报|横版|cover|poster',
-    caseSensitive: false,
-  ).hasMatch(title);
+  static bool _looksLikeCover(String title) =>
+      RegExp(r'封面|海报|横版|cover|poster', caseSensitive: false).hasMatch(title);
 
   /// 自媒体解说 / 混剪 / 盘点 / 花絮类标题，封面通常糊着大字，
   /// 或者只是拍摄现场，不适合做背景图。
@@ -2746,10 +2729,7 @@ class ArtworkService {
       final candidates = await _fetchSo360('$prefix $suffix');
       final best = pickSo360Backdrop(candidates, title, year: year);
       if (best != null) {
-        AppLog.i(
-          'artwork',
-          '$name 360 补图命中 ${best.width}x${best.height}',
-        );
+        AppLog.i('artwork', '$name 360 补图命中 ${best.width}x${best.height}');
         return _Artwork(
           relayImageUrl(best.url, referer: 'https://image.so.com/'),
           width: best.width,
@@ -2827,9 +2807,8 @@ class ArtworkService {
       '九': 9,
     };
     if (RegExp(r'^\d+$').hasMatch(token)) return int.tryParse(token) ?? 0;
-    final match = RegExp(
-      r'^([一二三四五六七八九]?)(十?)([一二三四五六七八九]?)$',
-    ).firstMatch(token);
+    final match = RegExp(r'^([一二三四五六七八九]?)(十?)([一二三四五六七八九]?)$')
+        .firstMatch(token);
     if (match == null) return 0;
     final head = match.group(1) ?? '';
     final ten = match.group(2) ?? '';
@@ -2845,9 +2824,7 @@ class ArtworkService {
 
   /// 「第4季 / 第四季 / 第十二部」→ 季号；没有季号返回 0。
   static int so360SeasonNo(String raw) {
-    final match = RegExp(
-      r'第\s*(\d+|[一二两三四五六七八九十]+)\s*[季部]',
-    ).firstMatch(raw);
+    final match = RegExp(r'第\s*(\d+|[一二两三四五六七八九十]+)\s*[季部]').firstMatch(raw);
     if (match == null) return 0;
     return _cn2num(match.group(1)!);
   }

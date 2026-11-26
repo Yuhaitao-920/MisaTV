@@ -93,7 +93,9 @@ void main() {
       expect(jsonItems[1].type, 'bottom');
       expect(jsonItems[1].color, '#000000');
 
-      final xmlItems = parseDanmakuResponse('<i><d p="1,1,25,16777215">x</d></i>');
+      final xmlItems = parseDanmakuResponse(
+        '<i><d p="1,1,25,16777215">x</d></i>',
+      );
       expect(xmlItems.single.text, 'x');
       expect(parseDanmakuResponse('  '), isEmpty);
     });
@@ -112,7 +114,11 @@ void main() {
       final a = defaultDanmakuEndpoints();
       final b = defaultDanmakuEndpoints();
       expect(identical(a, b), isFalse);
-      a[0] = const DanmakuEndpoint(name: 'x', url: 'https://x.test', enabled: false);
+      a[0] = const DanmakuEndpoint(
+        name: 'x',
+        url: 'https://x.test',
+        enabled: false,
+      );
       expect(builtinDanmakuEndpoints.first.name, '炊烟袅袅');
       expect(defaultDanmakuEndpoints().first.name, '炊烟袅袅');
     });
@@ -170,13 +176,16 @@ void main() {
   });
 
   group('EpNumber / CandidateMatchesEp / SortByEp', () {
-    DanmakuCandidate c({String title = '', String epTitle = '', String epNum = ''}) =>
-        DanmakuCandidate(
-          episodeId: 1,
-          title: title,
-          episodeTitle: epTitle,
-          episodeNumber: epNum,
-        );
+    DanmakuCandidate c({
+      String title = '',
+      String epTitle = '',
+      String epNum = '',
+    }) => DanmakuCandidate(
+      episodeId: 1,
+      title: title,
+      episodeTitle: epTitle,
+      episodeNumber: epNum,
+    );
 
     test('接口集号字段优先', () {
       expect(epNumberOf(c(epTitle: '第9集', epNum: '4')), 4);
@@ -219,7 +228,13 @@ void main() {
         c(epNum: '1'),
       ];
       final sorted = sortCandidatesByEp(list);
-      expect(sorted.map((e) => e.episodeNumber).toList(), ['1', '2', '10', '', '']);
+      expect(sorted.map((e) => e.episodeNumber).toList(), [
+        '1',
+        '2',
+        '10',
+        '',
+        '',
+      ]);
       expect(sorted[3].episodeTitle, '花絮');
       expect(sorted[4].episodeTitle, '预告');
     });
@@ -239,7 +254,10 @@ void main() {
 
   group('自定义接口 / 地址归一', () {
     test('normalizeEndpointBase', () {
-      expect(normalizeEndpointBase(' https://a.test/x/// '), 'https://a.test/x');
+      expect(
+        normalizeEndpointBase(' https://a.test/x/// '),
+        'https://a.test/x',
+      );
       expect(normalizeEndpointBase('a.test'), 'https://a.test');
       expect(normalizeEndpointBase('ftp://a.test'), '');
       expect(normalizeEndpointBase(''), '');
@@ -277,7 +295,10 @@ C@http://c.test:8080/x?y=1
       current[0] = current[0].copyWith(enabled: false);
       current.last = current.last.copyWith(enabled: false);
 
-      final merged = mergeEndpoints(current, '新名@https://a.test/token\nhttps://d.test');
+      final merged = mergeEndpoints(
+        current,
+        '新名@https://a.test/token\nhttps://d.test',
+      );
       expect(merged.length, 30);
       expect(merged.first.name, '炊烟袅袅');
       expect(merged.first.enabled, isFalse, reason: '既有开关状态保留');
@@ -325,18 +346,12 @@ C@http://c.test:8080/x?y=1
     });
 
     test('formatCandidateLabel 压缩显示', () {
-      expect(
-        formatCandidateLabel(title: '斗破苍穹年番 第212话'),
-        '斗破苍穹年番 · 第212集',
-      );
+      expect(formatCandidateLabel(title: '斗破苍穹年番 第212话'), '斗破苍穹年番 · 第212集');
       expect(
         formatCandidateLabel(title: '斗罗大陆系列小剧场(2026)【动漫】from tencent'),
         '斗罗大陆系列小剧场（2026）',
       );
-      expect(
-        formatCandidateLabel(title: '某剧 第二季 第3集'),
-        '某剧 · 第2季 · 第3集',
-      );
+      expect(formatCandidateLabel(title: '某剧 第二季 第3集'), '某剧 · 第2季 · 第3集');
       expect(formatCandidateLabel(), '');
     });
   });
@@ -381,25 +396,33 @@ C@http://c.test:8080/x?y=1
       expect(s.regionRatio, 0.75);
       expect(s.blockWords, ['剧透', '广告', 'spoiler']);
 
-      final bad = DanmakuSettings.fromJson({'region': 'half-screen', 'endpointsRev': 2});
+      final bad = DanmakuSettings.fromJson({
+        'region': 'half-screen',
+        'endpointsRev': 2,
+      });
       expect(bad.regionRatio, 1);
       expect(bad.blockWords, isEmpty);
 
-      final clamped = DanmakuSettings.fromJson({'regionRatio': 2, 'endpointsRev': 2});
+      final clamped = DanmakuSettings.fromJson({
+        'regionRatio': 2,
+        'endpointsRev': 2,
+      });
       expect(clamped.regionRatio, 1);
     });
 
     test('脏数据：非法地址剔除 / 尾斜杠归一 / 同地址去重 / 非法区域回退', () {
-      final s = DanmakuSettings.fromJsonString(jsonEncode({
-        'enabled': true,
-        'region': 'half-screen',
-        'endpoints': [
-          {'name': '', 'url': 'https://a.test/x/', 'enabled': true},
-          {'name': '重复', 'url': 'https://a.test/x', 'enabled': false},
-          {'name': '坏', 'url': '不是地址', 'enabled': true},
-        ],
-        'endpointsRev': 2,
-      }));
+      final s = DanmakuSettings.fromJsonString(
+        jsonEncode({
+          'enabled': true,
+          'region': 'half-screen',
+          'endpoints': [
+            {'name': '', 'url': 'https://a.test/x/', 'enabled': true},
+            {'name': '重复', 'url': 'https://a.test/x', 'enabled': false},
+            {'name': '坏', 'url': '不是地址', 'enabled': true},
+          ],
+          'endpointsRev': 2,
+        }),
+      );
       expect(s.regionRatio, 1);
       expect(s.endpoints.length, 1);
       expect(s.endpoints.single.url, 'https://a.test/x');
@@ -410,7 +433,11 @@ C@http://c.test:8080/x?y=1
     test('旧配置（rev<2）内置项回到默认开关，自定义项保留', () {
       final s = DanmakuSettings.fromJson({
         'endpoints': [
-          {'name': '炊烟袅袅', 'url': 'https://danmu.cynn.top/cynnsq', 'enabled': false},
+          {
+            'name': '炊烟袅袅',
+            'url': 'https://danmu.cynn.top/cynnsq',
+            'enabled': false,
+          },
           {'name': '自定义', 'url': 'https://a.test/x', 'enabled': false},
         ],
       });
@@ -429,7 +456,9 @@ C@http://c.test:8080/x?y=1
 
   group('弹幕屏蔽词', () {
     test('归一：行 / 逗号 / 顿号 / 分号，去重保留 /正则/', () {
-      final words = normalizeDanmakuBlockWords(' 剧透 \n广告,广告，spoiler、/ab+c/;/ab+c/ ;  ');
+      final words = normalizeDanmakuBlockWords(
+        ' 剧透 \n广告,广告，spoiler、/ab+c/;/ab+c/ ;  ',
+      );
       expect(words, ['剧透', '广告', 'spoiler', '/ab+c/']);
     });
 
@@ -468,7 +497,12 @@ C@http://c.test:8080/x?y=1
           return http.Response(
             jsonEncode({
               'animes': [
-                {'animeId': 1, 'bangumiId': 1, 'animeTitle': '斗罗大陆', 'episodeCount': 100},
+                {
+                  'animeId': 1,
+                  'bangumiId': 1,
+                  'animeTitle': '斗罗大陆',
+                  'episodeCount': 100,
+                },
               ],
             }),
             200,
@@ -493,10 +527,13 @@ C@http://c.test:8080/x?y=1
         return http.Response('boom', 500);
       });
       final service = DanmakuService(client: client);
-      final list = await service.search('斗罗大陆', endpoints: const [
-        DanmakuEndpoint(name: '好源', url: 'https://ok.test/base'),
-        DanmakuEndpoint(name: '死源', url: 'https://dead.test'),
-      ]);
+      final list = await service.search(
+        '斗罗大陆',
+        endpoints: const [
+          DanmakuEndpoint(name: '好源', url: 'https://ok.test/base'),
+          DanmakuEndpoint(name: '死源', url: 'https://dead.test'),
+        ],
+      );
       expect(list.length, 2);
       expect(list[0].episodeId, 101);
       expect(list[0].episodeNumber, '');
@@ -511,7 +548,9 @@ C@http://c.test:8080/x?y=1
       final keywordParam = Uri.encodeQueryComponent('斗罗大陆');
       expect(
         calls.map((u) => u.toString()),
-        contains('https://ok.test/base/api/v2/search/anime?keyword=$keywordParam'),
+        contains(
+          'https://ok.test/base/api/v2/search/anime?keyword=$keywordParam',
+        ),
       );
       expect(
         calls.map((u) => u.toString()),
@@ -521,14 +560,17 @@ C@http://c.test:8080/x?y=1
     });
 
     test('搜索：全部源冷却 / 空关键词 → 空表', () async {
-      final service = DanmakuService(client: MockClient((req) async => http.Response('x', 500)));
+      final service = DanmakuService(
+        client: MockClient((req) async => http.Response('x', 500)),
+      );
       expect(await service.search(''), isEmpty);
       expect(await service.search('x', endpoints: const []), isEmpty);
       service.health.markFail('https://a.test');
       expect(
-        await service.search('x', endpoints: const [
-          DanmakuEndpoint(name: 'a', url: 'https://a.test'),
-        ]),
+        await service.search(
+          'x',
+          endpoints: const [DanmakuEndpoint(name: 'a', url: 'https://a.test')],
+        ),
         isEmpty,
       );
       service.close();
@@ -603,9 +645,22 @@ C@http://c.test:8080/x?y=1
       expect(second.length, 2);
       expect(commentCalls, 1, reason: '第二次走内存缓存');
 
-      expect(await service.fetch(const DanmakuCandidate(episodeId: 0, source: 'https://ok.test/base')), isEmpty);
-      expect(await service.fetch(const DanmakuCandidate(episodeId: 1, source: '')), isEmpty);
-      expect(await service.fetch(const DanmakuCandidate(episodeId: 1, source: 'https://dead.test')), isEmpty);
+      expect(
+        await service.fetch(
+          const DanmakuCandidate(episodeId: 0, source: 'https://ok.test/base'),
+        ),
+        isEmpty,
+      );
+      expect(
+        await service.fetch(const DanmakuCandidate(episodeId: 1, source: '')),
+        isEmpty,
+      );
+      expect(
+        await service.fetch(
+          const DanmakuCandidate(episodeId: 1, source: 'https://dead.test'),
+        ),
+        isEmpty,
+      );
       expect(service.health.isCooling('https://dead.test'), isTrue);
       service.close();
     });
@@ -630,12 +685,20 @@ C@http://c.test:8080/x?y=1
       expect(s.regionRatio, 0.25);
       expect(s.fontSize, 30);
       expect(s.endpoints.single.url, 'https://x.test');
-      expect(DanmakuService(client: MockClient((req) async => http.Response('{}', 200))).settings.endpoints.length, 28);
+      expect(
+        DanmakuService(
+          client: MockClient((req) async => http.Response('{}', 200)),
+        ).settings.endpoints.length,
+        28,
+      );
       service.close();
     });
 
     test('parseXml 静态方法', () {
-      expect(DanmakuService.parseXml('<d p="1,1,25,16777215">x</d>').single.text, 'x');
+      expect(
+        DanmakuService.parseXml('<d p="1,1,25,16777215">x</d>').single.text,
+        'x',
+      );
     });
   });
 }

@@ -59,7 +59,10 @@ void main() {
 
   group('一起看', () {
     test('房主地址归一：补协议、去尾斜杠', () {
-      expect(normalizeLanBase(' 192.168.1.5:9979/ '), 'http://192.168.1.5:9979');
+      expect(
+        normalizeLanBase(' 192.168.1.5:9979/ '),
+        'http://192.168.1.5:9979',
+      );
       expect(normalizeLanBase('http://host:1///'), 'http://host:1');
       expect(normalizeLanBase(''), '');
     });

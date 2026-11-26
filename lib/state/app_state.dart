@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../core/logging/app_log.dart';
 import '../core/logging/log_redact.dart';
@@ -36,6 +37,8 @@ import '../services/artwork/artwork_service.dart';
 import '../services/jvm/jvm_runtime.dart';
 import '../services/jar_spider/spider_failure.dart';
 import '../services/jar_spider/warmup_plan.dart';
+import '../services/lan/flow_payload.dart';
+import '../services/lan/lan_discovery.dart';
 import '../services/lan/lan_server.dart';
 import '../services/media/local_media_service.dart';
 import '../services/media/media_server_service.dart';
@@ -177,7 +180,55 @@ class AppState extends ChangeNotifier {
     token: () => syncSettings.lanToken,
     snapshot: buildSyncBundle,
     apply: applySyncBundle,
+    onFlow: _onFlowReceived,
+    devicePlatform: () => flowDevicePlatform,
   );
+
+  /// 局域网设备发现（UDP 广播）。只有用户打开「设备流转」时才启动，
+  /// 避免平时无谓地占用 9981 端口与发广播。
+  ///
+  /// `deviceId` 用同步设置里持久化的设备 ID，重启后保持一致，对端才能正确去重。
+  late final LanDiscovery lanDiscovery = LanDiscovery(
+    deviceId: syncSettings.deviceId,
+    deviceName: () => syncDeviceName,
+  );
+
+  /// 本机平台标识，流转列表里显示图标用。
+  String get flowDevicePlatform {
+    if (kIsWeb) return 'web';
+    return defaultTargetPlatform.name;
+  }
+
+  /// 收到别的设备推来的流转。
+  ///
+  /// 这里只做「接受」：真正的播放在 UI 层（需要 context 才能推路由），
+  /// 通过 [onFlowRequest] 回调交给界面，界面接住后播完再回来。
+  Future<FlowAck> _onFlowReceived(FlowPayload payload) async {
+    final handler = onFlowRequest;
+    if (handler == null) {
+      return const FlowAck(accepted: false, message: '当前设备未就绪，稍后再试');
+    }
+    try {
+      final message = await handler(payload);
+      if (message == null) {
+        return const FlowAck(accepted: true);
+      }
+      return FlowAck(accepted: false, message: message);
+    } catch (e) {
+      AppLog.w('lan', '处理设备流转失败', e);
+      return FlowAck(accepted: false, message: '接收失败：$e');
+    }
+  }
+
+  /// 收到流转时的实际处理器，由 UI 层注入（它需要 context 打开播放器）。
+  /// 返回 null 表示已接受并开始播放；返回字符串表示拒绝原因。
+  Future<String?> Function(FlowPayload payload)? onFlowRequest;
+
+  /// 当前是否有播放器页面处于打开状态。
+  ///
+  /// 设备流转要用它决定「直接播」还是「先弹确认」：正在看片时被别人的流转
+  /// 打断体验很差。播放器页在 initState / dispose 里设置与清除。
+  bool isPlayingSomething = false;
 
   /// 「一起看」房间状态（房主 / 观众）。
   late final WatchPartyService watchParty = WatchPartyService(
@@ -635,7 +686,9 @@ class AppState extends ChangeNotifier {
 
   /// 在当前配置的 rawJson 里改 `lives`，重新解析后落盘。
   ///
-  /// 只有 JSON 订阅能这样改；解析失败或没有 `lives` 数组时返回 false。
+  /// 只有 JSON 订阅能这样改；解析失败或没有 `lives` / `live` 数组时返回 false。
+  /// 两个字段名都要认：有的订阅只写 `live`，[addLivesToProfile] 也是同一套判断，
+  /// 否则会出现「加得进去、却删不掉 / 改不了」的割裂。
   Future<bool> _editRawLives(
     void Function(List<dynamic> rawLives) mutate,
   ) async {
@@ -649,7 +702,10 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return false;
     }
-    final rawLives = root['lives'];
+    final field = root['lives'] is List
+        ? 'lives'
+        : (root['live'] is List ? 'live' : 'lives');
+    final rawLives = root[field];
     if (rawLives is! List) return false;
 
     mutate(rawLives);
@@ -675,6 +731,7 @@ class AppState extends ChangeNotifier {
             lastRefreshAt: p.lastRefreshAt,
             deletedSiteKeys: p.deletedSiteKeys,
             addedSiteKeys: p.addedSiteKeys,
+            addedLiveKeys: p.addedLiveKeys,
           )
         else
           p,
@@ -870,6 +927,7 @@ class AppState extends ChangeNotifier {
             lastRefreshAt: p.lastRefreshAt,
             deletedSiteKeys: p.deletedSiteKeys,
             addedSiteKeys: p.addedSiteKeys,
+            addedLiveKeys: p.addedLiveKeys,
           ),
         );
       } catch (_) {
@@ -942,6 +1000,7 @@ class AppState extends ChangeNotifier {
     playerSettings = store.loadPlayerSettings();
     sourceService.js.setWorkerCount(playerSettings.jsWorkerPool ? 3 : 1);
     sourceService.jar.setKeepHostsWarm(playerSettings.keepSpiderHosts);
+    sourceService.jar.setServePoolSize(playerSettings.spiderPoolSize);
     proxy = ProxyConfig.fromJsonString(store.proxyJson);
     await _applyEffectiveProxy();
     skipSegments = store.loadSkipSegments();
@@ -955,6 +1014,11 @@ class AppState extends ChangeNotifier {
     videoDownloads.loadIfNeeded();
     if (syncSettings.lanToken.trim().isEmpty) {
       syncSettings = syncSettings.copyWith(lanToken: newSyncPairingToken());
+      unawaited(store.saveSyncSettings(syncSettings));
+    }
+    // 设备流转的稳定标识：旧档案没有，首次加载时生成并落盘。
+    if (syncSettings.deviceId.trim().isEmpty) {
+      syncSettings = syncSettings.ensureDeviceId();
       unawaited(store.saveSyncSettings(syncSettings));
     }
     localLives = store.loadLocalLives();
@@ -1048,6 +1112,7 @@ class AppState extends ChangeNotifier {
     playerSettings = store.loadPlayerSettings();
     sourceService.js.setWorkerCount(playerSettings.jsWorkerPool ? 3 : 1);
     sourceService.jar.setKeepHostsWarm(playerSettings.keepSpiderHosts);
+    sourceService.jar.setServePoolSize(playerSettings.spiderPoolSize);
     skipSegments = store.loadSkipSegments();
     subtitleChoices = store.loadSubtitleChoices();
     driveAccounts = store.loadDriveAccounts();
@@ -1232,10 +1297,78 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// 供单测使用：暴露私有的 .js.md5 识别逻辑。
+  @visibleForTesting
+  static String? catJsMd5TargetForTest(String url) => _catJsMd5Target(url);
+
+  /// 把 `xxx.js.md5` 识别成猫源脚本地址；不是这类地址时返回 null。
+  ///
+  /// CatVod 生态里 `xxx.js.md5` 是一个**校验摘要文件**（内容是 32 位十六进制
+  /// md5），真正的蜘蛛脚本在同目录的 `xxx.js`。实测：
+  ///   `https://9280.kstore.vip/cat/index.js.md5` → 32 字节 hex
+  ///   `https://9280.kstore.vip/cat/index.js`     → 6.6 MB 脚本，
+  ///   且它的 md5 与摘要文件完全一致。
+  ///
+  /// 除了 `.js.md5`，也兼容 `.js.md5?x=1` 这种带查询串的写法。
+  static String? _catJsMd5Target(String url) {
+    final trimmed = url.trim();
+    final lower = trimmed.toLowerCase();
+    // 必须是 http(s)，且路径以 .js.md5 结尾（查询串 / 片段允许存在）。
+    if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+      return null;
+    }
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return null;
+    final path = uri.path.toLowerCase();
+    if (!path.endsWith('.js.md5')) return null;
+    // 去掉末尾的 `.md5`，保留原始大小写与查询串。
+    final cut = trimmed.toLowerCase().lastIndexOf('.md5');
+    if (cut < 0) return null;
+    return trimmed.substring(0, cut) + trimmed.substring(cut + 4);
+  }
+
+  /// 生成只含一个 JS 蜘蛛源的 TVBox 配置。
+  ///
+  /// [api] 指向脚本地址；type=3 走既有的 QuickJS 链路（内置 ESM→CJS、
+  /// cheerio / CryptoJS），不需要额外的 jar 或 Python 运行时。
+  static String _jsSpiderConfig({required String name, required String api}) {
+    final key = 'js_${api.hashCode.toRadixString(36)}';
+    return const JsonEncoder.withIndent('  ').convert({
+      'sites': [
+        {
+          'key': key,
+          'name': name,
+          'type': 3,
+          'api': api,
+          'searchable': 1,
+          'quickSearch': 1,
+          'filterable': 1,
+        },
+      ],
+    });
+  }
+
   Future<({String text, String url, String baseUrl, String name})>
   _loadImportUrl(String url, {String? name}) async {
     final trimmed = url.trim();
     if (trimmed.isEmpty) throw AppException('请输入订阅地址');
+    // CatVod 猫源常见写法：`xxx.js.md5` 本身只是一个 md5 摘要文件
+    // （32 个十六进制字符），真正的蜘蛛脚本在同目录去掉 `.md5` 的 `xxx.js`。
+    // 直接按订阅导入会拿到一坨 hex 而报「不是 TVBox 配置」，这里先认出来，
+    // 转成一条 type=3 的 JS 蜘蛛源。
+    final md5Spider = _catJsMd5Target(trimmed);
+    if (md5Spider != null) {
+      final label = (name ?? '').trim().isNotEmpty
+          ? name!.trim()
+          : _nameFromUrl(trimmed, profiles.length + 1);
+      AppLog.i('import', '识别为猫源 .js.md5，脚本地址=$md5Spider');
+      return (
+        text: _jsSpiderConfig(name: label, api: md5Spider),
+        url: '',
+        baseUrl: '',
+        name: label,
+      );
+    }
     // 先只读开头几十 KB：直播单常常有好几 MB 且生成很慢，整份下完再判断
     // 会让导入卡几十秒甚至超时。开头认出是 M3U / TXT 就直接登记为直播订阅，
     // 直播页打开时再按需拉整份。
@@ -1845,9 +1978,20 @@ class AppState extends ChangeNotifier {
     }
     final deletedKeys = existing?.deletedSiteKeys ?? const <String>[];
     final addedKeys = existing?.addedSiteKeys ?? const <String>[];
+    final addedLiveKeys = existing?.addedLiveKeys ?? const <String>[];
     final merged = mergeAddedSites(rawJson, existing, addedKeys);
     if (merged != rawJson) {
       rawJson = merged;
+      parsed = ConfigParser.parse(
+        rawJson,
+        baseUrl: baseUrl ?? url,
+        jarReady: jarReady,
+      );
+    }
+    // 本地并入的直播线路同样要保活：否则刷新一次就被远端内容冲掉。
+    final mergedLives = mergeAddedLives(rawJson, existing, addedLiveKeys);
+    if (mergedLives != rawJson) {
+      rawJson = mergedLives;
       parsed = ConfigParser.parse(
         rawJson,
         baseUrl: baseUrl ?? url,
@@ -1882,6 +2026,7 @@ class AppState extends ChangeNotifier {
       lastRefreshAt: url.isEmpty ? null : now,
       deletedSiteKeys: deletedKeys,
       addedSiteKeys: addedKeys,
+      addedLiveKeys: addedLiveKeys,
     );
 
     if (existing != null) {
@@ -2012,6 +2157,69 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// 刷新时把用户手动并入的直播线路补回订阅 JSON。
+  ///
+  /// 与 [mergeAddedSites] 同一个用途，作用于 `lives`：本地 TXT / M3U 并入某个
+  /// 线上订阅后，刷新会用远端内容覆盖 rawJson，不带这层保活就会被冲掉。
+  @visibleForTesting
+  static String mergeAddedLives(
+    String rawJson,
+    ConfigProfile? existing,
+    List<String> addedKeys,
+  ) {
+    if (existing == null || addedKeys.isEmpty) return rawJson;
+    try {
+      final decoded = parseJsonLenient(rawJson);
+      if (decoded is! Map) return rawJson;
+      final root = Map<String, dynamic>.from(decoded);
+      final field = root['lives'] is List
+          ? 'lives'
+          : (root['live'] is List ? 'live' : 'lives');
+      final current = root[field];
+      if (current is! List && current != null) return rawJson;
+      final lives = current is List ? current : <dynamic>[];
+
+      final old = parseJsonLenient(existing.rawJson);
+      if (old is! Map) return rawJson;
+      final oldLives = old['lives'] ?? old['live'];
+      if (oldLives is! List) return rawJson;
+
+      // 线路没有 key 字段，用 `name|url` 定位（与 liveKeyOf 一致）。
+      String keyOf(Object? item) {
+        if (item is! Map) return '';
+        final url = (item['url'] ?? item['api'] ?? '').toString();
+        return '${(item['name'] ?? '').toString()}|$url';
+      }
+
+      final localByKey = <String, Map<String, dynamic>>{};
+      for (final item in oldLives) {
+        final key = keyOf(item);
+        if (key == '|' || !addedKeys.contains(key)) continue;
+        localByKey[key] = Map<String, dynamic>.from(item as Map);
+      }
+      if (localByKey.isEmpty) return rawJson;
+
+      var changed = false;
+      for (final entry in localByKey.entries) {
+        final index = lives.indexWhere((item) => keyOf(item) == entry.key);
+        if (index >= 0) {
+          if (jsonEncode(lives[index]) != jsonEncode(entry.value)) {
+            lives[index] = entry.value;
+            changed = true;
+          }
+        } else {
+          lives.add(entry.value);
+          changed = true;
+        }
+      }
+      if (!changed) return rawJson;
+      root[field] = lives;
+      return const JsonEncoder.withIndent('  ').convert(root);
+    } catch (_) {
+      return rawJson;
+    }
+  }
+
   /// 按「已删除源」墓碑过滤订阅 JSON 里的 `sites`。
   static String _pruneDeletedSites(String rawJson, List<String> deletedKeys) {
     if (deletedKeys.isEmpty) return rawJson;
@@ -2119,6 +2327,7 @@ class AppState extends ChangeNotifier {
                   lastRefreshAt: p.lastRefreshAt,
                   deletedSiteKeys: p.deletedSiteKeys,
                   addedSiteKeys: p.addedSiteKeys,
+                  addedLiveKeys: p.addedLiveKeys,
                 )
               : p,
         )
@@ -2205,6 +2414,103 @@ class AppState extends ChangeNotifier {
     final id = activeProfile?.id;
     if (id == null) return Future.value(false);
     return addSitesToProfile(id, entries);
+  }
+
+  /// 把本地导入的直播线路并入指定直播订阅；同 name+url 就地合并。
+  ///
+  /// 与 [addSitesToProfile] 对应：本地 TXT / M3U 以前只能进 `localLives`
+  /// （一条独立线路），现在也可以并入某个已有的直播订阅里当新线路。
+  /// 目标订阅必须能宽松解析成 JSON（纯 M3U / TXT 订阅无法插入）。
+  Future<bool> addLivesToProfile(
+    String profileId,
+    List<Map<String, dynamic>> entries,
+  ) async {
+    if (entries.isEmpty) return false;
+    final profile = _profileById(profileId);
+    if (profile == null) return false;
+    final Map<String, dynamic> root;
+    try {
+      final decoded = parseJsonLenient(profile.rawJson);
+      if (decoded is! Map) return false;
+      root = Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return false;
+    }
+    // 有的订阅只写 `live` 不写 `lives`，与解析器保持同一套字段名。
+    final field = root['lives'] is List
+        ? 'lives'
+        : (root['live'] is List ? 'live' : 'lives');
+    final rawLives = root[field];
+    if (rawLives is! List && rawLives != null) return false;
+    final lives = rawLives is List ? rawLives : <dynamic>[];
+
+    final keys = <String>{};
+    for (final entry in entries) {
+      final key =
+          '${(entry['name'] ?? '').toString()}|${(entry['url'] ?? entry['api'] ?? '').toString()}';
+      if (key == '|') continue;
+      keys.add(key);
+      final index = lives.indexWhere(
+        (item) =>
+            item is Map &&
+            '${(item['name'] ?? '').toString()}|${(item['url'] ?? item['api'] ?? '').toString()}' ==
+                key,
+      );
+      if (index >= 0) {
+        final old = lives[index];
+        final merged = old is Map
+            ? Map<String, dynamic>.from(old)
+            : <String, dynamic>{};
+        merged.addAll(entry);
+        lives[index] = merged;
+      } else {
+        lives.add(Map<String, dynamic>.from(entry));
+      }
+    }
+    if (keys.isEmpty) return false;
+    root[field] = lives;
+
+    final rawJson = const JsonEncoder.withIndent('  ').convert(root);
+    final parsed = ConfigParser.parse(
+      rawJson,
+      baseUrl: profile.resolveBaseUrl,
+      jarReady: jarReady,
+    );
+    final addedLiveKeys = <String>{...profile.addedLiveKeys, ...keys}.toList();
+    profiles = [
+      for (final p in profiles)
+        if (p.id == profile.id)
+          ConfigProfile(
+            id: p.id,
+            name: p.name,
+            url: p.url,
+            baseUrl: profile.baseUrl,
+            rawJson: rawJson,
+            importedAt: p.importedAt,
+            report: parsed.report,
+            siteCount: p.siteCount,
+            liveCount: parsed.config.lives.length,
+            lastRefreshAt: p.lastRefreshAt,
+            deletedSiteKeys: p.deletedSiteKeys,
+            addedSiteKeys: p.addedSiteKeys,
+            addedLiveKeys: addedLiveKeys,
+          )
+        else
+          p,
+    ];
+    if (profile.id == activeLiveProfileId) {
+      liveConfig = parsed.config;
+      final available = lives;
+      if (available.isEmpty) {
+        activeLiveKey = null;
+      } else if (!available.any((b) => liveKeyOf(b) == activeLiveKey)) {
+        activeLiveKey = liveKeyOf(available.first);
+      }
+      await store.setActiveLiveKey(activeLiveKey);
+    }
+    await _persistProfiles();
+    notifyListeners();
+    return true;
   }
 
   /// 把站点并入指定订阅；同 key 条目就地合并。
@@ -2928,6 +3234,7 @@ class AppState extends ChangeNotifier {
       );
       sourceService.js.setWorkerCount(playerSettings.jsWorkerPool ? 3 : 1);
       sourceService.jar.setKeepHostsWarm(playerSettings.keepSpiderHosts);
+      sourceService.jar.setServePoolSize(playerSettings.spiderPoolSize);
     }
     if (data['proxy'] is Map) {
       proxy = ProxyConfig.fromJson(
@@ -3584,6 +3891,7 @@ class AppState extends ChangeNotifier {
     }
     if (keepHostsChanged) {
       sourceService.jar.setKeepHostsWarm(settings.keepSpiderHosts);
+      sourceService.jar.setServePoolSize(settings.spiderPoolSize);
     }
     if (magnetDirChanged) {
       torrentPlay?.setDownloadDir(settings.magnetDownloadDir);
@@ -3717,12 +4025,14 @@ class AppState extends ChangeNotifier {
       driveTokens['thunder'] = jsonEncode({
         'accessToken': xl.accessToken.trim(),
         'refreshToken': xl.refreshToken.trim(),
-        'tokenType': xl.tokenType.trim().isEmpty ? 'Bearer' : xl.tokenType.trim(),
+        'tokenType': xl.tokenType.trim().isEmpty
+            ? 'Bearer'
+            : xl.tokenType.trim(),
         'userId': xl.userId.trim(),
         'deviceId': xl.deviceId.trim(),
         'expireTime': xl.expiresAt,
         'peerId': xl.peerId.trim(),
-        });
+      });
     }
     // 只记 provider 名，绝不把 Cookie 写进日志；下一份日志可直接判断
     // 「没登录」到底是凭据层没注入，还是壳层没读到。
@@ -3830,7 +4140,8 @@ class AppState extends ChangeNotifier {
       if (result.valid != true) return;
       // 确认登录成功：合并新 Cookie、清掉访客标记。
       final extra = {...account.extra}..remove('guest');
-      final uidChanged = provider == 'baidu' &&
+      final uidChanged =
+          provider == 'baidu' &&
           result.userId.isNotEmpty &&
           account.extra['baiduUid'] != result.userId;
       if (provider == 'baidu' && result.userId.isNotEmpty) {
@@ -3895,8 +4206,14 @@ class AppState extends ChangeNotifier {
     if (_refreshableProviders.contains(provider)) {
       unawaited(_refreshDriveSession(provider));
     }
-    if (provider == 'thunder' && cookie.trim().isNotEmpty && xunleiCloudService.account.refreshToken.trim() != cookie.trim()) {
-      unawaited(xunleiCloudService.loginWithRefreshToken(cookie.trim()).catchError((_) => xunleiCloudService.account));
+    if (provider == 'thunder' &&
+        cookie.trim().isNotEmpty &&
+        xunleiCloudService.account.refreshToken.trim() != cookie.trim()) {
+      unawaited(
+        xunleiCloudService
+            .loginWithRefreshToken(cookie.trim())
+            .catchError((_) => xunleiCloudService.account),
+      );
     }
   }
 
@@ -4069,6 +4386,12 @@ class AppState extends ChangeNotifier {
 
   Future<int> startLanSyncServer() async {
     final port = await lanServer.start();
+    // 端口可用后立刻进入「被动就绪」：只应答别人的流转探测，不广播。
+    // 这样即使本机从没点过流转，别的设备也能在列表里看到本机。
+    lanDiscovery
+      ..localPort = port
+      ..platform = flowDevicePlatform;
+    unawaited(lanDiscovery.listenOnly());
     notifyListeners();
     return port;
   }
@@ -4080,6 +4403,70 @@ class AppState extends ChangeNotifier {
   }
 
   Future<List<String>> lanSyncAddresses() => lanServer.lanAddresses();
+
+  // ---- 设备流转 ----
+
+  /// 设备流转是否已就绪（发现服务在跑）。
+  bool get flowReady => lanDiscovery.running;
+
+  /// 临时开启设备流转：启动局域网服务 + UDP 发现。
+  ///
+  /// 流转是**一次性**的（像投屏），不持久化开关。每次打开流转面板时调用，
+  /// 面板关闭或流转完成后由 [stopFlow] 收起，不留后台广播。
+  ///
+  /// 复用局域网同步服务的 HTTP 端口（`/flow` 与 `/sync` 同一个服务），
+  /// 所以这里只需要保证服务起来，并把端口告诉发现模块用于公告。
+  Future<void> startFlow() async {
+    try {
+      // 先让 HTTP 端口可用（否则对端 probe 过来时本机应答里没有端口，
+      // 或者对端连不上），再启动 UDP 侧去广播「谁在？」。
+      final port = await startLanSyncServer();
+      lanDiscovery
+        ..localPort = port
+        ..platform = flowDevicePlatform;
+      await lanDiscovery.start();
+      AppLog.i('lan', '设备流转已临时开启：端口 $port');
+      notifyListeners();
+    } catch (e) {
+      AppLog.w('lan', '设备流转启动失败', e);
+      rethrow;
+    }
+  }
+
+  /// 收起设备流转（面板关闭 / 流转完成 / 用户取消）。
+  ///
+  /// 注意：正在播放不受影响，只是不再被发现、不再接收新的推送。
+  Future<void> stopFlow() async {
+    if (!lanDiscovery.running) return;
+    // 只停 UDP（不再广播 / 不再刷新设备列表）。
+    //
+    // **不停 HTTP 服务**：那是接收端点，别的设备 probe 过来时要靠它应答。
+    // 只监听本机端口、不产生任何广播，开销可以忽略；停了会导致本机
+    // 既发现不了别人、也收不到推送。
+    await lanDiscovery.stop();
+    AppLog.i('lan', '设备流转已收起（接收端点保持可用）');
+    notifyListeners();
+  }
+
+  /// 被推送的设备播完 / 退出播放后触发一次同步。
+  ///
+  /// 只在用户已配置 WebDAV 同步时执行：否则没有远端可写，调了也是白跑，
+  /// 而且会在没配同步的设备上刷出失败日志。
+  Future<bool> syncHistoryAfterFlow() async {
+    if (syncSettings.davServerId.trim().isEmpty) {
+      AppLog.i('lan', '未配置 WebDAV 同步，跳过流转后的历史同步');
+      return false;
+    }
+    try {
+      await syncViaWebDav(serverId: syncSettings.davServerId);
+      AppLog.i('lan', '流转结束，历史已同步一次');
+      return true;
+    } catch (e) {
+      // 同步失败不能影响播放结束流程。
+      AppLog.w('lan', '流转后的历史同步失败（不影响本地记录）', e);
+      return false;
+    }
+  }
 
   // ---- 媒体库 ----
 

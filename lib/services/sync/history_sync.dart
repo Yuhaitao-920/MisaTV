@@ -141,10 +141,7 @@ class HistorySyncEvent {
 
 /// 一份可序列化的同步快照：正文 + 每个条目的版本 + 墓碑 + 清空版本。
 class HistoryTombstones {
-  const HistoryTombstones({
-    this.deletedVersions = const {},
-    this.clearVersion,
-  });
+  const HistoryTombstones({this.deletedVersions = const {}, this.clearVersion});
 
   static const empty = HistoryTombstones();
 
@@ -422,8 +419,7 @@ class HistorySyncStreamMerger {
     return all;
   }
 
-  bool get isEmpty =>
-      _upserts.isEmpty && _deletes.isEmpty && _clear == null;
+  bool get isEmpty => _upserts.isEmpty && _deletes.isEmpty && _clear == null;
 
   void _keepLatest(
     Map<String, HistorySyncEvent> bucket,

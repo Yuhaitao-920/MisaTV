@@ -138,18 +138,12 @@ class DesignedTitle extends StatelessWidget {
       HeroTitleShape.slanted => Transform(
         alignment: Alignment.center,
         transform: Matrix4.skewX(-0.45),
-        child: Container(
-          width: 26 * scale,
-          height: 3.4 * scale,
-          color: color,
-        ),
+        child: Container(width: 26 * scale, height: 3.4 * scale, color: color),
       ),
       HeroTitleShape.notched => SizedBox(
         width: 26 * scale,
         height: 10 * scale,
-        child: CustomPaint(
-          painter: _BracketPainter(color, 1.6 * scale),
-        ),
+        child: CustomPaint(painter: _BracketPainter(color, 1.6 * scale)),
       ),
       HeroTitleShape.torn => Row(
         mainAxisSize: MainAxisSize.min,
@@ -209,10 +203,7 @@ class DesignedTitle extends StatelessWidget {
       style: style.copyWith(
         color: const Color(0x00000000),
         shadows: [
-          Shadow(
-            blurRadius: 30,
-            color: Colors.black.withValues(alpha: 0.88),
-          ),
+          Shadow(blurRadius: 30, color: Colors.black.withValues(alpha: 0.88)),
           Shadow(
             offset: Offset(0, 3 * scale),
             blurRadius: 5,
@@ -243,8 +234,11 @@ class DesignedTitle extends StatelessWidget {
         maxLines: 1,
         softWrap: false,
         style: style.copyWith(
-          color: Color.lerp(plan.titleBottom, Colors.white, 0.34)
-              ?.withValues(alpha: 0.94),
+          color: Color.lerp(
+            plan.titleBottom,
+            Colors.white,
+            0.34,
+          )?.withValues(alpha: 0.94),
         ),
       );
     }
@@ -269,10 +263,7 @@ class DesignedTitle extends StatelessWidget {
           height: 1.5 * scale,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                plan.accent,
-                plan.accent.withValues(alpha: 0),
-              ],
+              colors: [plan.accent, plan.accent.withValues(alpha: 0)],
             ),
           ),
         ),

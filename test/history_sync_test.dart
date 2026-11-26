@@ -14,7 +14,11 @@ HistoryItem _h(String key, {int updatedAt = 1000, int position = 0}) =>
     );
 
 HistorySyncEvent _upsert(HistoryItem item, {String id = 'd:1'}) =>
-    HistorySyncEvent.fromItem(item, deviceId: 'd', seq: int.tryParse(id.split(':').last) ?? 1);
+    HistorySyncEvent.fromItem(
+      item,
+      deviceId: 'd',
+      seq: int.tryParse(id.split(':').last) ?? 1,
+    );
 
 void main() {
   group('HistorySyncVersion', () {
@@ -69,9 +73,7 @@ void main() {
 
     test('keepLimit 截断尾部（保留最新）', () {
       final result = mergeHistory(
-        current: [
-          for (var i = 0; i < 5; i++) _h('a|$i', updatedAt: 100 + i),
-        ],
+        current: [for (var i = 0; i < 5; i++) _h('a|$i', updatedAt: 100 + i)],
         incoming: const [],
         keepLimit: 3,
       );
@@ -152,10 +154,7 @@ void main() {
   group('清空历史是全局墓碑', () {
     test('清空之后旧 upsert 全部丢弃', () {
       final cleared = mergeHistory(
-        current: [
-          _h('a|1', updatedAt: 100),
-          _h('b|2', updatedAt: 200),
-        ],
+        current: [_h('a|1', updatedAt: 100), _h('b|2', updatedAt: 200)],
         incoming: [
           HistorySyncEvent.clear(updatedAt: 300, deviceId: 'd', seq: 1),
         ],
@@ -205,10 +204,7 @@ void main() {
         ],
         clearVersion: first.clearVersion,
       );
-      expect(
-        HistorySyncVersion.updatedAtOf(second.clearVersion!),
-        200,
-      );
+      expect(HistorySyncVersion.updatedAtOf(second.clearVersion!), 200);
     });
   });
 
@@ -268,10 +264,7 @@ void main() {
       final events = merger.toEvents();
       for (var i = 1; i < events.length; i++) {
         expect(
-          HistorySyncVersion.compare(
-            events[i - 1].version,
-            events[i].version,
-          ),
+          HistorySyncVersion.compare(events[i - 1].version, events[i].version),
           lessThanOrEqualTo(0),
         );
       }
@@ -299,14 +292,8 @@ void main() {
     });
 
     test('坏数据不抛异常', () {
-      expect(
-        () => HistorySyncSnapshot.fromJson(const {}),
-        returnsNormally,
-      );
-      expect(
-        HistorySyncSnapshot.fromJson(const {}).items,
-        isEmpty,
-      );
+      expect(() => HistorySyncSnapshot.fromJson(const {}), returnsNormally);
+      expect(HistorySyncSnapshot.fromJson(const {}).items, isEmpty);
     });
 
     test('fromItems 幂等：同一份历史得到同一组版本号', () {

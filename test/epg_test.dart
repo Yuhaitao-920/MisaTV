@@ -27,9 +27,15 @@ void main() {
     test('带偏移 / Z / 时区 / 本机四种口径', () {
       final utc = DateTime.utc(2026, 1, 1, 4).millisecondsSinceEpoch;
       expect(parseXmltvEpoch('20260101120000 +0800'), utc);
-      expect(parseXmltvEpoch('20260101120000Z'), DateTime.utc(2026, 1, 1, 12).millisecondsSinceEpoch);
+      expect(
+        parseXmltvEpoch('20260101120000Z'),
+        DateTime.utc(2026, 1, 1, 12).millisecondsSinceEpoch,
+      );
       expect(parseXmltvEpoch('20260101120000', timeZone: 'Asia/Shanghai'), utc);
-      expect(parseXmltvEpoch('20260101120000'), DateTime(2026, 1, 1, 12).millisecondsSinceEpoch);
+      expect(
+        parseXmltvEpoch('20260101120000'),
+        DateTime(2026, 1, 1, 12).millisecondsSinceEpoch,
+      );
     });
 
     test('非法时间返回 null', () {
@@ -62,9 +68,10 @@ void main() {
     });
 
     test('同一节目按（起止, 标题）去重', () {
-      final map = buildEpgMap([parseXmltv(_xml), parseXmltv(_xml)], [
-        const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1'),
-      ]);
+      final map = buildEpgMap(
+        [parseXmltv(_xml), parseXmltv(_xml)],
+        [const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1')],
+      );
       expect(map['cctv1']?.length, 2);
     });
 
@@ -77,17 +84,33 @@ void main() {
 
   group('当前 / 下一档', () {
     test('落在区间内取当前，之后取下一档', () {
-      final map = buildEpgMap([parseXmltv(_xml)], [
+      final map = buildEpgMap(
+        [parseXmltv(_xml)],
+        [const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1')],
+      );
+      final programs = lookupEpg(
+        map,
         const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1'),
-      ]);
-      final programs = lookupEpg(map, const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1'))!;
-      final at = DateTime.utc(2026, 1, 1, 4, 30).millisecondsSinceEpoch; // 12:30 +0800
+      )!;
+      final at = DateTime.utc(
+        2026,
+        1,
+        1,
+        4,
+        30,
+      ).millisecondsSinceEpoch; // 12:30 +0800
       final entry = pickCurrentNext(programs, at);
       expect(entry.current?.title, '新闻30分');
       expect(entry.next?.title, '今日说法');
 
       final entries = buildEpgEntries(map, at);
-      expect(entryOf(entries, const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1'))?.current?.title, '新闻30分');
+      expect(
+        entryOf(
+          entries,
+          const EpgChannelRef(tvgId: 'cctv1', name: 'CCTV1'),
+        )?.current?.title,
+        '新闻30分',
+      );
     });
 
     test('无节目表返回空 entry', () {
@@ -111,11 +134,17 @@ void main() {
 
   group('LiveExport', () {
     const groups = [
-      LiveGroup(group: '央视', channels: [
-        LiveChannel(name: 'CCTV1', urls: ['http://a/1.m3u8']),
-        LiveChannel(name: 'CCTV2', urls: ['http://a/2.m3u8', 'http://a/2b.m3u8']),
-        LiveChannel(name: '空频道', urls: []),
-      ]),
+      LiveGroup(
+        group: '央视',
+        channels: [
+          LiveChannel(name: 'CCTV1', urls: ['http://a/1.m3u8']),
+          LiveChannel(
+            name: 'CCTV2',
+            urls: ['http://a/2.m3u8', 'http://a/2b.m3u8'],
+          ),
+          LiveChannel(name: '空频道', urls: []),
+        ],
+      ),
       LiveGroup(group: '空分组', channels: []),
     ];
 
@@ -129,7 +158,12 @@ void main() {
     test('M3U：保留 tvg 信息并按线路展开', () {
       final text = LiveExport.renderM3u(groups);
       expect(text, startsWith('#EXTM3U\r\n'));
-      expect(text, contains('#EXTINF:-1 tvg-id="" tvg-name="" tvg-logo="" group-title="央视",CCTV1\r\nhttp://a/1.m3u8'));
+      expect(
+        text,
+        contains(
+          '#EXTINF:-1 tvg-id="" tvg-name="" tvg-logo="" group-title="央视",CCTV1\r\nhttp://a/1.m3u8',
+        ),
+      );
       expect(text, contains('CCTV2\r\nhttp://a/2b.m3u8'));
       expect(text, isNot(contains('空频道')));
     });
@@ -137,7 +171,10 @@ void main() {
     test('空分组返回空串；文件名过滤非法字符', () {
       expect(LiveExport.renderTxt(const []), '');
       expect(LiveExport.renderM3u(const []), '');
-      expect(LiveExport.suggestedName('我的:线路?', '20261028', 'txt'), '我的_线路__20261028.txt');
+      expect(
+        LiveExport.suggestedName('我的:线路?', '20261028', 'txt'),
+        '我的_线路__20261028.txt',
+      );
     });
   });
 }

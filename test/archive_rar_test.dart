@@ -172,17 +172,20 @@ void main() {
   });
 }
 
-String _enc(List<SubtitleChoice> list) => '[${list.map((c) => '{"n":"${c.name}","f":"${c.format}","t":"${c.text.replaceAll('"', r'\"').replaceAll('\n', r'\n')}"}').join(',')}]';
+String _enc(List<SubtitleChoice> list) =>
+    '[${list.map((c) => '{"n":"${c.name}","f":"${c.format}","t":"${c.text.replaceAll('"', r'\"').replaceAll('\n', r'\n')}"}').join(',')}]';
 
 List<SubtitleChoice> _dec(String raw) {
   final out = <SubtitleChoice>[];
   final re = RegExp(r'\{"n":"(.*?)","f":"(.*?)","t":"(.*?)"\}', dotAll: true);
   for (final m in re.allMatches(raw)) {
-    out.add(SubtitleChoice(
-      name: m.group(1)!,
-      format: m.group(2)!,
-      text: m.group(3)!.replaceAll(r'\n', '\n').replaceAll(r'\"', '"'),
-    ));
+    out.add(
+      SubtitleChoice(
+        name: m.group(1)!,
+        format: m.group(2)!,
+        text: m.group(3)!.replaceAll(r'\n', '\n').replaceAll(r'\"', '"'),
+      ),
+    );
   }
   return out;
 }

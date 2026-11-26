@@ -17,8 +17,7 @@ class LocalMediaService {
     dirs = _store.loadLocalMediaDirs();
   }
 
-  Future<void> addDir(String raw) =>
-      throw UnsupportedError('浏览器版不能扫描本地文件夹');
+  Future<void> addDir(String raw) => throw UnsupportedError('浏览器版不能扫描本地文件夹');
 
   Future<void> removeDir(String path) async {}
 

@@ -127,6 +127,7 @@ String driveShareKey(String provider, String id) {
   final t = id.trim();
   return '$provider|${t.length > 96 ? t.substring(0, 96) : t}';
 }
+
 class JarSpiderService {
   JarSpiderService({
     JvmRuntime? runtime,
@@ -225,17 +226,54 @@ class JarSpiderService {
   final Map<String, int> _serveStarting = {};
   final Map<String, int> _serveHostSeq = {};
   final Map<String, Timer> _serveIdleTimers = {};
-  static const _servePoolMax = 3;
+
+  /// 每个 JAR 源最多起几只常驻 JVM（用户可调）。
+  ///
+  /// 原来写死 3。它的作用是「同一源内」的并行度：N 只 host 就能同时处理
+  /// N 个请求；池满后请求要排队（见 _waitServeIdle），不会再被塞进忙碌的
+  /// 管道里串行等死。
+  ///
+  /// 调大有代价：每只 JVM 约 16-128 MB，且冷启动要十几秒。上限 8 是经验值，
+  /// 再多收益很小、内存压力明显。
+  static const int servePoolMin = 1;
+  static const int servePoolMaxLimit = 8;
+  static const int _servePoolMaxDefault = 3;
+  int _servePoolMax = _servePoolMaxDefault;
+
+  /// 池满后轮询空闲 host 的间隔。
+  static const Duration _servePollInterval = Duration(milliseconds: 120);
+
+  /// 当前生效的池大小（供界面回显）。
+  int get servePoolSize => _servePoolMax;
+
+  /// 设置每个 JAR 源的常驻 JVM 上限；超出范围会被夹紧。
+  ///
+  /// 调小不会立刻杀掉已有 host：它们在空闲超时后自然回收，避免打断正在播放
+  /// 的流。调大即时生效（下一次 _acquireServeHost 就会多开）。
+  void setServePoolSize(int value) {
+    final next = value.clamp(servePoolMin, servePoolMaxLimit);
+    if (next == _servePoolMax) return;
+    _servePoolMax = next;
+    AppLog.i('jar', '每个 JAR 源常驻 JVM 上限调整为 $next');
+  }
+
+  int _servePoolMaxFor(String key) => _servePoolMax;
 
   /// 当前搜索轮次：新搜索 / 用户取消 / 时间预算到期时递增，旧轮次排队中的
   /// JAR 调用在真正起进程前自行退出，避免 UI 已放弃而后台还跑几分钟。
   int _searchRound = 0;
 
-  /// 一次性 JVM 的全局并发闸门。serve host 每池最多 3 只，但源失效时会退回
+  /// 一次性 JVM 的全局并发闸门。serve host 每池最多 N 只，但源失效时会退回
   /// 一次性进程；不设全局上限时一轮搜索可能同时起几十只 JVM，CPU/磁盘互相拖慢。
   static const _oneShotMax = 4;
   int _oneShotRunning = 0;
   final List<Completer<void>> _oneShotWaiters = [];
+
+  /// 等待一次性槽位的最长时间。
+  ///
+  /// 以前是 `await waiter.future` 裸等：若某个调用异常路径没走到 finally，
+  /// 等待者会永久挂起并占住槽位，表现为「越用越慢」。
+  static const Duration _oneShotWaitTimeout = Duration(seconds: 45);
   static const _serveIdleDefault = Duration(seconds: 45);
   static const _serveIdleKeepWarm = Duration(minutes: 2);
   Duration _serveIdleTimeout = _serveIdleDefault;
@@ -296,7 +334,17 @@ class JarSpiderService {
     }
     final waiter = Completer<void>();
     _oneShotWaiters.add(waiter);
-    await waiter.future;
+    try {
+      // 必须带超时：万一某个调用没走到 _releaseOneShotSlot（异常路径、进程被杀
+      // 后 completer 未完成），裸等会让这里永久挂起并占住槽位，表现为
+      // 「越搜越慢」——后续的 JAR 调用全排在这一格后面。
+      await waiter.future.timeout(_oneShotWaitTimeout);
+    } on TimeoutException {
+      _oneShotWaiters.remove(waiter);
+      throw ServeHostException(
+        '等待一次性 JVM 槽位超时（${_oneShotWaitTimeout.inSeconds}s），请稍后重试',
+      );
+    }
   }
 
   void _releaseOneShotSlot() {
@@ -518,7 +566,8 @@ class JarSpiderService {
     final tokens = driveTokens?.call() ?? const <String, String>{};
     final baiduCookie = (tokens['baidu'] ?? '').trim();
     if (looksLikeBaiduShare(id)) {
-      final banned = (_nativeDriveMisses['baidu'] ?? 0) >= _nativeDriveMissLimit;
+      final banned =
+          (_nativeDriveMisses['baidu'] ?? 0) >= _nativeDriveMissLimit;
       if (baiduCookie.isEmpty) {
         AppLog.w('drive', '百度分享播放但未绑定账号，回退 jar：${shorten(id, 80)}');
       } else if (banned) {
@@ -559,7 +608,8 @@ class JarSpiderService {
         //   `resolveBaiduDirect` 内部已经把 shareId/uk 两种段序都试过一遍，
         //   仍回 -7 说明这份描述符本身就是对不上（或 seKey 过期到无法自愈），
         //   下一次用同一份描述符打过去只会再得 -7。
-        final systematic = link.reason.contains('errno=-7') ||
+        final systematic =
+            link.reason.contains('errno=-7') ||
             link.reason.contains('errno=105') ||
             link.reason.contains('errno=116') ||
             link.reason.contains('errno=113');
@@ -596,21 +646,25 @@ class JarSpiderService {
         AppLog.w('drive', 'UC 免转存解链失败：${link.reason}');
       }
     }
-  // 夸克线路在桌面端优先走蜘蛛的多线程代理（/chunk 或 5266），避免原生单线程
-   // 免转存直链被夸克 CDN 限速到 1~2 MB/s 导致卡顿；标记 _nativeDriveFailed 让
-   // play() 直接复用预热 serve host，蜘蛛取链失败时再由 _resolveNativeQuarkFallback 兜底。 
+    // 夸克线路在桌面端优先走蜘蛛的多线程代理（/chunk 或 5266），避免原生单线程
+    // 免转存直链被夸克 CDN 限速到 1~2 MB/s 导致卡顿；标记 _nativeDriveFailed 让
+    // play() 直接复用预热 serve host，蜘蛛取链失败时再由 _resolveNativeQuarkFallback 兜底。
     final quarkCookie = (tokens['quark'] ?? '').trim();
     if (looksLikeQuarkShare(id, flag: flag)) {
       if (quarkCookie.isEmpty) {
         AppLog.w('drive', '夸克分享播放但未绑定账号，回退 jar：${shorten(id, 80)}');
       } else {
         AppLog.i('drive', '夸克线路跳过单线程免转存直链，优先走蜘蛛多线程代理');
-      _nativeDriveFailed = true;  
+        _nativeDriveFailed = true;
       }
     }
     return null;
   }
-  Future<PlayResult?> _resolveNativeQuarkFallback(String flag, String id) async {
+
+  Future<PlayResult?> _resolveNativeQuarkFallback(
+    String flag,
+    String id,
+  ) async {
     if (!looksLikeQuarkShare(id, flag: flag)) return null;
     final tokens = driveTokens?.call();
     final quarkCookie = (tokens?['quark'] ?? '').trim();
@@ -621,7 +675,7 @@ class JarSpiderService {
       cookie: quarkCookie,
       flag: flag,
       episodeName: ref?.name ?? '',
-      );
+    );
     if (link.ok) {
       AppLog.i('drive', '蜘蛛未取到夸克地址，回退免转存直链 ${shorten(link.url, 120)}');
       return PlayResult(url: link.url, flag: flag, headers: link.headers);
@@ -629,7 +683,7 @@ class JarSpiderService {
     AppLog.w('drive', '夸克免转存兜底解链失败：${link.reason}');
     return null;
   }
-  
+
   Future<PlayResult?> play(
     SourceBean site,
     String flag,
@@ -742,7 +796,7 @@ class JarSpiderService {
       AppLog.w(
         'jar',
         'DASH 回退未成功，保留原地址（播放器将报不支持） ${site.key} '
-        'flag=$flag url=${redactUrl(result.url)}',
+            'flag=$flag url=${redactUrl(result.url)}',
       );
     }
     final host = _playHost;
@@ -936,13 +990,7 @@ class JarSpiderService {
     await _releasePlayHost();
     AppLog.i('jar', '直链播放失败，改用 serve host 重新取链 ${site.key} flag=$flag');
     // 先复用浏览池里预热的 host（1~3 秒），没有再新起专用 host。
-    final warm = await _playViaServe(
-      site,
-      flag,
-      id,
-      vipFlags,
-      reuseWarm: true,
-    );
+    final warm = await _playViaServe(site, flag, id, vipFlags, reuseWarm: true);
     if (warm != null) return warm;
     return _playViaServe(site, flag, id, vipFlags);
   }
@@ -1011,12 +1059,7 @@ class JarSpiderService {
       ]);
       final result = normalizeSpiderPlay(text, flag);
       if (result.url.isNotEmpty) {
-        return _pinServePlayResult(
-          result,
-          host,
-          hostKey,
-          borrowed: borrowed,
-        );
+        return _pinServePlayResult(result, host, hostKey, borrowed: borrowed);
       }
       AppLog.w(
         'jar',
@@ -1157,8 +1200,16 @@ class JarSpiderService {
     if (flag.contains('百度') || lower.contains('baidu')) return 'baidu';
     if (_looksLikeBiliFlag(flag)) return 'bili';
     if (RegExp(r'(^|[^0-9])115([^0-9]|$)').hasMatch(flag)) return '115';
-    if (flag.contains('迅雷') || lower.contains('xunlei') || lower.contains('thunder')) return 'thunder';
-    if (flag.contains('光鸭') || flag.contains('光雅') || lower.contains('guangya')) return 'guangya';
+    if (flag.contains('迅雷') ||
+        lower.contains('xunlei') ||
+        lower.contains('thunder')) {
+      return 'thunder';
+    }
+    if (flag.contains('光鸭') ||
+        flag.contains('光雅') ||
+        lower.contains('guangya')) {
+      return 'guangya';
+    }
     return null;
   }
 
@@ -1189,7 +1240,8 @@ class JarSpiderService {
   final Set<String> _staleMd5Logged = {};
 
   /// 是否是壳内自带取流服务的本机 `/chunk` 地址。
-  static bool isLocalChunkPlayUrl(String url) {    final uri = Uri.tryParse(url.trim());
+  static bool isLocalChunkPlayUrl(String url) {
+    final uri = Uri.tryParse(url.trim());
     if (uri == null || uri.scheme.toLowerCase() != 'http') return false;
     final host = uri.host.toLowerCase();
     if (host != '127.0.0.1' && host != 'localhost') return false;
@@ -1416,7 +1468,11 @@ class JarSpiderService {
   ///
   /// [borrowed] 为 true 表示这只 host 是从**浏览池借来的预热进程**：
   /// 播放结束时只解除 pin，不杀进程（它还要继续给搜索 / 详情页服务）。
-  void _keepPlayServeHost(JarServeHost host, String key, {bool borrowed = false}) {
+  void _keepPlayServeHost(
+    JarServeHost host,
+    String key, {
+    bool borrowed = false,
+  }) {
     _playServeHost = host;
     _playServeKey = key;
     _playServeBorrowed = borrowed;
@@ -1829,6 +1885,7 @@ class JarSpiderService {
     String url,
     File dest,
     String expectMd5, {
+
     /// 声明的 md5 与源站实际内容不一致时，若文件本身是有效 JAR 仍然采用。
     /// 很多订阅的 md5 是作者打包时的旧值，CDN 每次重打包都会变
     /// （实测同一 URL 多次下载长度相同但 md5 不同），严格校验会导致
@@ -1957,12 +2014,19 @@ class JarSpiderService {
     }
     final tmp = File('${file.path}.part');
     try {
-      final req = await client.getUrl(Uri.parse(url));
+      final targetUri = Uri.parse(url);
+      final req = await client.getUrl(targetUri);
       req.headers.set('User-Agent', 'okhttp/4.12.0');
       req.headers.set('Accept', '*/*');
       // 关掉压缩，才能用 content-length 判断是否下完整。
       req.headers.set('Accept-Encoding', 'identity');
       req.headers.set('Cache-Control', 'no-cache');
+      // WebDAV / 坚果云订阅把账号密码写在地址里，jar 与订阅同源同权限：
+      // `HttpClient` 不会自动把 `Uri.userInfo` 转成请求头，不补这一步会 401。
+      final auth = AppHttp.authHeadersOf(targetUri);
+      if (auth.isNotEmpty) {
+        req.headers.set('Authorization', auth['authorization']!);
+      }
       final res = await req.close().timeout(const Duration(seconds: 30));
       if (res.statusCode != 200) {
         await res.drain<void>();
@@ -2640,14 +2704,12 @@ class JarSpiderService {
       final path = p.join(dir.path, index['*']!);
       if (File(path).existsSync()) {
         final starNames = wanted.isEmpty ? null : await _zipNames(File(path));
-        final hit = wanted.isEmpty || (starNames != null && containsWanted(starNames));
+        final hit =
+            wanted.isEmpty || (starNames != null && containsWanted(starNames));
         if (hit) {
           add(index['*'], starNames);
         } else {
-          AppLog.i(
-            'jar',
-            '跳过默认载荷 ${index['*']}：不含 ${className ?? '目标类'}',
-          );
+          AppLog.i('jar', '跳过默认载荷 ${index['*']}：不含 ${className ?? '目标类'}');
         }
       }
     }
@@ -4233,7 +4295,7 @@ class JarSpiderService {
   }) async {
     _checkSearchRound();
     final pool = _servePools.putIfAbsent(key, () => <JarServeHost>[]);
-    pool.removeWhere((host) => !host.alive);
+    pool.removeWhere((host) => !host.alive || host.wedged);
 
     // 有空闲 host 就直接复用：顺序搜索（一次只派一个请求）不该反复冷启 JVM。
     // 只有全部在忙、且还没到上限时才多开一只换并行度。
@@ -4246,10 +4308,7 @@ class JarSpiderService {
           const Duration(seconds: 15)) {
         final healthy = await host.ping();
         if (!healthy) {
-          AppLog.w(
-            'jar',
-            '常驻 spider host 健康检查失败，剔除 key=$key pid=${host.pid}',
-          );
+          AppLog.w('jar', '常驻 spider host 健康检查失败，剔除 key=$key pid=${host.pid}');
           pool.remove(host);
           await host.killNow();
           continue;
@@ -4259,7 +4318,8 @@ class JarSpiderService {
     }
 
     final starting = _serveStarting[key] ?? 0;
-    if (pool.length + starting < _servePoolMax) {
+    final poolMax = _servePoolMaxFor(key);
+    if (pool.length + starting < poolMax) {
       _serveStarting[key] = starting + 1;
       try {
         _checkSearchRound();
@@ -4322,9 +4382,46 @@ class JarSpiderService {
     }
 
     if (pool.isEmpty) throw ServeHostException('常驻蜘蛛进程启动失败');
-    // 每个 host 是主线程顺序执行：把新请求派给排队最少的那个。
-    pool.sort((a, b) => a.inflight.compareTo(b.inflight));
-    return pool.first;
+    // 池已满（或刚启动失败）：不再把请求塞给正忙的 JVM。
+    //
+    // 每只 host 的主线程是**串行**处理请求的，塞进去只会排在别人后面等；
+    // 一旦前面那个请求超时，整只进程在过去会连带被杀，排队的所有源一起失败
+    // —— 这就是「订阅里 JAR 源一多就丢结果」的根因。
+    //
+    // 现在改为等待池里出现空闲 host（下面 _waitServeIdle），让并发度真正
+    // 等于池大小，而不是表面并发、实际串行。
+    final idle = await _waitServeIdle(key, pool);
+    if (idle == null) {
+      // 等不到空闲（全部卡死 / 被取消）：报错让上层回退一次性进程。
+      throw ServeHostException('常驻蜘蛛池繁忙，未取得可用进程');
+    }
+    return idle;
+  }
+
+  /// 等待池里出现一只空闲（`inflight == 0`）的 host。
+  ///
+  /// [timeout] 到点或当前搜索轮次作废时返回 null，由调用方决定怎么降级。
+  /// 每 [_servePollInterval] 轮询一次：host 的 inflight 由 stdout 应答驱动，
+  /// 没有现成的完成信号可订阅，轮询比给每个 host 挂监听器改动更小、也更稳。
+  Future<JarServeHost?> _waitServeIdle(
+    String key,
+    List<JarServeHost> pool, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (true) {
+      _checkSearchRound();
+      pool.removeWhere((host) => !host.alive || host.wedged);
+      for (final host in pool) {
+        if (host.inflight == 0) return host;
+      }
+      if (pool.isEmpty) return null;
+      if (DateTime.now().isAfter(deadline)) {
+        AppLog.w('jar', '等待常驻 host 空闲超时 key=$key，回退一次性进程');
+        return null;
+      }
+      await Future<void>.delayed(_servePollInterval);
+    }
   }
 
   /// 剔除一只确认不健康的 host：先从池里摘掉，再结束进程；
@@ -4801,4 +4898,3 @@ class _ProcResult {
   final String stderr;
   final bool timedOut;
 }
-

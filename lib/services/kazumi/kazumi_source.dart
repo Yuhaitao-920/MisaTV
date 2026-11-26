@@ -131,11 +131,7 @@ class KazumiSource {
     }
   }
 
-  Future<CmsResult> category(
-    SourceBean site,
-    String tid,
-    String pg,
-  ) async {
+  Future<CmsResult> category(SourceBean site, String tid, String pg) async {
     try {
       final seasonDays = await _seasonDaysSafe();
       final biliDays = await _biliDaysSafe();
@@ -242,9 +238,8 @@ class KazumiSource {
       return cached;
     }
     final range = _seasonRange(now);
-    final uri = Uri.parse('$_kazumiMirror$_seasonCalendarPath').replace(
-      queryParameters: {'start': range[0], 'end': range[1]},
-    );
+    final uri = Uri.parse('$_kazumiMirror$_seasonCalendarPath')
+        .replace(queryParameters: {'start': range[0], 'end': range[1]});
     final res = await _get(
       uri.toString(),
       headers: const {
@@ -347,11 +342,9 @@ class KazumiSource {
       if (rule.searchMode == 'api') {
         final api = rule.searchApi;
         if (api == null) throw SourceException('规则缺少搜索接口配置');
-        final body = await _request(
-          api.request,
-          {'keyword': query},
-          _headers(rule),
-        );
+        final body = await _request(api.request, {
+          'keyword': query,
+        }, _headers(rule));
         final decoded = jsonDecode(body);
         return parseSearchJson(
           rule,
@@ -591,14 +584,18 @@ class KazumiSource {
         final url = fields.sublist(1).join(api.fieldSeparator).trim();
         if (url.isEmpty) continue;
         episodes.add(
-          Episode(name: name.isEmpty ? '第${episodes.length + 1}集' : name, url: url),
+          Episode(
+            name: name.isEmpty ? '第${episodes.length + 1}集' : name,
+            url: url,
+          ),
         );
       }
       if (episodes.isEmpty) {
         roadIndex++;
         continue;
       }
-      final roadName = roadIndex < nameParts.length && nameParts[roadIndex].isNotEmpty
+      final roadName =
+          roadIndex < nameParts.length && nameParts[roadIndex].isNotEmpty
           ? nameParts[roadIndex]
           : '线路${roads.length + 1}';
       roads[roadName] = episodes;
@@ -776,7 +773,9 @@ class KazumiSource {
 
   KazumiRule _requireRule(SourceBean site) {
     final rule = ruleOf(site);
-    if (rule == null) throw SourceException('${site.displayName} 的 Kazumi 规则无效');
+    if (rule == null) {
+      throw SourceException('${site.displayName} 的 Kazumi 规则无效');
+    }
     return rule;
   }
 
@@ -791,7 +790,8 @@ class KazumiSource {
               : (rule?.baseUrl ?? ''));
     return {
       'User-Agent': userAgent,
-      'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+      'Accept':
+          'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       if (refererValue.isNotEmpty) 'Referer': refererValue,
     };
@@ -829,10 +829,7 @@ class KazumiSource {
       return await http.getText(url, headers: headers, timeout: timeout);
     } on AppHttpException catch (e) {
       if (!_isCertificateError(e.message)) rethrow;
-      AppLog.w(
-        'kazumi',
-        'TLS 证书校验失败，改用兼容客户端：${redactUrl(url)}',
-      );
+      AppLog.w('kazumi', 'TLS 证书校验失败，改用兼容客户端：${redactUrl(url)}');
       return _insecureHttp.getText(url, headers: headers, timeout: timeout);
     }
   }
@@ -853,10 +850,7 @@ class KazumiSource {
       );
     } on AppHttpException catch (e) {
       if (!_isCertificateError(e.message)) rethrow;
-      AppLog.w(
-        'kazumi',
-        'TLS 证书校验失败，改用兼容客户端：${redactUrl(url)}',
-      );
+      AppLog.w('kazumi', 'TLS 证书校验失败，改用兼容客户端：${redactUrl(url)}');
       return _insecureHttp.postForm(
         url,
         body: body,
@@ -883,7 +877,8 @@ class KazumiSource {
     final normalized = _normalizeXPath(selector);
     if (normalized.isEmpty) return const [];
     try {
-      final result = (scope as dynamic).queryXPath(normalized) as XPathResult<Node>;
+      final result =
+          (scope as dynamic).queryXPath(normalized) as XPathResult<Node>;
       return result.nodes;
     } catch (e) {
       AppLog.w('kazumi', 'XPath 解析失败：$selector | $e');

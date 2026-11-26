@@ -45,10 +45,7 @@ Future<AppState> _app() async {
   );
 }
 
-Future<void> _openLiveSection(
-  WidgetTester tester,
-  AppState app,
-) async {
+Future<void> _openLiveSection(WidgetTester tester, AppState app) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -75,11 +72,7 @@ Future<void> _openLiveSection(
   await tester.pumpAndSettle();
 }
 
-Future<void> _typeInto(
-  WidgetTester tester,
-  String label,
-  String value,
-) async {
+Future<void> _typeInto(WidgetTester tester, String label, String value) async {
   final field = find.ancestor(
     of: find.text(label),
     matching: find.byType(TextField),
@@ -119,8 +112,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(app.liveUaPolicy.defaultUa, 'MyPlayer/2.0');
-    expect(LiveUaPolicy.current.defaultUa, 'MyPlayer/2.0',
-        reason: 'LiveService 读的是静态策略，保存后必须同步');
+    expect(
+      LiveUaPolicy.current.defaultUa,
+      'MyPlayer/2.0',
+      reason: 'LiveService 读的是静态策略，保存后必须同步',
+    );
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('kniephos.liveUaPolicy'), contains('MyPlayer/2.0'));
   });
@@ -149,8 +145,11 @@ void main() {
       app.liveUaPolicy.matchRule('http://live.ottiptv.cc/live.txt'),
       'qqlive',
     );
-    expect(app.liveUaPolicy.matchRule('http://other.test/live.txt'), isNull,
-        reason: '规则不能传染给别的接口');
+    expect(
+      app.liveUaPolicy.matchRule('http://other.test/live.txt'),
+      isNull,
+      reason: '规则不能传染给别的接口',
+    );
   });
 
   testWidgets('接口规则为空时保存会被拦下，不会写进坏配置', (tester) async {
@@ -172,7 +171,9 @@ void main() {
       of: find.text('UA 不能为空'),
       matching: find.byType(AlertDialog),
     );
-    await tester.tap(find.descendant(of: ruleDialog, matching: find.text('取消')));
+    await tester.tap(
+      find.descendant(of: ruleDialog, matching: find.text('取消')),
+    );
     await tester.pumpAndSettle();
     expect(app.liveUaPolicy.rules, isEmpty);
   });

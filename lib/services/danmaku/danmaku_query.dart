@@ -91,7 +91,8 @@ String episodeFieldFromName(String name) {
 }
 
 /// 从文本里提集号：`第N话/集/期`、`SxxExx`、`更新至N`、纯数字（非年份）。
-String _epNumberOf(String s) => normalizeEpisodeInfo(s).episode?.toString() ?? '';
+String _epNumberOf(String s) =>
+    normalizeEpisodeInfo(s).episode?.toString() ?? '';
 
 /// 弹幕候选显示压缩：`斗破苍穹年番 第212话` → `斗破苍穹年番 · 第212集`。
 String formatCandidateLabel({
@@ -109,7 +110,10 @@ String formatCandidateLabel({
   final season = seasonOf(raw) ?? seasonOf(episodeTitle);
   var name = raw
       .replaceAll(RegExp(r'[（(\[]\s*(?:19|20)\d{2}\s*[）)\]]'), ' ')
-      .replaceAll(RegExp(r'\bfrom\s*[^\s（()\u4e00-\u9fa5]+', caseSensitive: false), ' ')
+      .replaceAll(
+        RegExp(r'\bfrom\s*[^\s（()\u4e00-\u9fa5]+', caseSensitive: false),
+        ' ',
+      )
       .replaceAll(
         RegExp(
           r'[（(\[【]\s*(?:3D)?(?:动漫|动画|国漫|日漫|电视剧|电影|综艺|纪录片|TV|OVA)\s*[）)\]】]',
@@ -117,16 +121,10 @@ String formatCandidateLabel({
         ),
         ' ',
       )
-      .replaceAll(
-        RegExp(r'第\s*(?:[0-9零〇一二三四五六七八九十百两兩]+)\s*[季部]'),
-        ' ',
-      )
+      .replaceAll(RegExp(r'第\s*(?:[0-9零〇一二三四五六七八九十百两兩]+)\s*[季部]'), ' ')
       .replaceAll(RegExp(r'[Ss](?:eason)?\s*\d{1,2}\s*[Ee]\s*\d{1,4}'), ' ')
       .replaceAll(RegExp(r'[Ss]\s*\d{1,2}(?![0-9A-Za-z])'), ' ')
-      .replaceAll(
-        RegExp(r'第\s*(?:[0-9零〇一二三四五六七八九十百两兩]+)\s*[集话話期]'),
-        ' ',
-      )
+      .replaceAll(RegExp(r'第\s*(?:[0-9零〇一二三四五六七八九十百两兩]+)\s*[集话話期]'), ' ')
       .replaceAll(RegExp(r'(?:更新至|全)\s*\d{1,4}\s*[集话期]?'), ' ')
       .replaceAll(RegExp(r'\s{2,}'), ' ')
       .replaceAll(RegExp(r'[\s\-–—·:：|]+$'), '')
