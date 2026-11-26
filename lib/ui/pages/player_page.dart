@@ -3148,6 +3148,27 @@ class _PlayerPageState extends State<PlayerPage>
                               ),
                             ),
                           ),
+                          if (!_live)
+                            TextButton.icon(
+                              onPressed: _flowToDevice,
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              icon: const Icon(
+                                Icons.devices_rounded,
+                                color: Colors.white70,
+                                size: 18,
+                              ),
+                              label: const Text(
+                                '流转',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
                           IconButton(
                             tooltip: '全屏（F / Enter）',
                             onPressed: _toggleFullscreen,
