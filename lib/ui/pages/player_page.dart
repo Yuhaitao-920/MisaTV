@@ -63,6 +63,7 @@ import '../widgets/drive_login_prompt.dart';
 part 'player/cast_part.dart';
 part 'player/danmaku_part.dart';
 part 'player/download_part.dart';
+part 'player/flow_part.dart';
 part 'player/party_part.dart';
 part 'player/playback_part.dart';
 
