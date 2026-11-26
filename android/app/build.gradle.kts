@@ -70,56 +70,25 @@ android {
         versionName = flutter.versionName
     }
 
-    // 正式签名：四个环境变量齐全且 keystore 存在才启用。
-    //
-    // 这里**故意不回退 debug 签名**。debug keystore 是每台机器首次构建时
-    // 自动生成的，不同机器 / 不同 CI runner 的指纹都不同；用它签出来的
-    // release APK，用户装过一次之后就没法覆盖安装新版本（报「签名冲突」
-    // / INSTALL_FAILED_UPDATE_INCOMPATIBLE）。以前这里写的是
-    // `?: getByName("debug")`，等于把这个问题静默吞掉了。
-    //
-    // 现在缺配置时构建直接失败，并提示怎么补——比发一个装不上的包好。
-    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
-    val releaseStorePass = System.getenv("ANDROID_STORE_PASSWORD")
-    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
-    val releaseKeyPass = System.getenv("ANDROID_KEY_PASSWORD")
-    val hasReleaseSigning = !releaseKeystore.isNullOrBlank() &&
-        !releaseStorePass.isNullOrBlank() &&
-        !releaseKeyAlias.isNullOrBlank() &&
-        !releaseKeyPass.isNullOrBlank() &&
-        file(releaseKeystore).exists()
-
+    // 可选正式签名：四个环境变量齐全且 keystore 存在才启用，否则回退 debug 签名。
+    // 合并自 PR #30；与 build-android.yml 里「Decode Android release keystore」配套。
     signingConfigs {
-        if (hasReleaseSigning) {
+        val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+        val storePasswordEnv = System.getenv("ANDROID_STORE_PASSWORD")
+        val keyAliasEnv = System.getenv("ANDROID_KEY_ALIAS")
+        val keyPasswordEnv = System.getenv("ANDROID_KEY_PASSWORD")
+        if (!keystorePath.isNullOrBlank() &&
+            !storePasswordEnv.isNullOrBlank() &&
+            !keyAliasEnv.isNullOrBlank() &&
+            !keyPasswordEnv.isNullOrBlank() &&
+            file(keystorePath).exists()
+        ) {
             create("release") {
-                storeFile = file(releaseKeystore!!)
-                storePassword = releaseStorePass
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPass
-                // v2/v3 都要开：v2 起 Android 7.0+ 会优先用，某些 ROM 只认 v2+。
-                enableV1Signing = true
-                enableV2Signing = true
-                enableV3Signing = true
+                storeFile = file(keystorePath)
+                storePassword = storePasswordEnv
+                keyAlias = keyAliasEnv
+                keyPassword = keyPasswordEnv
             }
-        }
-    }
-
-    // 两个构建变体：
-    //   full —— 现有全功能版（沉浸 + 常规 UI + 一起看 + DLNA + 外部播放器）
-    //   tv   —— TV 精简版（只有沉浸界面；砍掉一起看 / DLNA / 外部播放器 / JVM 资源）
-    //
-    // Dart 侧通过 --dart-define=MISA_TV=true 配合，让不用的页面被 tree-shake；
-    // 这里只负责「资源与清单层面」的裁剪（字体、assets）。
-    flavorDimensions += "edition"
-    productFlavors {
-        create("full") {
-            dimension = "edition"
-            applicationId = "com.kniephos.kniephos"
-        }
-        create("tv") {
-            dimension = "edition"
-            // 独立包名：可与全功能版并存安装，互不覆盖。
-            applicationId = "com.kniephos.kniephos.tv"
         }
     }
 
@@ -141,40 +110,11 @@ android {
                 excludes += "lib/x86/**"
             }
         }
-        resources {
-            // 安卓端**永远**不需要这些，打进去只是白占体积：
-            //   · jvm/**       桌面端 JRE 用的 shim jar。安卓走 ART / DexClassLoader，
-            //                  JvmRuntime.jarSpiderReady() 对 Android 直接返回 true，
-            //                  这些 jar 在安卓上没有任何读取者。
-            //   · aria2/**     Windows 的 aria2c.exe，安卓用内置 BT 实现。
-            //
-            // **路径前缀必须是 `assets/flutter_assets/`**：Flutter 会把 pubspec 里
-            // 声明的 assets 复制到 APK 的这个目录下，而不是 APK 根部的 `assets/`。
-            // 写成 `assets/jvm/**` 一条都匹配不上（实测残留 0.4 MB 才发现的）。
-            excludes += "assets/flutter_assets/assets/jvm/**"
-            excludes += "assets/flutter_assets/assets/aria2/**"
-        }
     }
 
     buildTypes {
         release {
-            // 没有正式签名就构建失败，绝不回退 debug 签名。
-            //
-            // 回退 debug 的后果是：用户装过一个版本后，新版本因为用的是另一个
-            // debug keystore（换机器 / 换 CI runner 就会变）而无法覆盖安装。
-            // 与其发一个「装不上」的包，不如在构建阶段就报错。
-            signingConfig = signingConfigs.findByName("release")
-                ?: throw GradleException(
-                    "缺少 Android 正式签名配置，release 构建已中止。\n" +
-                        "原因是 debug keystore 每台机器不同，用它签的包无法覆盖安装" +
-                        "（用户会看到「签名冲突」）。\n" +
-                        "请配置以下 4 个环境变量后重试：\n" +
-                        "  ANDROID_KEYSTORE_PATH    keystore 文件路径（.jks）\n" +
-                        "  ANDROID_STORE_PASSWORD   keystore 密码\n" +
-                        "  ANDROID_KEY_ALIAS        密钥别名\n" +
-                        "  ANDROID_KEY_PASSWORD     密钥密码\n" +
-                        "本地调试可用 --debug 构建，那条路径不受影响。",
-                )
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles("proguard-rules.pro")
@@ -205,8 +145,7 @@ chaquopy {
             install("pycryptodome==3.21.0")
             install("pyquery")
             install("cssselect")
-            // chardet 与 charset_normalizer 功能重复，且 python_runner 的基础库
-            // 只用后者（requests 会自动挑可用的那个）。去掉可省约 1 MB。
+            install("chardet")
             install("requests-toolbelt")
             install("typing_extensions")
             install("websocket-client")
